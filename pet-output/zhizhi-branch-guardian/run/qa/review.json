@@ -1,0 +1,962 @@
+{
+  "ok": true,
+  "frames_root": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames",
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "idle",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/idle/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15997,
+          "bbox": [
+            30,
+            5,
+            162,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 227
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/idle/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15617,
+          "bbox": [
+            34,
+            5,
+            157,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 214
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/idle/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15837,
+          "bbox": [
+            32,
+            5,
+            159,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 207
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/idle/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15620,
+          "bbox": [
+            34,
+            5,
+            158,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 189
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/idle/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15867,
+          "bbox": [
+            31,
+            5,
+            160,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 206
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/idle/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16067,
+          "bbox": [
+            29,
+            5,
+            163,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 234
+        }
+      ]
+    },
+    {
+      "state": "running-right",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-right/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16551,
+          "bbox": [
+            25,
+            5,
+            167,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 422
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-right/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16120,
+          "bbox": [
+            26,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 394
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-right/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16413,
+          "bbox": [
+            24,
+            5,
+            167,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 400
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-right/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16840,
+          "bbox": [
+            25,
+            5,
+            167,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 462
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-right/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16843,
+          "bbox": [
+            25,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 421
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-right/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15361,
+          "bbox": [
+            30,
+            5,
+            162,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 404
+        },
+        {
+          "index": 6,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-right/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16360,
+          "bbox": [
+            27,
+            5,
+            164,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 389
+        },
+        {
+          "index": 7,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-right/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17061,
+          "bbox": [
+            24,
+            5,
+            168,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 462
+        }
+      ]
+    },
+    {
+      "state": "running-left",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-left/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16263,
+          "bbox": [
+            27,
+            5,
+            164,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 425
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-left/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16001,
+          "bbox": [
+            27,
+            5,
+            164,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 386
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-left/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16903,
+          "bbox": [
+            15,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 456
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-left/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16840,
+          "bbox": [
+            25,
+            5,
+            167,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 462
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-left/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17714,
+          "bbox": [
+            9,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 489
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-left/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15964,
+          "bbox": [
+            24,
+            5,
+            167,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 470
+        },
+        {
+          "index": 6,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-left/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15859,
+          "bbox": [
+            33,
+            5,
+            159,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 361
+        },
+        {
+          "index": 7,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running-left/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16262,
+          "bbox": [
+            32,
+            5,
+            160,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 393
+        }
+      ]
+    },
+    {
+      "state": "waving",
+      "expected_frames": 4,
+      "actual_frames": 4,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waving/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16145,
+          "bbox": [
+            30,
+            5,
+            162,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 180
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waving/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16369,
+          "bbox": [
+            26,
+            5,
+            165,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 157
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waving/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16873,
+          "bbox": [
+            23,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 187
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waving/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16186,
+          "bbox": [
+            30,
+            5,
+            162,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 195
+        }
+      ]
+    },
+    {
+      "state": "jumping",
+      "expected_frames": 5,
+      "actual_frames": 5,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/jumping/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17688,
+          "bbox": [
+            26,
+            5,
+            165,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 322
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/jumping/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15283,
+          "bbox": [
+            37,
+            5,
+            154,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 255
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/jumping/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15288,
+          "bbox": [
+            38,
+            5,
+            153,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 236
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/jumping/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15851,
+          "bbox": [
+            33,
+            5,
+            158,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 274
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/jumping/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17634,
+          "bbox": [
+            28,
+            5,
+            164,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 310
+        }
+      ]
+    },
+    {
+      "state": "failed",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/failed/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16412,
+          "bbox": [
+            29,
+            5,
+            162,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 334
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/failed/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16211,
+          "bbox": [
+            33,
+            5,
+            159,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 304
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/failed/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16841,
+          "bbox": [
+            32,
+            5,
+            159,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 336
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/failed/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19825,
+          "bbox": [
+            16,
+            5,
+            175,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 452
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/failed/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16803,
+          "bbox": [
+            31,
+            5,
+            161,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 321
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/failed/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16005,
+          "bbox": [
+            33,
+            5,
+            159,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 314
+        },
+        {
+          "index": 6,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/failed/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15556,
+          "bbox": [
+            35,
+            5,
+            156,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 301
+        },
+        {
+          "index": 7,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/failed/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14624,
+          "bbox": [
+            44,
+            5,
+            147,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 231
+        }
+      ]
+    },
+    {
+      "state": "waiting",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waiting/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15814,
+          "bbox": [
+            33,
+            5,
+            159,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 280
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waiting/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15448,
+          "bbox": [
+            38,
+            5,
+            153,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 281
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waiting/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14798,
+          "bbox": [
+            36,
+            5,
+            156,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 272
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waiting/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15090,
+          "bbox": [
+            37,
+            5,
+            155,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 310
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waiting/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15020,
+          "bbox": [
+            35,
+            5,
+            156,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 272
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/waiting/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15646,
+          "bbox": [
+            33,
+            5,
+            158,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 286
+        }
+      ]
+    },
+    {
+      "state": "running",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18511,
+          "bbox": [
+            15,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 457
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18833,
+          "bbox": [
+            17,
+            5,
+            174,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 430
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18730,
+          "bbox": [
+            18,
+            5,
+            174,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 467
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18550,
+          "bbox": [
+            19,
+            5,
+            173,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 397
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18452,
+          "bbox": [
+            17,
+            5,
+            174,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 426
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/running/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17926,
+          "bbox": [
+            21,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 404
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/review/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15250,
+          "bbox": [
+            35,
+            5,
+            156,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 261
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/review/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15012,
+          "bbox": [
+            34,
+            5,
+            157,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 265
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/review/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15165,
+          "bbox": [
+            37,
+            5,
+            155,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 283
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/review/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14611,
+          "bbox": [
+            38,
+            5,
+            153,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 273
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/review/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15045,
+          "bbox": [
+            38,
+            5,
+            154,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 259
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/esx/pet-output/zhizhi-branch-guardian/run/frames/review/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15374,
+          "bbox": [
+            35,
+            5,
+            156,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 267
+        }
+      ]
+    }
+  ]
+}

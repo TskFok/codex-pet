@@ -1,0 +1,962 @@
+{
+  "ok": true,
+  "frames_root": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames",
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "idle",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/idle/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25540,
+          "bbox": [
+            13,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 295
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/idle/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25478,
+          "bbox": [
+            13,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 321
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/idle/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25227,
+          "bbox": [
+            14,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 311
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/idle/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25086,
+          "bbox": [
+            14,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 310
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/idle/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25042,
+          "bbox": [
+            14,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 326
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/idle/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24980,
+          "bbox": [
+            15,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 295
+        }
+      ]
+    },
+    {
+      "state": "running-right",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-right/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21531,
+          "bbox": [
+            5,
+            19,
+            187,
+            188
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 346
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-right/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19279,
+          "bbox": [
+            5,
+            26,
+            187,
+            181
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 312
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-right/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16899,
+          "bbox": [
+            5,
+            33,
+            187,
+            174
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 359
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-right/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16934,
+          "bbox": [
+            5,
+            33,
+            187,
+            174
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 241
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-right/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16739,
+          "bbox": [
+            5,
+            35,
+            187,
+            173
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 324
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-right/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19461,
+          "bbox": [
+            5,
+            30,
+            187,
+            177
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 370
+        },
+        {
+          "index": 6,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-right/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18800,
+          "bbox": [
+            5,
+            30,
+            187,
+            178
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 394
+        },
+        {
+          "index": 7,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-right/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18427,
+          "bbox": [
+            5,
+            30,
+            187,
+            177
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 343
+        }
+      ]
+    },
+    {
+      "state": "running-left",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-left/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 26512,
+          "bbox": [
+            5,
+            7,
+            187,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 451
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-left/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 26534,
+          "bbox": [
+            5,
+            8,
+            187,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 409
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-left/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19633,
+          "bbox": [
+            5,
+            25,
+            187,
+            182
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 440
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-left/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17131,
+          "bbox": [
+            5,
+            34,
+            187,
+            173
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 275
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-left/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15375,
+          "bbox": [
+            5,
+            39,
+            187,
+            168
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 292
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-left/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16627,
+          "bbox": [
+            5,
+            38,
+            187,
+            170
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 300
+        },
+        {
+          "index": 6,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-left/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14582,
+          "bbox": [
+            5,
+            41,
+            187,
+            166
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 294
+        },
+        {
+          "index": 7,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running-left/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16148,
+          "bbox": [
+            5,
+            36,
+            187,
+            171
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 313
+        }
+      ]
+    },
+    {
+      "state": "waving",
+      "expected_frames": 4,
+      "actual_frames": 4,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waving/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23371,
+          "bbox": [
+            5,
+            13,
+            187,
+            195
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 125
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waving/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24912,
+          "bbox": [
+            5,
+            9,
+            187,
+            198
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 151
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waving/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25161,
+          "bbox": [
+            5,
+            8,
+            187,
+            199
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 150
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waving/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24975,
+          "bbox": [
+            5,
+            9,
+            187,
+            198
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 151
+        }
+      ]
+    },
+    {
+      "state": "jumping",
+      "expected_frames": 5,
+      "actual_frames": 5,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/jumping/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15827,
+          "bbox": [
+            5,
+            38,
+            187,
+            170
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 180
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/jumping/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16124,
+          "bbox": [
+            5,
+            29,
+            187,
+            178
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 95
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/jumping/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16599,
+          "bbox": [
+            5,
+            21,
+            187,
+            186
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 124
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/jumping/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15520,
+          "bbox": [
+            5,
+            35,
+            187,
+            173
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 88
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/jumping/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15167,
+          "bbox": [
+            5,
+            38,
+            187,
+            169
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 187
+        }
+      ]
+    },
+    {
+      "state": "failed",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/failed/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23556,
+          "bbox": [
+            16,
+            5,
+            175,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 343
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/failed/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23739,
+          "bbox": [
+            5,
+            5,
+            187,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 329
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/failed/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23529,
+          "bbox": [
+            5,
+            5,
+            187,
+            202
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 342
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/failed/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24208,
+          "bbox": [
+            13,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 308
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/failed/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22669,
+          "bbox": [
+            14,
+            5,
+            177,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 328
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/failed/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23404,
+          "bbox": [
+            11,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 352
+        },
+        {
+          "index": 6,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/failed/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24243,
+          "bbox": [
+            10,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 317
+        },
+        {
+          "index": 7,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/failed/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18035,
+          "bbox": [
+            5,
+            42,
+            187,
+            166
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 217
+        }
+      ]
+    },
+    {
+      "state": "waiting",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waiting/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25891,
+          "bbox": [
+            6,
+            5,
+            185,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 252
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waiting/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25641,
+          "bbox": [
+            5,
+            5,
+            186,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 266
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waiting/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 22540,
+          "bbox": [
+            5,
+            6,
+            187,
+            201
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 246
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waiting/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23848,
+          "bbox": [
+            12,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 260
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waiting/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 21065,
+          "bbox": [
+            5,
+            16,
+            187,
+            191
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 156
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/waiting/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24463,
+          "bbox": [
+            14,
+            5,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 275
+        }
+      ]
+    },
+    {
+      "state": "running",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25295,
+          "bbox": [
+            5,
+            9,
+            187,
+            199
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 247
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24258,
+          "bbox": [
+            5,
+            11,
+            187,
+            196
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 210
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24789,
+          "bbox": [
+            5,
+            8,
+            187,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 208
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23726,
+          "bbox": [
+            5,
+            8,
+            187,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 211
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25995,
+          "bbox": [
+            5,
+            5,
+            187,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 240
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/running/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25250,
+          "bbox": [
+            5,
+            9,
+            187,
+            199
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 213
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/review/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25187,
+          "bbox": [
+            9,
+            5,
+            182,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 285
+        },
+        {
+          "index": 1,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/review/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24840,
+          "bbox": [
+            12,
+            5,
+            179,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 304
+        },
+        {
+          "index": 2,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/review/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24676,
+          "bbox": [
+            5,
+            10,
+            187,
+            197
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 309
+        },
+        {
+          "index": 3,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/review/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 24058,
+          "bbox": [
+            10,
+            5,
+            182,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 248
+        },
+        {
+          "index": 4,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/review/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 23245,
+          "bbox": [
+            5,
+            15,
+            187,
+            192
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 246
+        },
+        {
+          "index": 5,
+          "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/xiao-jiao-long-run/frames/review/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 25494,
+          "bbox": [
+            8,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 298
+        }
+      ]
+    }
+  ]
+}
