@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "run_dir": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run",
+  "spritesheet": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/final/spritesheet.webp",
+  "validation": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/final/validation.json",
+  "contact_sheet": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/qa/contact-sheet.png",
+  "review": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/qa/review.json",
+  "package": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/package"
+}
