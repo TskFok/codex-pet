@@ -770,7 +770,7 @@
           "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/frames/running/00.png",
           "width": 192,
           "height": 208,
-          "nontransparent_pixels": 19090,
+          "nontransparent_pixels": 18548,
           "bbox": [
             25,
             5,
@@ -778,59 +778,59 @@
             203
           ],
           "edge_pixels": 0,
-          "chroma_adjacent_pixels": 174
+          "chroma_adjacent_pixels": 136
         },
         {
           "index": 1,
           "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/frames/running/01.png",
           "width": 192,
           "height": 208,
-          "nontransparent_pixels": 19256,
+          "nontransparent_pixels": 17835,
           "bbox": [
-            23,
+            30,
             5,
-            168,
+            161,
             203
           ],
           "edge_pixels": 0,
-          "chroma_adjacent_pixels": 169
+          "chroma_adjacent_pixels": 152
         },
         {
           "index": 2,
           "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/frames/running/02.png",
           "width": 192,
           "height": 208,
-          "nontransparent_pixels": 17848,
+          "nontransparent_pixels": 18274,
           "bbox": [
-            27,
+            29,
             5,
-            165,
+            162,
             203
           ],
           "edge_pixels": 0,
-          "chroma_adjacent_pixels": 161
+          "chroma_adjacent_pixels": 163
         },
         {
           "index": 3,
           "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/frames/running/03.png",
           "width": 192,
           "height": 208,
-          "nontransparent_pixels": 18960,
+          "nontransparent_pixels": 17849,
           "bbox": [
-            25,
+            30,
             5,
-            166,
+            161,
             203
           ],
           "edge_pixels": 0,
-          "chroma_adjacent_pixels": 181
+          "chroma_adjacent_pixels": 145
         },
         {
           "index": 4,
           "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/frames/running/04.png",
           "width": 192,
           "height": 208,
-          "nontransparent_pixels": 18535,
+          "nontransparent_pixels": 18604,
           "bbox": [
             25,
             5,
@@ -838,22 +838,22 @@
             203
           ],
           "edge_pixels": 0,
-          "chroma_adjacent_pixels": 153
+          "chroma_adjacent_pixels": 135
         },
         {
           "index": 5,
           "file": "/Users/ushopal/workspace/myself/codex-pet/pet-output/yueying-cape-dancer/run/frames/running/05.png",
           "width": 192,
           "height": 208,
-          "nontransparent_pixels": 17923,
+          "nontransparent_pixels": 18311,
           "bbox": [
-            26,
+            29,
             5,
-            165,
+            162,
             203
           ],
           "edge_pixels": 0,
-          "chroma_adjacent_pixels": 173
+          "chroma_adjacent_pixels": 143
         }
       ]
     },
