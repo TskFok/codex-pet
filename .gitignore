@@ -5,3 +5,4 @@ dist/
 *.local
 /diagnostics/
 .superpowers/
+/apps/desktop/src-tauri/gen/

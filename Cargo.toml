@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/pet-core"]
+members = ["crates/pet-core", "apps/desktop/src-tauri"]
 resolver = "3"
 
 [workspace.package]
