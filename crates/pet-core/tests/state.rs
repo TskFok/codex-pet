@@ -540,3 +540,134 @@ fn snapshot_does_not_import_other_sessions_turn_identity() {
         Some("unrelated")
     );
 }
+
+#[test]
+fn unsequenced_start_cannot_guess_running_after_restore() {
+    let initial = started("initial-no-sequence", Some("t1"), None);
+    let mut live = SessionStore::default();
+    live.apply(&initial);
+    assert_eq!(live.snapshot().sessions[0].status, SessionStatus::Running);
+
+    let mut restored = SessionStore::restore(&[initial], 1000);
+    assert_eq!(
+        restored.snapshot().sessions[0].status,
+        SessionStatus::Unknown
+    );
+    let mut late = started("late-no-sequence", Some("t1"), None);
+    late.occurred_at_ms = 10_000;
+    assert_eq!(
+        restored.apply(&late),
+        ApplyResult {
+            changed: false,
+            should_notify: false
+        }
+    );
+    assert_eq!(
+        restored.snapshot().sessions[0].status,
+        SessionStatus::Unknown
+    );
+}
+
+#[test]
+fn unsequenced_start_cannot_guess_running_after_disconnection() {
+    let mut store = SessionStore::default();
+    store.apply(&started("initial", Some("t1"), Some(1)));
+    store.apply(&event(
+        "disconnect",
+        None,
+        None,
+        json!({"type":"source_disconnected"}),
+    ));
+    assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Unknown);
+    store.apply(&started("late-no-sequence", Some("t1"), None));
+    assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Unknown);
+}
+
+#[test]
+fn new_turn_snapshot_preserves_imported_unread_end_until_user_clears_it() {
+    for action in ["mark_read", "clear_history"] {
+        let mut projection = SessionProjection {
+            key: key(),
+            parent_session_id: None,
+            turn_id: Some("t1".into()),
+            status: SessionStatus::Ended,
+            pending: vec![],
+            project: None,
+            summary: None,
+            unread: true,
+            last_event_at_ms: 100,
+        };
+        let mut store = SessionStore::default();
+        store.apply(&event(
+            "end-snapshot",
+            Some("t1"),
+            Some(1),
+            json!({"type":"source_snapshot","sessions":[projection.clone()]}),
+        ));
+        assert!(store.snapshot().sessions[0].unread);
+        projection.turn_id = Some("t2".into());
+        projection.status = SessionStatus::Running;
+        projection.unread = false;
+        assert!(
+            !store
+                .apply(&event(
+                    "new-turn-snapshot",
+                    Some("t2"),
+                    Some(2),
+                    json!({"type":"source_snapshot","sessions":[projection.clone()]})
+                ))
+                .should_notify
+        );
+        let snapshot = store.snapshot();
+        assert_eq!(snapshot.sessions[0].turn_id.as_deref(), Some("t2"));
+        assert_eq!(snapshot.sessions[0].status, SessionStatus::Running);
+        assert!(
+            snapshot.sessions[0].unread,
+            "{action}: 未读结束不能被新回合快照清除"
+        );
+        assert!(snapshot.notifications.is_empty());
+
+        let mut competing = started("competing", Some("other-turn"), Some(1)).with_session("other");
+        competing.occurred_at_ms = 200;
+        store.apply(&competing);
+        assert_eq!(
+            store.snapshot().active,
+            Some(key()),
+            "未读结束应优先于更新的运行会话"
+        );
+        let result = match action {
+            "mark_read" => store.mark_read(&key()),
+            "clear_history" => store.clear_history(),
+            _ => unreachable!(),
+        };
+        assert!(result.changed);
+        assert!(!result.should_notify);
+        let snapshot = store.snapshot();
+        assert!(
+            !snapshot
+                .sessions
+                .iter()
+                .find(|session| session.key == key())
+                .unwrap()
+                .unread
+        );
+        assert_eq!(snapshot.active, Some(competing.session_key()));
+
+        projection.turn_id = Some("t3".into());
+        store.apply(&event(
+            "following-turn-snapshot",
+            Some("t3"),
+            Some(3),
+            json!({"type":"source_snapshot","sessions":[projection]}),
+        ));
+        assert!(
+            !store
+                .snapshot()
+                .sessions
+                .iter()
+                .find(|session| session.key == key())
+                .unwrap()
+                .unread
+        );
+    }
+}

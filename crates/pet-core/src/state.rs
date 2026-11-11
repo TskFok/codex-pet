@@ -21,6 +21,8 @@ struct SessionEntry {
     terminal: bool,
     running_known: bool,
     external_unread: bool,
+    // 导入的未读结束独立于当前回合及来源快照的 unread 值。
+    external_unread_end: bool,
 }
 
 impl SessionEntry {
@@ -43,6 +45,7 @@ impl SessionEntry {
             terminal: false,
             running_known: false,
             external_unread: false,
+            external_unread_end: false,
         }
     }
 
@@ -123,15 +126,17 @@ impl SessionStore {
             self.resolved
                 .insert((key.clone(), event.turn_id.clone(), request_id.clone()));
         }
-        let mut entry = self
-            .sessions
-            .remove(&key)
-            .unwrap_or_else(|| SessionEntry::new(event));
+        let existing = self.sessions.remove(&key);
+        let awaiting_causal_order = existing
+            .as_ref()
+            .is_some_and(|entry| entry.projection.status == SessionStatus::Unknown);
+        let mut entry = existing.unwrap_or_else(|| SessionEntry::new(event));
         let order = entry.comparable_sequence(event);
         let different_turn = entry.projection.turn_id != event.turn_id;
         if !different_turn
             && matches!(event.kind, EventKind::TurnStarted)
-            && order.is_some_and(|order| !order.is_gt())
+            && (order.is_some_and(|order| !order.is_gt())
+                || (awaiting_causal_order && order.is_none()))
         {
             self.sessions.insert(key, entry);
             return false;
@@ -322,8 +327,18 @@ impl SessionStore {
             entry.known_turns = HashSet::from([projection.turn_id.clone()]);
             if let Some(old) = self.sessions.get(&projection.key) {
                 entry.known_turns.extend(old.known_turns.iter().cloned());
+                entry.external_unread_end = old.external_unread_end;
             }
             entry.external_unread = projection.unread;
+            entry.external_unread_end |= projection.unread
+                && projection.pending.is_empty()
+                && matches!(
+                    projection.status,
+                    SessionStatus::Ended
+                        | SessionStatus::Interrupted
+                        | SessionStatus::Failed
+                        | SessionStatus::Unknown
+                );
             entry.sequence = if projection.key == source_key {
                 event.sequence
             } else {
@@ -415,6 +430,7 @@ impl SessionStore {
     fn refresh_unread(&mut self) {
         for entry in self.sessions.values_mut() {
             entry.projection.unread = entry.external_unread
+                || entry.external_unread_end
                 || self
                     .notifications
                     .iter()
@@ -433,6 +449,7 @@ impl SessionStore {
         }
         if let Some(entry) = self.sessions.get_mut(key) {
             entry.external_unread = false;
+            entry.external_unread_end = false;
         }
         self.refresh_unread();
         let changed = before != self.snapshot();
@@ -451,6 +468,7 @@ impl SessionStore {
         self.notifications.clear();
         for entry in self.sessions.values_mut() {
             entry.external_unread = false;
+            entry.external_unread_end = false;
             entry.projection.unread = false;
         }
         if changed {
@@ -468,16 +486,21 @@ impl SessionStore {
             .values()
             .map(|entry| entry.projection.clone())
             .collect();
-        let active = sessions
-            .iter()
-            .filter(|p| priority(p, &self.notifications) > 0)
+        let active = self
+            .sessions
+            .values()
+            .filter(|entry| priority(entry, &self.notifications) > 0)
             .max_by(|a, b| {
                 priority(a, &self.notifications)
                     .cmp(&priority(b, &self.notifications))
-                    .then(a.last_event_at_ms.cmp(&b.last_event_at_ms))
-                    .then_with(|| b.key.cmp(&a.key))
+                    .then(
+                        a.projection
+                            .last_event_at_ms
+                            .cmp(&b.projection.last_event_at_ms),
+                    )
+                    .then_with(|| b.projection.key.cmp(&a.projection.key))
             })
-            .map(|p| p.key.clone());
+            .map(|entry| entry.projection.key.clone());
         PetSnapshot {
             revision: self.revision,
             sessions,
@@ -517,16 +540,18 @@ fn status_for_outcome(outcome: TurnOutcome) -> SessionStatus {
     }
 }
 
-fn priority(projection: &SessionProjection, notifications: &[NotificationRecord]) -> u8 {
+fn priority(entry: &SessionEntry, notifications: &[NotificationRecord]) -> u8 {
+    let projection = &entry.projection;
     if !projection.pending.is_empty() {
         5
     } else if projection.status == SessionStatus::Failed {
         4
-    } else if (projection.unread
-        && matches!(
-            projection.status,
-            SessionStatus::Ended | SessionStatus::Interrupted | SessionStatus::Unknown
-        ))
+    } else if entry.external_unread_end
+        || (projection.unread
+            && matches!(
+                projection.status,
+                SessionStatus::Ended | SessionStatus::Interrupted | SessionStatus::Unknown
+            ))
         || notifications.iter().any(|note| {
             note.key == projection.key
                 && !note.read
