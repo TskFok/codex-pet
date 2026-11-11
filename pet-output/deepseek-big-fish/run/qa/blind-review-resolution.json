@@ -1,0 +1,10 @@
+{
+  "decision":"accept",
+  "severity":"minor",
+  "reviewed_by":"parent",
+  "failed_checks":["horizontal-7 A: 202.5水平分量不易盲辨","vertical-4 A: 067.5垂直分量不易盲辨"],
+  "evidence":["三位独立盲测对000上、090右、180下、270左的判断全部正确。","202.5带标签复核可见轻微左偏，低头明确；主象限正确。","067.5带标签复核保留轻微上仰，右向主导；主象限正确。","157.5到180和337.5到000的头部转正幅度略集中，身份、身体、鞋底与鲸尾锚点稳定，无明显断裂或方向倒退。"],
+  "continuity_report":"look-continuity.json",
+  "semantic_report":"direction-semantics.json",
+  "initial_review_disagreement":"首轮对000的正面中立描述与实际抬下巴、露颈部和瞳孔上移不符；父复核、第二位独立审核及最终三人盲测一致确认正上清楚，未改动图像。"
+}

@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "reviewer": "standard_visual_qa",
+  "warnings": [
+    "running状态幅度较轻，但有专注手部动作且不表现为走跑。"
+  ],
+  "jumping_repair": {
+    "root_cause": "逐帧自动裁切居中抹掉原始纵向位移",
+    "solution": "仅jumping使用内置stable-slots共享视口提取",
+    "verified": "重新检查的GIF与联系表显示完整下蹲、升起、回落、落地，无裁切或碎片。"
+  }
+}

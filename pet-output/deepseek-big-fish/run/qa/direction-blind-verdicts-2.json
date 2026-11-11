@@ -1,0 +1,89 @@
+{
+  "reviewer": "blind2",
+  "pairs": [
+    {
+      "pair": "horizontal-1",
+      "A": "screen-right",
+      "B": "screen-left",
+      "reason": "鼻尖与脸部中心朝对应屏幕方向偏移。"
+    },
+    {
+      "pair": "horizontal-2",
+      "A": "screen-left",
+      "B": "screen-right",
+      "reason": "鼻尖突出方向与脸颊露出量分别朝左和右。"
+    },
+    {
+      "pair": "horizontal-3",
+      "A": "screen-left",
+      "B": "screen-right",
+      "reason": "侧脸轮廓、鼻尖与可见眼睛指向对应侧。"
+    },
+    {
+      "pair": "horizontal-4",
+      "A": "screen-right",
+      "B": "screen-left",
+      "reason": "A鼻尖右凸、B鼻尖左凸，侧向明确。"
+    },
+    {
+      "pair": "horizontal-5",
+      "A": "screen-right",
+      "B": "screen-left",
+      "reason": "低头仍可见脸部与鼻尖向各自对应侧偏移。"
+    },
+    {
+      "pair": "horizontal-6",
+      "A": "screen-right",
+      "B": "screen-left",
+      "reason": "低垂脸部和鼻尖分别略朝右和左。"
+    },
+    {
+      "pair": "horizontal-7",
+      "A": "ambiguous",
+      "B": "screen-right",
+      "reason": "A接近正面低头，横向线索不足；B是明确朝右的低头侧脸。"
+    },
+    {
+      "pair": "vertical-1",
+      "A": "up",
+      "B": "down",
+      "reason": "A抬下巴仰脸，B低头、眼睑下压与头顶显露。"
+    },
+    {
+      "pair": "vertical-2",
+      "A": "up",
+      "B": "down",
+      "reason": "A下巴抬起、眼睛上望；B刘海遮眼且脸下收。"
+    },
+    {
+      "pair": "vertical-3",
+      "A": "up",
+      "B": "down",
+      "reason": "A侧脸抬起瞳孔朝上，B侧脸低垂眼睑下压。"
+    },
+    {
+      "pair": "vertical-4",
+      "A": "up",
+      "B": "down",
+      "reason": "A侧脸下巴略抬、视线上扬；B脸和视线下压。"
+    },
+    {
+      "pair": "vertical-5",
+      "A": "down",
+      "B": "up",
+      "reason": "A额顶突出、双眼低垂；B脸部仰起、瞳孔朝上。"
+    },
+    {
+      "pair": "vertical-6",
+      "A": "up",
+      "B": "down",
+      "reason": "A面部上扬且下巴抬起；B低头、刘海压眼。"
+    },
+    {
+      "pair": "vertical-7",
+      "A": "down",
+      "B": "up",
+      "reason": "A侧脸低垂，B侧脸抬起且眼睛上望。"
+    }
+  ]
+}

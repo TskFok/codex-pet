@@ -1,0 +1,39 @@
+{
+  "ok": true,
+  "spriteVersionNumber": 2,
+  "pet_id": "deepseek-big-fish",
+  "display_name": "deepseek大肥鱼",
+  "run_dir": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run",
+  "spritesheet": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/final/spritesheet-extended.webp",
+  "validation": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/final/validation-extended.json",
+  "chroma_despill": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/chroma-despill-extended.json",
+  "contact_sheet": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/contact-sheet-extended.png",
+  "direction_sheet": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/look-directions.png",
+  "direction_semantics": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/direction-semantics.json",
+  "blind_direction_validation": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/direction-blind-validation.json",
+  "blind_review_resolution": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/blind-review-resolution.json",
+  "continuity": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/look-continuity.json",
+  "review": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/review.json",
+  "visual_qa": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/run/qa/final-visual-qa.json",
+  "package": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/package",
+  "installed_package": "/Users/ushopal/.codex/pets/deepseek-big-fish",
+  "archive": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-big-fish/deepseek-big-fish.zip",
+  "sha256": "9bec2e097d625976e10c374ae5bb544ffe7b296409ff76d02072a762df1e9009",
+  "image_generation": "built-in imagegen",
+  "generation_jobs": 12,
+  "standard_animation_rows": 9,
+  "look_directions": 16,
+  "finished_at": "2026-11-11T09:02:17.293280+00:00",
+  "elapsed_minutes": 25.47,
+  "repairs": [
+    {
+      "type": "extraction",
+      "state": "jumping",
+      "action": "stable-slots保留原始纵向跳跃位移"
+    }
+  ],
+  "accepted_warnings": [
+    "202.5水平线索与067.5垂直线索偏弱，四个基础方向盲测全部正确。",
+    "157.5→180与337.5→000转正幅度稍大，最终视觉审核判为轻微。"
+  ]
+}

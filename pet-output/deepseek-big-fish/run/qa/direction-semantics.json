@@ -1,0 +1,106 @@
+{
+  "ok": true,
+  "reviewer": "look_row9_second_qa",
+  "directions": {
+    "000": {
+      "verdict": "pass",
+      "expected": "正上",
+      "observed": "脸部居中上仰，瞳孔向上。",
+      "reason": "水平对称；下巴抬高、颈部显露、鼻口上扬、瞳孔靠上睑，区别neutral。"
+    },
+    "022.5": {
+      "verdict": "pass",
+      "expected": "右上偏上",
+      "observed": "保持上仰，脸与瞳孔略向右。",
+      "reason": "轻微右转；上视为主，抬下巴与瞳孔上移可见。"
+    },
+    "045": {
+      "verdict": "pass",
+      "expected": "右上",
+      "observed": "鼻尖和瞳孔朝右，脸仍上仰。",
+      "reason": "水平右转与垂直上视同时清楚。"
+    },
+    "067.5": {
+      "verdict": "warning",
+      "expected": "右上偏右",
+      "observed": "明显右转，保留轻微上仰。",
+      "reason": "右向主导，上视较045减弱。；两位盲测认为垂直分量偏弱，带标签复核仍属正确右上象限，接受警告。"
+    },
+    "090": {
+      "verdict": "pass",
+      "expected": "正屏幕右",
+      "observed": "脸近右侧面，鼻尖与可见瞳孔朝屏幕右。",
+      "reason": "鼻尖和瞳孔均位于头中心右侧；垂直轴接近水平。"
+    },
+    "112.5": {
+      "verdict": "pass",
+      "expected": "右下偏右",
+      "observed": "保持右向，脸开始下俯。",
+      "reason": "水平右向主导；鼻口下移，上睑刘海遮挡增加。"
+    },
+    "135": {
+      "verdict": "pass",
+      "expected": "右下",
+      "observed": "头右转且低下，瞳孔朝右下。",
+      "reason": "右向与下俯均明显，眼睑收窄和鼻口下移支持。"
+    },
+    "157.5": {
+      "verdict": "warning",
+      "expected": "右下偏下",
+      "observed": "下俯增强，但仍有较强右转。",
+      "reason": "低头收下巴明确；与135区别较细，主象限正确。"
+    },
+    "180": {
+      "verdict": "pass",
+      "expected": "正下",
+      "observed": "正面低头，鼻口降低，双眼看下。",
+      "reason": "水平脸眼对称；头顶显露、下巴收起、鼻口降低、瞳孔下移与睑形收窄明确。"
+    },
+    "202.5": {
+      "verdict": "warning",
+      "expected": "左下偏下",
+      "observed": "明显低头，脸和眼略朝左。",
+      "reason": "下俯明确；水平左向较小且接近180，但象限正确。"
+    },
+    "225": {
+      "verdict": "pass",
+      "expected": "左下",
+      "observed": "脸朝屏幕左并低下，瞳孔偏左下。",
+      "reason": "左偏较202.5增强；鼻口低与睑形收窄显示下俯。"
+    },
+    "247.5": {
+      "verdict": "pass",
+      "expected": "左下偏左",
+      "observed": "左转主导，保留低头下视。",
+      "reason": "鼻尖与可见瞳孔在头中心左；下俯较225减弱但仍有。"
+    },
+    "270": {
+      "verdict": "pass",
+      "expected": "正屏幕左",
+      "observed": "脸近左侧面，鼻尖与可见瞳孔朝屏幕左。",
+      "reason": "鼻尖与瞳孔明确位于头中心左侧，垂直接近水平。"
+    },
+    "292.5": {
+      "verdict": "pass",
+      "expected": "左上偏左",
+      "observed": "明显朝左，脸和眼开始上扬。",
+      "reason": "左向主导；下巴抬起、眼睑展开、瞳孔向上。"
+    },
+    "315": {
+      "verdict": "pass",
+      "expected": "左上",
+      "observed": "头脸左转并明显上仰，瞳孔朝左上。",
+      "reason": "左转明确；下巴鼻口上扬、颈部显露显示上视。"
+    },
+    "337.5": {
+      "verdict": "warning",
+      "expected": "左上偏上",
+      "observed": "上仰增强，仍有明显左转。",
+      "reason": "上视明确；左转比315稍弱但仍偏强，接000转正步幅较大。"
+    }
+  },
+  "continuity": {
+    "verdict": "warning",
+    "reason": "身份、身体鞋底与鲸尾锚点稳定。157.5到180及337.5到000的转正步幅稍大，保持同一下视或上视轴，无明显断裂；连续度离群与此一致，作为轻微衔接警告接受。"
+  }
+}

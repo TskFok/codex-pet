@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "reviewer": "look_row9_second_qa",
+  "directions": {
+    "000": {"verdict":"pass","expected":"正上","observed":"头脸明显上仰，双眼向上。","reason":"相较neutral下巴抬高，颈部更显露，鼻口随脸面上扬，瞳孔靠近上眼睑。"},
+    "022.5": {"verdict":"pass","expected":"右上偏上","observed":"保持上仰，鼻口与瞳孔略向屏幕右。","reason":"以上视为主，加入轻微右转。"},
+    "045": {"verdict":"pass","expected":"右上","observed":"头右转，脸与眼仍上扬。","reason":"水平右转与垂直上视同时可见。"},
+    "067.5": {"verdict":"pass","expected":"右上偏右","observed":"进一步右转，上仰较前格减弱。","reason":"右向为主，保留轻微上视。"},
+    "090": {"verdict":"pass","expected":"正屏幕右","observed":"接近右侧脸，鼻尖和可见瞳孔朝屏幕右。","reason":"鼻尖瞳孔同向，垂直视线接近水平。"},
+    "112.5": {"verdict":"pass","expected":"右下偏右","observed":"明显右转，头脸开始下俯。","reason":"右向主导且比正右格有清楚下俯。"},
+    "135": {"verdict":"pass","expected":"右下","observed":"脸明显低下，眼睑遮挡增多，保持朝右。","reason":"右转和低头都清楚可见。"},
+    "157.5": {"verdict":"warning","expected":"右下偏下","observed":"下俯加深，双眼更窄，仍有较强右转。","reason":"与135差异较细，下向明显强于右向的辨识有限，但象限正确且无跳变。"}
+  },
+  "continuity": {"verdict":"pass","reason":"由上仰经右转逐步下俯，身体鞋底与鲸尾锚点稳定；角色身份与服装一致。"},
+  "review_resolution": {"severity":"minor","decision":"accept","reason":"首轮审核对000的正面中立描述与图像中抬下巴、露颈部、上移瞳孔的实际地标不符；父复核及第二位独立审核确认向上明确。最终仍执行三人独立盲测。"}
+}
