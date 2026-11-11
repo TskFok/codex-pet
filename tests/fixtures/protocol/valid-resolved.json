@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "eventId": "valid-resolved",
+  "identity": {
+    "source": "codex",
+    "installationId": "local",
+    "instanceId": "process-1"
+  },
+  "sessionId": "s",
+  "occurredAtMs": 100,
+  "kind": {
+    "type": "attention_resolved",
+    "requestId": "q"
+  },
+  "turnId": "t1",
+  "sequence": 1,
+  "summary": "需要审批",
+  "project": {
+    "name": "桌宠",
+    "directory": "/tmp/桌宠"
+  }
+}

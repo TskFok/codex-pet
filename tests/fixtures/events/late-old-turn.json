@@ -1,0 +1,101 @@
+{
+  "events": [
+    {
+      "schemaVersion": 1,
+      "eventId": "a",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "s",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "turn_started"
+      },
+      "turnId": "t1",
+      "sequence": 1
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "b",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "s",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "attention_requested",
+        "requestId": "q",
+        "reason": "approval"
+      },
+      "turnId": "t2",
+      "sequence": 5
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "c",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "s",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "turn_started"
+      },
+      "turnId": "t1",
+      "sequence": 2
+    }
+  ],
+  "expected": {
+    "revision": 2,
+    "sessions": [
+      {
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "s"
+        },
+        "status": "needs_attention",
+        "pending": [
+          {
+            "id": "q",
+            "turnId": "t2",
+            "reason": "approval"
+          }
+        ],
+        "unread": true,
+        "lastEventAtMs": 100,
+        "turnId": "t2"
+      }
+    ],
+    "notifications": [
+      {
+        "id": "b",
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "s"
+        },
+        "kind": {
+          "type": "attention",
+          "requestId": "q",
+          "reason": "approval",
+          "resolved": false
+        },
+        "occurredAtMs": 100,
+        "read": false,
+        "turnId": "t2"
+      }
+    ],
+    "active": {
+      "source": "codex",
+      "installationId": "local",
+      "sessionId": "s"
+    }
+  }
+}

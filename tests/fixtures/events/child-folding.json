@@ -1,0 +1,115 @@
+{
+  "events": [
+    {
+      "schemaVersion": 1,
+      "eventId": "a",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "parent",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "turn_ended",
+        "outcome": "completed"
+      },
+      "turnId": "t1",
+      "sequence": 1
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "b",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "child",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "attention_requested",
+        "requestId": "q",
+        "reason": "approval"
+      },
+      "turnId": "t1",
+      "sequence": 1,
+      "parentSessionId": "parent"
+    }
+  ],
+  "expected": {
+    "revision": 2,
+    "sessions": [
+      {
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "child"
+        },
+        "status": "needs_attention",
+        "pending": [
+          {
+            "id": "q",
+            "turnId": "t1",
+            "reason": "approval"
+          }
+        ],
+        "unread": true,
+        "lastEventAtMs": 100,
+        "turnId": "t1",
+        "parentSessionId": "parent"
+      },
+      {
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "parent"
+        },
+        "status": "ended",
+        "pending": [],
+        "unread": true,
+        "lastEventAtMs": 100,
+        "turnId": "t1"
+      }
+    ],
+    "notifications": [
+      {
+        "id": "a",
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "parent"
+        },
+        "kind": {
+          "type": "turn_ended",
+          "outcome": "completed"
+        },
+        "occurredAtMs": 100,
+        "read": false,
+        "turnId": "t1"
+      },
+      {
+        "id": "b",
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "child"
+        },
+        "kind": {
+          "type": "attention",
+          "requestId": "q",
+          "reason": "approval",
+          "resolved": false
+        },
+        "occurredAtMs": 100,
+        "read": false,
+        "turnId": "t1"
+      }
+    ],
+    "active": {
+      "source": "codex",
+      "installationId": "local",
+      "sessionId": "child"
+    }
+  }
+}

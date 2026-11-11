@@ -1,0 +1,59 @@
+{
+  "events": [
+    {
+      "schemaVersion": 1,
+      "eventId": "a",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "s",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "turn_started"
+      },
+      "turnId": "t1",
+      "sequence": 1
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "a",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "s",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "turn_started"
+      },
+      "turnId": "t1",
+      "sequence": 1
+    }
+  ],
+  "expected": {
+    "revision": 1,
+    "sessions": [
+      {
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "s"
+        },
+        "status": "running",
+        "pending": [],
+        "unread": false,
+        "lastEventAtMs": 100,
+        "turnId": "t1"
+      }
+    ],
+    "notifications": [],
+    "active": {
+      "source": "codex",
+      "installationId": "local",
+      "sessionId": "s"
+    }
+  }
+}

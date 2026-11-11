@@ -1,0 +1,542 @@
+//! 可重放的状态归约器。时间戳仅用于展示和历史保留，不作为回合因果依据。
+use crate::protocol::*;
+use std::collections::{BTreeMap, HashSet};
+
+const MAX_HISTORY: usize = 1_000;
+const HISTORY_AGE_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ApplyResult {
+    /// 公开快照是否改变；不代表是否需要持久化接收事件或去重记录。
+    pub changed: bool,
+    /// 单次实时新增提醒；离线恢复应汇总最终快照后展示。
+    pub should_notify: bool,
+}
+
+struct SessionEntry {
+    projection: SessionProjection,
+    instance_id: String,
+    sequence: Option<u64>,
+    known_turns: HashSet<Option<String>>,
+    terminal: bool,
+    running_known: bool,
+    external_unread: bool,
+}
+
+impl SessionEntry {
+    fn new(event: &EventEnvelope) -> Self {
+        Self {
+            projection: SessionProjection {
+                key: event.session_key(),
+                parent_session_id: event.parent_session_id.clone(),
+                turn_id: event.turn_id.clone(),
+                status: SessionStatus::Unknown,
+                pending: vec![],
+                project: event.project.clone(),
+                summary: event.summary.clone(),
+                unread: false,
+                last_event_at_ms: event.occurred_at_ms,
+            },
+            instance_id: event.identity.instance_id.clone(),
+            sequence: None,
+            known_turns: HashSet::from([event.turn_id.clone()]),
+            terminal: false,
+            running_known: false,
+            external_unread: false,
+        }
+    }
+
+    fn comparable_sequence(&self, event: &EventEnvelope) -> Option<std::cmp::Ordering> {
+        if self.instance_id != event.identity.instance_id {
+            return None;
+        }
+        Some(event.sequence?.cmp(&self.sequence?))
+    }
+
+    fn observe_sequence(&mut self, event: &EventEnvelope) {
+        if self.instance_id == event.identity.instance_id {
+            self.sequence = self.sequence.max(event.sequence);
+        } else {
+            self.instance_id.clone_from(&event.identity.instance_id);
+            self.sequence = event.sequence;
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct SessionStore {
+    revision: u64,
+    sessions: BTreeMap<SessionKey, SessionEntry>,
+    notifications: Vec<NotificationRecord>,
+    // 去重独立于可见历史；持久化及 24 小时以上的裁剪由存储层负责。
+    seen_events: HashSet<String>,
+    resolved: HashSet<(SessionKey, Option<String>, String)>,
+    now_ms: u64,
+}
+
+impl SessionStore {
+    /// 调用者必须先在跨进程入口通过 `decode_event` 验证。
+    pub fn apply(&mut self, event: &EventEnvelope) -> ApplyResult {
+        if !self.seen_events.insert(event.event_id.clone()) {
+            return ApplyResult::default();
+        }
+        let before = self.snapshot();
+        self.now_ms = self
+            .now_ms
+            .max(event.received_at_ms.unwrap_or(event.occurred_at_ms));
+        let should_notify = match &event.kind {
+            EventKind::SourceDisconnected => {
+                for entry in self.sessions.values_mut().filter(|entry| {
+                    entry.projection.key.source == event.identity.source
+                        && entry.projection.key.installation_id == event.identity.installation_id
+                        && entry.instance_id == event.identity.instance_id
+                }) {
+                    if !entry.terminal {
+                        entry.projection.status = SessionStatus::Unknown;
+                        entry.running_known = false;
+                    }
+                }
+                false
+            }
+            EventKind::SourceSnapshot { sessions } => {
+                self.apply_source_snapshot(event, sessions);
+                false
+            }
+            _ => self.apply_session_event(event),
+        };
+        self.prune_history();
+        self.refresh_unread();
+        let changed = before != self.snapshot();
+        if changed {
+            self.revision += 1;
+        }
+        ApplyResult {
+            changed,
+            should_notify,
+        }
+    }
+
+    fn apply_session_event(&mut self, event: &EventEnvelope) -> bool {
+        let key = event.session_key();
+        // tombstone 即使早于请求或属于旧回合也要保留，但绝不撤销其他回合的请求。
+        if let EventKind::AttentionResolved { request_id } = &event.kind {
+            self.resolved
+                .insert((key.clone(), event.turn_id.clone(), request_id.clone()));
+        }
+        let mut entry = self
+            .sessions
+            .remove(&key)
+            .unwrap_or_else(|| SessionEntry::new(event));
+        let order = entry.comparable_sequence(event);
+        let different_turn = entry.projection.turn_id != event.turn_id;
+        if !different_turn
+            && matches!(event.kind, EventKind::TurnStarted)
+            && order.is_some_and(|order| !order.is_gt())
+        {
+            self.sessions.insert(key, entry);
+            return false;
+        }
+        if different_turn {
+            if entry.known_turns.contains(&event.turn_id) || order.is_some_and(|o| o.is_lt()) {
+                entry.known_turns.insert(event.turn_id.clone());
+                self.sessions.insert(key, entry);
+                return false;
+            }
+            if order != Some(std::cmp::Ordering::Greater) {
+                entry.projection.status = SessionStatus::Unknown;
+                entry.running_known = false;
+                self.sessions.insert(key, entry);
+                return false;
+            }
+            self.resolve_notifications(&key, &entry.projection.turn_id, None);
+            entry.projection.pending.clear();
+            entry.projection.turn_id.clone_from(&event.turn_id);
+            entry.known_turns.insert(event.turn_id.clone());
+            entry.terminal = false;
+            entry.running_known = false;
+        } else if entry.terminal {
+            // 同一已结束回合不能被开始/请求重开；无回合 ID 时只接受可比较的新开始。
+            if matches!(event.kind, EventKind::TurnStarted) && event.turn_id.is_none() {
+                if order == Some(std::cmp::Ordering::Greater) {
+                    entry.terminal = false;
+                    entry.running_known = false;
+                } else if order.is_none() {
+                    entry.projection.status = SessionStatus::Unknown;
+                    self.sessions.insert(key, entry);
+                    return false;
+                } else {
+                    self.sessions.insert(key, entry);
+                    return false;
+                }
+            } else {
+                self.sessions.insert(key, entry);
+                return false;
+            }
+        }
+        // 已知同一回合的多请求允许乱序；请求解除按精确关联而非会话水位处理。
+        let notify = match &event.kind {
+            EventKind::TurnStarted => {
+                entry.running_known = true;
+                entry.projection.status = if entry.projection.pending.is_empty() {
+                    SessionStatus::Running
+                } else {
+                    SessionStatus::NeedsAttention
+                };
+                false
+            }
+            EventKind::AttentionRequested { request_id, reason } => {
+                if self
+                    .resolved
+                    .contains(&(key.clone(), event.turn_id.clone(), request_id.clone()))
+                    || entry.projection.pending.iter().any(|pending| {
+                        pending.id == *request_id && pending.turn_id == event.turn_id
+                    })
+                {
+                    self.sessions.insert(key, entry);
+                    return false;
+                }
+                entry.running_known = true;
+                entry.projection.pending.push(PendingRequest {
+                    id: request_id.clone(),
+                    turn_id: event.turn_id.clone(),
+                    reason: *reason,
+                    summary: event.summary.clone(),
+                });
+                entry.projection.pending.sort_by(|a, b| a.id.cmp(&b.id));
+                entry.projection.status = SessionStatus::NeedsAttention;
+                self.push_notification(
+                    event,
+                    NotificationKind::Attention {
+                        request_id: request_id.clone(),
+                        reason: *reason,
+                        resolved: false,
+                    },
+                );
+                true
+            }
+            EventKind::AttentionResolved { request_id } => {
+                entry.projection.pending.retain(|pending| {
+                    !(pending.id == *request_id && pending.turn_id == event.turn_id)
+                });
+                self.resolve_notifications(&key, &event.turn_id, Some(request_id));
+                entry.projection.status = if !entry.projection.pending.is_empty() {
+                    SessionStatus::NeedsAttention
+                } else if entry.running_known {
+                    SessionStatus::Running
+                } else {
+                    SessionStatus::Unknown
+                };
+                false
+            }
+            EventKind::TurnEnded { outcome } => {
+                // 低序号的结束不能结束尚在更新的同一回合。
+                if order.is_some_and(|o| o.is_lt()) {
+                    self.sessions.insert(key, entry);
+                    return false;
+                }
+                entry.terminal = true;
+                entry.projection.status = status_for_outcome(*outcome);
+                entry.projection.pending.clear();
+                self.resolve_notifications(&key, &event.turn_id, None);
+                self.push_notification(event, NotificationKind::TurnEnded { outcome: *outcome });
+                true
+            }
+            EventKind::SourceDisconnected | EventKind::SourceSnapshot { .. } => unreachable!(),
+        };
+        entry.observe_sequence(event);
+        entry.projection.last_event_at_ms =
+            entry.projection.last_event_at_ms.max(event.occurred_at_ms);
+        if event.parent_session_id.is_some() {
+            entry
+                .projection
+                .parent_session_id
+                .clone_from(&event.parent_session_id);
+        }
+        if event.summary.is_some() {
+            entry.projection.summary.clone_from(&event.summary);
+        }
+        if event.project.is_some() {
+            entry.projection.project.clone_from(&event.project);
+        }
+        self.sessions.insert(key, entry);
+        notify
+    }
+
+    fn apply_source_snapshot(&mut self, event: &EventEnvelope, projections: &[SessionProjection]) {
+        let source_key = event.session_key();
+        let included: HashSet<_> = projections.iter().map(|p| p.key.clone()).collect();
+        for entry in self.sessions.values_mut().filter(|entry| {
+            entry.projection.key.source == event.identity.source
+                && entry.projection.key.installation_id == event.identity.installation_id
+                && entry.instance_id == event.identity.instance_id
+                && !included.contains(&entry.projection.key)
+                && (entry.projection.key != source_key
+                    || entry
+                        .comparable_sequence(event)
+                        .is_none_or(|order| order.is_gt()))
+        }) {
+            entry.projection.status = SessionStatus::Unknown;
+            entry.running_known = false;
+        }
+        for projection in projections {
+            // apply 的调用者应先 decode_event；仍避免不可信快照越过来源边界。
+            if projection.key.source != event.identity.source
+                || projection.key.installation_id != event.identity.installation_id
+            {
+                continue;
+            }
+            if let Some(existing) = self.sessions.get_mut(&projection.key) {
+                let ordering = existing.comparable_sequence(event);
+                if (existing.projection.turn_id != projection.turn_id
+                    && existing.known_turns.contains(&projection.turn_id))
+                    || (existing.terminal && existing.projection.turn_id == projection.turn_id)
+                {
+                    continue;
+                }
+                if projection.key != source_key || ordering.is_none() {
+                    if existing.projection != *projection {
+                        existing.projection.status = SessionStatus::Unknown;
+                        existing.running_known = false;
+                    }
+                    continue;
+                }
+                if ordering != Some(std::cmp::Ordering::Greater) {
+                    continue;
+                }
+                self.resolve_snapshot_requests(projection);
+            }
+            let mut entry = SessionEntry::new(event);
+            entry.projection = projection.clone();
+            entry.projection.pending.retain(|request| {
+                !self.resolved.contains(&(
+                    projection.key.clone(),
+                    request.turn_id.clone(),
+                    request.id.clone(),
+                ))
+            });
+            if entry.projection.pending.is_empty()
+                && projection.status == SessionStatus::NeedsAttention
+            {
+                entry.projection.status = SessionStatus::Unknown;
+            }
+            entry.known_turns = HashSet::from([projection.turn_id.clone()]);
+            if let Some(old) = self.sessions.get(&projection.key) {
+                entry.known_turns.extend(old.known_turns.iter().cloned());
+            }
+            entry.external_unread = projection.unread;
+            entry.sequence = if projection.key == source_key {
+                event.sequence
+            } else {
+                None
+            };
+            entry.terminal = matches!(
+                projection.status,
+                SessionStatus::Ended | SessionStatus::Interrupted | SessionStatus::Failed
+            );
+            entry.running_known = matches!(
+                projection.status,
+                SessionStatus::Running | SessionStatus::NeedsAttention
+            );
+            self.sessions.insert(projection.key.clone(), entry);
+        }
+    }
+
+    fn resolve_snapshot_requests(&mut self, projection: &SessionProjection) {
+        let removed: Vec<_> = self.sessions[&projection.key]
+            .projection
+            .pending
+            .iter()
+            .filter(|old| {
+                !projection
+                    .pending
+                    .iter()
+                    .any(|new| old.id == new.id && old.turn_id == new.turn_id)
+            })
+            .cloned()
+            .collect();
+        for request in removed {
+            self.resolved.insert((
+                projection.key.clone(),
+                request.turn_id.clone(),
+                request.id.clone(),
+            ));
+            self.resolve_notifications(&projection.key, &request.turn_id, Some(&request.id));
+        }
+    }
+
+    fn push_notification(&mut self, event: &EventEnvelope, kind: NotificationKind) {
+        self.notifications.push(NotificationRecord {
+            id: event.event_id.clone(),
+            key: event.session_key(),
+            turn_id: event.turn_id.clone(),
+            kind,
+            summary: event.summary.clone(),
+            project: event.project.clone(),
+            occurred_at_ms: event.occurred_at_ms,
+            read: false,
+        });
+    }
+
+    fn resolve_notifications(
+        &mut self,
+        key: &SessionKey,
+        turn: &Option<String>,
+        request: Option<&str>,
+    ) {
+        for note in self
+            .notifications
+            .iter_mut()
+            .filter(|note| note.key == *key && note.turn_id == *turn)
+        {
+            if let NotificationKind::Attention {
+                request_id,
+                resolved,
+                ..
+            } = &mut note.kind
+                && request.is_none_or(|id| id == request_id)
+            {
+                *resolved = true;
+                note.read = true;
+            }
+        }
+    }
+
+    fn prune_history(&mut self) {
+        self.notifications
+            .retain(|note| self.now_ms.saturating_sub(note.occurred_at_ms) <= HISTORY_AGE_MS);
+        self.notifications
+            .sort_by(|a, b| a.occurred_at_ms.cmp(&b.occurred_at_ms));
+        if self.notifications.len() > MAX_HISTORY {
+            self.notifications
+                .drain(..self.notifications.len() - MAX_HISTORY);
+        }
+    }
+
+    fn refresh_unread(&mut self) {
+        for entry in self.sessions.values_mut() {
+            entry.projection.unread = entry.external_unread
+                || self
+                    .notifications
+                    .iter()
+                    .any(|note| note.key == entry.projection.key && !note.read);
+        }
+    }
+
+    pub fn mark_read(&mut self, key: &SessionKey) -> ApplyResult {
+        let before = self.snapshot();
+        for note in self
+            .notifications
+            .iter_mut()
+            .filter(|note| note.key == *key)
+        {
+            note.read = true;
+        }
+        if let Some(entry) = self.sessions.get_mut(key) {
+            entry.external_unread = false;
+        }
+        self.refresh_unread();
+        let changed = before != self.snapshot();
+        if changed {
+            self.revision += 1;
+        }
+        ApplyResult {
+            changed,
+            should_notify: false,
+        }
+    }
+
+    pub fn clear_history(&mut self) -> ApplyResult {
+        let changed = !self.notifications.is_empty()
+            || self.sessions.values().any(|entry| entry.projection.unread);
+        self.notifications.clear();
+        for entry in self.sessions.values_mut() {
+            entry.external_unread = false;
+            entry.projection.unread = false;
+        }
+        if changed {
+            self.revision += 1;
+        }
+        ApplyResult {
+            changed,
+            should_notify: false,
+        }
+    }
+
+    pub fn snapshot(&self) -> PetSnapshot {
+        let sessions: Vec<_> = self
+            .sessions
+            .values()
+            .map(|entry| entry.projection.clone())
+            .collect();
+        let active = sessions
+            .iter()
+            .filter(|p| priority(p, &self.notifications) > 0)
+            .max_by(|a, b| {
+                priority(a, &self.notifications)
+                    .cmp(&priority(b, &self.notifications))
+                    .then(a.last_event_at_ms.cmp(&b.last_event_at_ms))
+                    .then_with(|| b.key.cmp(&a.key))
+            })
+            .map(|p| p.key.clone());
+        PetSnapshot {
+            revision: self.revision,
+            sessions,
+            notifications: self.notifications.clone(),
+            active,
+        }
+    }
+
+    pub fn restore(events: &[EventEnvelope], now_ms: u64) -> Self {
+        let mut store = Self::default();
+        for event in events {
+            store.apply(event);
+        }
+        let before = store.snapshot();
+        for entry in store.sessions.values_mut() {
+            if entry.projection.status == SessionStatus::Running {
+                entry.projection.status = SessionStatus::Unknown;
+                entry.running_known = false;
+            }
+        }
+        store.now_ms = store.now_ms.max(now_ms);
+        store.prune_history();
+        store.refresh_unread();
+        if before != store.snapshot() {
+            store.revision += 1;
+        }
+        store
+    }
+}
+
+fn status_for_outcome(outcome: TurnOutcome) -> SessionStatus {
+    match outcome {
+        TurnOutcome::Completed => SessionStatus::Ended,
+        TurnOutcome::Interrupted => SessionStatus::Interrupted,
+        TurnOutcome::Failed => SessionStatus::Failed,
+        TurnOutcome::Unknown => SessionStatus::Unknown,
+    }
+}
+
+fn priority(projection: &SessionProjection, notifications: &[NotificationRecord]) -> u8 {
+    if !projection.pending.is_empty() {
+        5
+    } else if projection.status == SessionStatus::Failed {
+        4
+    } else if (projection.unread
+        && matches!(
+            projection.status,
+            SessionStatus::Ended | SessionStatus::Interrupted | SessionStatus::Unknown
+        ))
+        || notifications.iter().any(|note| {
+            note.key == projection.key
+                && !note.read
+                && matches!(note.kind, NotificationKind::TurnEnded { .. })
+        })
+    {
+        3
+    } else if projection.status == SessionStatus::Running {
+        2
+    } else {
+        0
+    }
+}

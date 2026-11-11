@@ -1,0 +1,76 @@
+{
+  "events": [
+    {
+      "schemaVersion": 1,
+      "eventId": "a",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "s",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "turn_ended",
+        "outcome": "unknown"
+      },
+      "turnId": "t1",
+      "sequence": 3
+    },
+    {
+      "schemaVersion": 1,
+      "eventId": "b",
+      "identity": {
+        "source": "codex",
+        "installationId": "local",
+        "instanceId": "process-1"
+      },
+      "sessionId": "s",
+      "occurredAtMs": 100,
+      "kind": {
+        "type": "turn_started"
+      },
+      "turnId": "t1",
+      "sequence": 1
+    }
+  ],
+  "expected": {
+    "revision": 1,
+    "sessions": [
+      {
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "s"
+        },
+        "status": "unknown",
+        "pending": [],
+        "unread": true,
+        "lastEventAtMs": 100,
+        "turnId": "t1"
+      }
+    ],
+    "notifications": [
+      {
+        "id": "a",
+        "key": {
+          "source": "codex",
+          "installationId": "local",
+          "sessionId": "s"
+        },
+        "kind": {
+          "type": "turn_ended",
+          "outcome": "unknown"
+        },
+        "occurredAtMs": 100,
+        "read": false,
+        "turnId": "t1"
+      }
+    ],
+    "active": {
+      "source": "codex",
+      "installationId": "local",
+      "sessionId": "s"
+    }
+  }
+}
