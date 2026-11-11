@@ -75,7 +75,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 每个任务先运行会失败的行为测试，再实现并运行同一测试；配置和脚手架不写仅检查配置文本的镜像测试，原生行为使用真实应用实验。每次只提交该任务文件，提交信息用中文；提交前运行相关检查。独立任务接口发生变化时，同步更新本计划与全部消费者。
 
-### 任务 1：可重放的统一事件与会话状态
+### Task 1:可重放的统一事件与会话状态
 
 **文件：** 新建根 Cargo/pnpm workspace 配置、`crates/pet-core/Cargo.toml`、`src/{lib,protocol,state}.rs`、`tests/{protocol,state}.rs`、`tests/support/mod.rs`、`tests/fixtures/{events,protocol}/*.json`。
 
@@ -93,7 +93,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 验证。** `cargo test -p pet-core --test protocol --test state`，全部通过；确认 snapshot 对同一事件重放稳定，已读和新回合的关系有独立用例。
 - [ ] **5. 提交。** 暂存本任务文件，`git commit -m "添加桌宠事件协议与会话状态管理"`。
 
-### 任务 2：双平台最小窗口与运行时诊断
+### Task 2:双平台最小窗口与运行时诊断
 
 **文件：** 新建 `apps/desktop/{package.json,index.html,vite.config.ts,tsconfig.json,src/main.ts}`、`src-tauri/{Cargo.toml,build.rs,tauri.conf.json,capabilities/default.json,src/lib.rs,src/main.rs,src/windows.rs,src/platform/mod.rs,src/platform/macos.rs,src/platform/windows.rs}`、`src/diagnostics/{frame-meter,platform-report}.ts`、`docs/validation/desktop-pet/platforms.md`、`.github/workflows/desktop-pet.yml`。
 
@@ -105,7 +105,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 验证。** `pnpm --filter @codex-pet/desktop test -- frame-meter`、`pnpm --filter @codex-pet/desktop tauri build --debug --no-bundle`；Windows 本机运行同样命令。分别实测前述输入/后台场景并记录数据，未测项标记未验证；阶段一资源预算在该报告中锁定。
 - [ ] **5. 提交。** `git commit -m "添加双平台桌宠窗口与性能诊断"`，只暂存本任务文件和生成的依赖锁文件。
 
-### 任务 3：Codex 桌面事件探测、Hook 转换与安全安装
+### Task 3:Codex 桌面事件探测、Hook 转换与安全安装
 
 **文件：** 新建 `crates/pet-bridge/{Cargo.toml,src/main.rs,src/codex.rs,src/hook_install.rs,tests/codex.rs,tests/hook_install.rs}`、`integrations/codex/{README.md,hooks.template.json,compatibility.json,fixtures/*.json}`、`docs/validation/desktop-pet/codex.md`；修改根 Cargo workspace。
 
@@ -117,7 +117,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 实机验证。** `cargo test -p pet-bridge --test codex --test hook_install`；在独立测试配置中安装 Hook，分别触发真实 Codex 桌面与 CLI 的开始、等待、原应用回答/取消、停止和中断。两平台记录原始事件类型到 capability 表和脱敏 fixture。若无可靠的待处理解除/提问路径，验证现有宿主连接能否补充；不能用另启 app-server 代替。以至少 3 个会话验证 `codex://threads/<id>`；能力缺失须解决或修订设计，再过检查点 A。
 - [ ] **5. 提交。** `git commit -m "添加 Codex 桌宠通知适配与接入验证"`。
 
-### 任务 4：Harness 通知插件与精确会话入口
+### Task 4:Harness 通知插件与精确会话入口
 
 **文件：** 新建 `integrations/deepseek-harness/{package.json,tsconfig.json,src/index.ts,src/events.ts,src/open-session.ts,tests/events.test.ts,tests/open-session.test.ts,README.md,compatibility.json,fixtures/*.json}`、`docs/validation/desktop-pet/harness.md`；若必须补宿主入口，增加 `patches/desktop-session-deep-link.patch`。
 
@@ -129,7 +129,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 验证。** 上述单测通过；两平台真实 Harness 至少 3 个会话，原应用回答、审批撤回后请求解除；点击目标链接在隐藏、已启动、冷启动状态准确打开会话。插件路径或所需补丁、兼容版本及安装方法必须写入报告，不能只留下候选路径。运行宿主补丁相关定向测试与其要求的检查，不默认跑全仓测试。
 - [ ] **5. 提交并过检查点 A。** `git commit -m "添加 Harness 通知插件与会话跳转接入"`。将两个来源的实测结论和 Windows 环境写入报告后，再继续任务 5。
 
-### 任务 5：日志、去重与有界待发送区
+### Task 5:日志、去重与有界待发送区
 
 **文件：** 新建 `crates/pet-core/src/{storage,paths}.rs`、`crates/pet-core/tests/storage.rs`、`crates/pet-bridge/src/outbox.rs`、`crates/pet-bridge/tests/outbox.rs`；修改 pet-core 导出和测试 fixture。
 
@@ -141,7 +141,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 验证。** 重跑以上测试；用临时目录模拟截断、响应前崩溃与权限拒绝，重启后检查历史、去重和 pending，所有操作不得触碰真实用户数据目录。
 - [ ] **5. 提交。** `git commit -m "添加可靠事件存储与离线待发送区"`。
 
-### 任务 6：本地入口、可靠转发与恢复归并
+### Task 6:本地入口、可靠转发与恢复归并
 
 **文件：** 新建 `apps/desktop/src-tauri/src/broker.rs`、`apps/desktop/src-tauri/tests/broker.rs`、`crates/pet-bridge/src/delivery.rs`、`crates/pet-bridge/tests/delivery.rs`；修改 bridge/main、桌面 lib、两个适配器配置与文档。
 
@@ -153,7 +153,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 验证。** 重跑测试；实际关闭桌宠、产生提醒、重启，验证历史和当前状态正确，原任务不中断。Windows 转发器无控制台闪烁；磁盘完全不可写时输出诊断并正常退出宿主 Hook，不声称已留存。
 - [ ] **5. 提交。** `git commit -m "接通桌宠本地通知入口与断线恢复"`。
 
-### 任务 7：旧宠物导入和独立动画包格式
+### Task 7:旧宠物导入和独立动画包格式
 
 **文件：** 新建 `crates/pet-core/src/pet_package.rs`、`crates/pet-core/tests/pet_package.rs`、`tests/fixtures/pet-packages/`、`apps/desktop/src/types.ts`、`docs/pet-format.md`。
 
@@ -165,7 +165,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 验证。** 重跑测试并导入本仓库至少一个 v1、一个 v2 包；检查九状态与方向联系表，确认新包与原包独立且清空历史不会删除素材。
 - [ ] **5. 提交。** `git commit -m "添加旧宠物包导入与独立动画格式"`。
 
-### 任务 8：Canvas 播放器与可见性生命周期
+### Task 8:Canvas 播放器与可见性生命周期
 
 **文件：** 新建 `apps/desktop/src/animation/{clock,renderer}.ts`、`apps/desktop/src/animation/{clock,renderer}.test.ts`、`apps/desktop/src/components/pet.ts`；修改诊断和主入口。
 
@@ -177,7 +177,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 验证。** 重跑测试；两平台九状态视觉检查、可见未聚焦 60 秒间隔统计、隐藏/休眠恢复；对照任务 2 的报告确认无退化。
 - [ ] **5. 提交。** `git commit -m "添加流畅动画播放与后台生命周期管理"`。
 
-### 任务 9：可恢复的窗口位置、输入命中与托盘
+### Task 9:可恢复的窗口位置、输入命中与托盘
 
 **文件：** 修改 `windows.rs`、`platform/{mod,macos,windows}.rs`；新建 `src-tauri/src/placement.rs`、`src-tauri/tests/placement.rs`、`src-tauri/src/tray.rs`，更新 `platforms.md`。
 
@@ -189,7 +189,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **4. 验证。** 单测通过；两平台执行混合缩放、屏幕移除、跨屏拖动、全屏、休眠矩阵，记录实际结果；隐藏不关闭 broker，退出才停止接收。
 - [ ] **5. 提交。** `git commit -m "完善桌宠窗口交互与多显示器恢复"`。
 
-### 任务 10：通知列表、设置和来源接入状态
+### Task 10:通知列表、设置和来源接入状态
 
 **文件：** 新建 `src-tauri/src/{commands,settings}.rs`、`src-tauri/tests/settings.rs`、`apps/desktop/src/{api,types}.ts`、`src/components/{notifications,settings}.ts`、对应 `.test.ts`、`src/locales/zh-CN.ts`、`src/styles.css`，修改桌面入口与 capabilities。
 
@@ -203,7 +203,7 @@ IntegrationStatus 在本任务定义为 source、installation_id、可选 versio
 - [ ] **4. 验证。** 重跑相关测试、`pnpm typecheck`；两平台实际安装/撤销来源、静音、切宠物、30/60 切换、重启恢复，文案不出现“任务成功”替代未知结束。
 - [ ] **5. 提交。** `git commit -m "添加桌宠通知管理与设置界面"`。
 
-### 任务 11：来源导航与完整通知点击链路
+### Task 11:来源导航与完整通知点击链路
 
 **文件：** 新建 `src-tauri/src/navigation.rs`、`src-tauri/tests/navigation.rs`、`apps/desktop/src/components/notifications.test.ts` 的点击链路用例，修改 commands、两个来源兼容表与 README。
 
@@ -215,7 +215,7 @@ IntegrationStatus 在本任务定义为 source、installation_id、可选 versio
 - [ ] **4. 验证。** 两平台每来源至少 3 个会话，混合正在运行、等待审批、已结束状态；从气泡和历史点击，实际目标会话均正确。CLI 降级清晰，原应用处理请求后桌宠解除提示；验证接入真实链路而非仅调用 mocked opener。
 - [ ] **5. 提交。** `git commit -m "接通通知点击与原会话精确定位"`。
 
-### 任务 12：双平台安装包、故障演练与发行验收
+### Task 12:双平台安装包、故障演练与发行验收
 
 **文件：** 修改 `.github/workflows/desktop-pet.yml`、Tauri 平台配置、根 package 脚本、`README.md`、来源 README；新建 `scripts/desktop-pet/{validate-release,prepare-resources}.mjs`、`docs/validation/desktop-pet/release-checklist.md`、必要安装测试样例。
 
