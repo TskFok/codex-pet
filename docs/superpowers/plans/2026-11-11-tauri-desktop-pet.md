@@ -81,17 +81,17 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** 产出上文 EventEnvelope、SessionStore、PetSnapshot。`protocol::decode_event(bytes: &[u8]) -> Result<EventEnvelope, ProtocolError>` 负责协议版本、必填字段、长度与字段枚举检查。
 
-- [ ] **1. 写失败测试。** `protocol_rejects_invalid_input` 对未知版本、64 KiB 以上事件、字段缺失断言 `decode_event(...).is_err()`；`state_replay_cases` 覆盖两来源同名会话、重复事件、先 resolved 后迟到 requested、旧回合开始晚到、子代理折叠及结束为 Unknown：
+- [x] **1. 写失败测试。** `protocol_rejects_invalid_input` 对未知版本、64 KiB 以上事件、字段缺失断言 `decode_event(...).is_err()`；`state_replay_cases` 覆盖两来源同名会话、重复事件、先 resolved 后迟到 requested、旧回合开始晚到、子代理折叠及结束为 Unknown：
   ```rust
   let case = load_case("late-old-turn");
   let mut store = SessionStore::default();
   for event in &case.events { store.apply(event); }
   assert_eq!(store.snapshot(), case.expected);
   ```
-- [ ] **2. 运行并确认失败。** `cargo test -p pet-core --test state`，失败来自缺少状态行为，不将网络/编译环境错误当成红灯用例。
-- [ ] **3. 实现协议与状态。** 固定协议版本 1，去重按事件 ID，顺序按上游序号/回合/请求关联；resolve tombstone 防止请求倒序复活。缺少可比较的回合/顺序信息时不猜新旧，返回 Unknown；restore 将旧 Running 变为 Unknown，优先级按设计。
-- [ ] **4. 验证。** `cargo test -p pet-core --test protocol --test state`，全部通过；确认 snapshot 对同一事件重放稳定，已读和新回合的关系有独立用例。
-- [ ] **5. 提交。** 暂存本任务文件，`git commit -m "添加桌宠事件协议与会话状态管理"`。
+- [x] **2. 运行并确认失败。** `cargo test -p pet-core --test state`，失败来自缺少状态行为，不将网络/编译环境错误当成红灯用例。
+- [x] **3. 实现协议与状态。** 固定协议版本 1，去重按事件 ID，顺序按上游序号/回合/请求关联；resolve tombstone 防止请求倒序复活。缺少可比较的回合/顺序信息时不猜新旧，返回 Unknown；restore 将旧 Running 变为 Unknown，优先级按设计。
+- [x] **4. 验证。** `cargo test -p pet-core --test protocol --test state`，全部通过；确认 snapshot 对同一事件重放稳定，已读和新回合的关系有独立用例。
+- [x] **5. 提交。** 暂存本任务文件，`git commit -m "添加桌宠事件协议与会话状态管理"`。
 
 ### Task 2:双平台最小窗口与运行时诊断
 

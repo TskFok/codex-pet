@@ -31,3 +31,6 @@
 - 已完成预检，逐任务及共享文件/接口检查记录在专属 SDD 台账；Task 标题仅作提取器兼容规范化，中文任务名和要求不变。
 - 当前准备 Task 1：统一事件协议与会话状态；每项实现后安排独立任务审阅。
 - 已异步询问 Windows 实机/虚拟机验收环境，继续不依赖该答复的实现工作。
+- Task 1 已完成实现及独立审阅：基础提交 7fa8a43，首轮审阅两项 Important 经 d36aefe 修复，scoped re-review 判定两项均 ADDRESSED，质量 Approved。
+- Task 1 完整 Rust 测试 37/37、fmt、严格 Clippy 通过；原始 RED/GREEN 日志、审阅报告均保存在专属 SDD 目录。尚无桌面或 Windows 运行验收结论。
+- 继续 Task 2：最小透明窗口、后台帧率诊断、平台基础与 CI 构建配置。
