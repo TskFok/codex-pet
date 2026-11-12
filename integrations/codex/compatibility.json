@@ -11,9 +11,13 @@
       "kind": "standalone_cli",
       "version": "0.145.0",
       "hooksFeature": true,
-      "liveHookExecution": "blocked_pending_normal_trust",
+      "liveHookExecution": "partially_verified_start_only_in_isolated_cli",
       "taggedSourceInterruptEvent": false,
-      "taggedSourceModelRequestHooks": false
+      "taggedSourceModelRequestHooks": false,
+      "normalTrust": "three_supported_events_trusted_through_normal_cli_ui",
+      "observedHookKinds": [
+        "turn_started"
+      ]
     },
     {
       "kind": "existing_desktop",
@@ -22,7 +26,10 @@
       "liveHookExecution": "unverified",
       "controlSocket": "absent",
       "interruptEvent": "unverified",
-      "modelRequestHooks": "unverified"
+      "modelRequestHooks": "unverified",
+      "taggedSourceInterruptEvent": true,
+      "taggedSourceModelRequestHooks": true,
+      "taggedSourceVersion": "rust-v0.167.0-alpha.4.1"
     }
   ],
   "normalization": {
@@ -43,18 +50,21 @@
     "disconnectionInference": false
   },
   "validation": {
-    "fixtures": "synthetic_only_no_live_hook_capture",
+    "fixtures": "synthetic_cases_plus_one_redacted_live_normalized_start",
     "macosFileAndProcessTests": "passed",
     "windowsNativeExecution": "not_run",
     "desktopAlpha4WindowsShell": "unverified",
     "preciseNavigationSessionsVerified": 0,
     "preciseNavigationSessionsRequired": 3,
-    "checkpointA": "not_passed"
+    "checkpointA": "not_passed",
+    "fix1CoreAndBridgeTestsPassed": 63,
+    "unsequencedTurns": "current_projection_may_remain_unknown_but_each_explicit_turn_end_is_retained_and_deduplicated"
   },
   "delivery": "deferred_task_6",
   "sources": [
     "https://learn.chatgpt.com/docs/hooks",
     "https://learn.chatgpt.com/docs/app-server",
-    "https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/engine/command_runner.rs"
+    "https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/engine/command_runner.rs",
+    "https://github.com/openai/codex/blob/rust-v0.167.0-alpha.4.1/codex-rs/hooks/src/lib.rs"
   ]
 }

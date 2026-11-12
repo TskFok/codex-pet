@@ -74,6 +74,9 @@ pub struct SessionStore {
     // 去重独立于可见历史；持久化及 24 小时以上的裁剪由存储层负责。
     seen_events: HashSet<String>,
     resolved: HashSet<(SessionKey, Option<String>, String)>,
+    // 明确回合的结束事实独立于当前投影和可见历史，裁剪历史不能使它复活。
+    // Task5 持久化必须保留此集合（或完整重放可恢复它的原始事件），不能只存公开快照。
+    confirmed_turn_ends: HashSet<(SessionKey, String)>,
     now_ms: u64,
 }
 
@@ -133,6 +136,33 @@ impl SessionStore {
         let mut entry = existing.unwrap_or_else(|| SessionEntry::new(event));
         let order = entry.comparable_sequence(event);
         let different_turn = entry.projection.turn_id != event.turn_id;
+        if event.turn_id.as_ref().is_some_and(|turn| {
+            self.confirmed_turn_ends
+                .contains(&(key.clone(), turn.clone()))
+        }) && matches!(
+            event.kind,
+            EventKind::TurnStarted
+                | EventKind::AttentionRequested { .. }
+                | EventKind::TurnEnded { .. }
+        ) {
+            self.sessions.insert(key, entry);
+            return false;
+        }
+        // 无法判断哪个回合较新，不影响“这个明确回合已经结束”的独立事实。
+        // 同回合低水位结束继续受旧保护，不能清掉较新请求；无 ID 周期也不建全局墓碑。
+        let mut end_fact_notify = false;
+        if let (Some(turn), EventKind::TurnEnded { outcome }) = (&event.turn_id, &event.kind)
+            && (different_turn || !order.is_some_and(|ordering| ordering.is_lt()))
+        {
+            self.confirmed_turn_ends.insert((key.clone(), turn.clone()));
+            entry
+                .projection
+                .pending
+                .retain(|pending| pending.turn_id != event.turn_id);
+            self.resolve_notifications(&key, &event.turn_id, None);
+            self.push_notification(event, NotificationKind::TurnEnded { outcome: *outcome });
+            end_fact_notify = true;
+        }
         if !different_turn
             && matches!(event.kind, EventKind::TurnStarted)
             && (order.is_some_and(|order| !order.is_gt())
@@ -145,13 +175,13 @@ impl SessionStore {
             if entry.known_turns.contains(&event.turn_id) || order.is_some_and(|o| o.is_lt()) {
                 entry.known_turns.insert(event.turn_id.clone());
                 self.sessions.insert(key, entry);
-                return false;
+                return end_fact_notify;
             }
             if order != Some(std::cmp::Ordering::Greater) {
                 entry.projection.status = SessionStatus::Unknown;
                 entry.running_known = false;
                 self.sessions.insert(key, entry);
-                return false;
+                return end_fact_notify;
             }
             self.resolve_notifications(&key, &entry.projection.turn_id, None);
             entry.projection.pending.clear();
@@ -175,7 +205,7 @@ impl SessionStore {
                 }
             } else {
                 self.sessions.insert(key, entry);
-                return false;
+                return end_fact_notify;
             }
         }
         // 已知同一回合的多请求允许乱序；请求解除按精确关联而非会话水位处理。
@@ -243,7 +273,12 @@ impl SessionStore {
                 entry.projection.status = status_for_outcome(*outcome);
                 entry.projection.pending.clear();
                 self.resolve_notifications(&key, &event.turn_id, None);
-                self.push_notification(event, NotificationKind::TurnEnded { outcome: *outcome });
+                if !end_fact_notify {
+                    self.push_notification(
+                        event,
+                        NotificationKind::TurnEnded { outcome: *outcome },
+                    );
+                }
                 true
             }
             EventKind::SourceDisconnected | EventKind::SourceSnapshot { .. } => unreachable!(),
@@ -288,6 +323,12 @@ impl SessionStore {
             if projection.key.source != event.identity.source
                 || projection.key.installation_id != event.identity.installation_id
             {
+                continue;
+            }
+            if projection.turn_id.as_ref().is_some_and(|turn| {
+                self.confirmed_turn_ends
+                    .contains(&(projection.key.clone(), turn.clone()))
+            }) {
                 continue;
             }
             if let Some(existing) = self.sessions.get_mut(&projection.key) {

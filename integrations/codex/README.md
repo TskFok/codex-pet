@@ -65,3 +65,9 @@ printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"test-session","
 生成的 `commandWindows` 调用 `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand`。UTF-16LE 编码脚本使用调用运算符 `&` 和转义后的单引号路径，把 `codex`、`--installation-id`、UUID 作为独立参数，继承标准输入/输出。它不关闭 ExecutionPolicy、不提权、不禁用安全设置。锁定 CLI 0.145.0 的官方命令运行器使用 `COMSPEC` / `cmd.exe /C`；额外编码避免中文、空格、单引号和 shell 元字符成为外层命令结构。
 
 Windows 原生执行测试已写入 `tests/hook_install.rs`，本机 macOS 未执行；桌面 alpha.4.1 的 Windows shell 行为与真实 Windows 接入仍待验。PowerShell 启动开销与 Interrupt 的 1 秒默认上限也须实测。
+
+## 当前已验证范围补充
+
+已在用户明确授权的临时CODEX_HOME中，通过正常CLI信任界面信任三项受支持Hook，并只运行一次0.145.0 ephemeral离线测试；真实观察到一条378字节开始事件。`fixtures/live-start-cli-0.145.json`是身份/时间脱敏后的统一事件，未保存原始Hook。其他七份仍是明确标记的合成样例。审批/提问/解除、停止/中断、现有桌面与Windows仍未通过真实验收。
+
+无序多轮投影可能保持Unknown，但每个明确turn_id的结束事实都会保留历史/提醒并精确去重；不重开已结束回合，不清其他回合待处理或未读历史。私有终态因果标记必须纳入Task5持久化，不能仅保存公开快照。新版桌面alpha.4.1精确源码含Interrupt/模型尝试事件，不能以源码存在代替实际观察或请求解除屏障。

@@ -1,0 +1,23 @@
+{
+  "fixtureVersion": 1,
+  "evidence": "live_normalized_event_only",
+  "codexVersion": "0.145.0",
+  "platform": "macOS arm64",
+  "rawHookCaptured": false,
+  "testSetup": "isolated_trusted_hook_ephemeral_cli_offline_provider",
+  "normalizedEvent": {
+    "schemaVersion": 1,
+    "eventId": "live-test-event",
+    "identity": {
+      "source": "codex",
+      "installationId": "live-test-install",
+      "instanceId": "hook-session:live-test-session"
+    },
+    "sessionId": "live-test-session",
+    "turnId": "live-test-turn",
+    "occurredAtMs": 0,
+    "kind": {
+      "type": "turn_started"
+    }
+  }
+}

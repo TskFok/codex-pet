@@ -166,12 +166,21 @@ fn missing_turn_order_preserves_requests_and_reports_unknown() {
     store.apply(&requested("a", Some("new"), None, "q"));
     let mut uncertain = ended("b", Some("other"), None, "completed");
     uncertain.occurred_at_ms = 999_999;
-    assert!(!store.apply(&uncertain).should_notify);
+    assert!(store.apply(&uncertain).should_notify);
     let snap = store.snapshot();
     assert_eq!(snap.sessions[0].status, SessionStatus::Unknown);
     assert_eq!(snap.sessions[0].turn_id.as_deref(), Some("new"));
     assert_eq!(snap.sessions[0].pending[0].id, "q");
-    assert_eq!(snap.notifications.len(), 1);
+    assert_eq!(snap.notifications.len(), 2);
+    assert!(!snap.notifications[0].read);
+    assert!(matches!(
+        snap.notifications[0].kind,
+        NotificationKind::Attention {
+            resolved: false,
+            ..
+        }
+    ));
+    assert_eq!(snap.notifications[1].turn_id.as_deref(), Some("other"));
     assert_eq!(snap.active, Some(key()));
 }
 
@@ -670,4 +679,231 @@ fn new_turn_snapshot_preserves_imported_unread_end_until_user_clears_it() {
                 .unread
         );
     }
+}
+
+#[test]
+fn noncurrent_end_preserves_other_turn_pending_and_unread_end_history() {
+    let mut store = SessionStore::default();
+    store.apply(&ended("old-end", Some("old"), Some(1), "unknown"));
+    store.apply(&requested(
+        "current-ask",
+        Some("current"),
+        Some(2),
+        "question",
+    ));
+    assert!(
+        store
+            .apply(&ended("unordered-end", Some("other"), None, "completed"))
+            .should_notify
+    );
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.sessions[0].turn_id.as_deref(), Some("current"));
+    assert_eq!(snapshot.sessions[0].status, SessionStatus::Unknown);
+    assert_eq!(snapshot.sessions[0].pending.len(), 1);
+    assert_eq!(snapshot.sessions[0].pending[0].id, "question");
+    assert_eq!(snapshot.notifications.len(), 3);
+    assert!(snapshot.notifications.iter().all(|note| !note.read));
+    assert!(matches!(
+        snapshot.notifications[1].kind,
+        NotificationKind::Attention {
+            resolved: false,
+            ..
+        }
+    ));
+    assert_eq!(snapshot.notifications[0].turn_id.as_deref(), Some("old"));
+    assert_eq!(snapshot.notifications[2].turn_id.as_deref(), Some("other"));
+}
+
+#[test]
+fn retired_turn_end_is_historical_and_keeps_current_attention() {
+    let mut store = SessionStore::default();
+    store.apply(&started("old-start", Some("old"), Some(1)));
+    store.apply(&requested("new-ask", Some("new"), Some(3), "q"));
+    let late_end = ended("late-end", Some("old"), Some(2), "interrupted");
+    assert!(store.apply(&late_end).should_notify);
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.sessions[0].status, SessionStatus::NeedsAttention);
+    assert_eq!(
+        snapshot.sessions[0].pending[0].turn_id.as_deref(),
+        Some("new")
+    );
+    assert_eq!(snapshot.notifications.len(), 2);
+    assert!(snapshot.notifications.iter().all(|note| !note.read));
+    assert!(!store.apply(&late_end).should_notify);
+    assert!(
+        !store
+            .apply(&ended("duplicate-end", Some("old"), Some(4), "completed"))
+            .should_notify
+    );
+    assert!(
+        !store
+            .apply(&started("late-start", Some("old"), Some(5)))
+            .changed
+    );
+    assert_eq!(store.snapshot(), snapshot);
+}
+
+#[test]
+fn noncurrent_terminal_survives_history_clear_and_snapshot_replacement() {
+    let mut store = SessionStore::default();
+    store.apply(&started("current-start", Some("current"), Some(1)));
+    assert!(
+        store
+            .apply(&ended("other-end", Some("other"), None, "unknown"))
+            .should_notify
+    );
+    store.clear_history();
+    let mut projection = store.snapshot().sessions[0].clone();
+    projection.status = SessionStatus::Running;
+    let snapshot_event = event(
+        "current-snapshot",
+        Some("current"),
+        Some(2),
+        json!({"type":"source_snapshot","sessions":[projection.clone()]}),
+    );
+    store.apply(&snapshot_event);
+    let before = store.snapshot();
+    assert!(
+        !store
+            .apply(&started("other-late-start", Some("other"), Some(3)))
+            .changed
+    );
+    assert!(
+        !store
+            .apply(&requested("other-late-ask", Some("other"), Some(4), "q"))
+            .changed
+    );
+    projection.turn_id = Some("other".into());
+    assert!(
+        !store
+            .apply(&event(
+                "terminal-snapshot",
+                Some("other"),
+                Some(5),
+                json!({"type":"source_snapshot","sessions":[projection]})
+            ))
+            .changed
+    );
+    assert!(
+        !store
+            .apply(&ended(
+                "other-duplicate-end",
+                Some("other"),
+                Some(6),
+                "completed"
+            ))
+            .should_notify
+    );
+    assert_eq!(store.snapshot(), before);
+}
+
+#[test]
+fn confirmed_end_deduplication_is_scoped_to_exact_session_and_turn() {
+    let mut store = SessionStore::default();
+    store.apply(&started("current-start", Some("current"), None));
+    assert!(
+        store
+            .apply(&ended("other-end", Some("other"), None, "unknown"))
+            .should_notify
+    );
+    assert!(
+        store
+            .apply(
+                &ended("different-session-end", Some("other"), None, "unknown")
+                    .with_session("another-session")
+            )
+            .should_notify
+    );
+    assert!(
+        store
+            .apply(&ended("current-end", Some("current"), None, "unknown"))
+            .should_notify
+    );
+    assert_eq!(store.snapshot().notifications.len(), 3);
+    store.clear_history();
+    assert!(
+        !store
+            .apply(&ended(
+                "same-turn-retry-new-event",
+                Some("other"),
+                None,
+                "unknown"
+            ))
+            .should_notify
+    );
+    assert!(store.snapshot().notifications.is_empty());
+}
+
+#[test]
+fn same_turn_lower_sequence_end_keeps_newer_pending_until_valid_end() {
+    let mut store = SessionStore::default();
+    store.apply(&requested("newer-ask", Some("t"), Some(10), "q"));
+    let before = store.snapshot();
+    assert_eq!(
+        store.apply(&ended("older-end", Some("t"), Some(9), "unknown")),
+        ApplyResult::default()
+    );
+    assert_eq!(store.snapshot(), before);
+    assert!(
+        store
+            .apply(&ended("valid-end", Some("t"), Some(11), "unknown"))
+            .should_notify
+    );
+    let after = store.snapshot();
+    assert!(after.sessions[0].pending.is_empty());
+    assert_eq!(after.notifications.len(), 2);
+    assert!(matches!(
+        after.notifications[0].kind,
+        NotificationKind::Attention { resolved: true, .. }
+    ));
+}
+
+#[test]
+fn comparable_new_start_can_begin_next_cycle_without_turn_id() {
+    let mut store = SessionStore::default();
+    assert!(
+        store
+            .apply(&ended("first-end", None, Some(1), "unknown"))
+            .should_notify
+    );
+    store.apply(&started("next-start", None, Some(2)));
+    assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Running);
+    assert!(
+        store
+            .apply(&ended("next-end", None, Some(3), "unknown"))
+            .should_notify
+    );
+    assert_eq!(store.snapshot().notifications.len(), 2);
+}
+
+#[test]
+fn replay_restores_noncurrent_terminal_facts_after_visible_history_expires() {
+    let events = [
+        started("current-start", Some("current"), Some(1)),
+        ended("other-end", Some("other"), None, "unknown"),
+    ];
+    let mut live = SessionStore::default();
+    for event in &events {
+        live.apply(event);
+    }
+    assert_eq!(live.snapshot().notifications.len(), 1);
+    let mut restored = SessionStore::restore(&events, 8 * 24 * 60 * 60 * 1000);
+    assert!(restored.snapshot().notifications.is_empty());
+    let before = restored.snapshot();
+    assert!(
+        !restored
+            .apply(&started("late-other-start", Some("other"), Some(3)))
+            .changed
+    );
+    assert!(
+        !restored
+            .apply(&ended(
+                "same-turn-new-event",
+                Some("other"),
+                Some(4),
+                "unknown"
+            ))
+            .should_notify
+    );
+    assert_eq!(restored.snapshot(), before);
 }

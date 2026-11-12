@@ -91,3 +91,44 @@ fn oversized_metadata_cannot_bypass_event_limit() {
     input["session_id"] = json!("s".repeat(65536));
     assert!(normalize_codex(&input, &identity(), 42).is_err());
 }
+
+#[test]
+fn normalized_unsequenced_turns_keep_each_end_without_guessing_current_turn() {
+    use pet_core::{NotificationKind, SessionStatus, SessionStore};
+    let mut store = SessionStore::default();
+    for turn in ["turn-a", "turn-b"] {
+        for name in ["start", "stop"] {
+            let mut input = fixture(name);
+            input["turn_id"] = json!(turn);
+            let event = normalize_codex(&input, &identity(), 42).unwrap().remove(0);
+            assert_eq!(event.sequence, None);
+            let result = store.apply(&event);
+            assert_eq!(result.should_notify, name == "stop", "{turn}/{name}");
+            assert!(!store.apply(&event).should_notify);
+        }
+    }
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.sessions.len(), 1);
+    assert_eq!(snapshot.sessions[0].turn_id.as_deref(), Some("turn-a"));
+    assert_eq!(snapshot.sessions[0].status, SessionStatus::Unknown);
+    assert!(snapshot.sessions[0].unread);
+    assert_eq!(snapshot.notifications.len(), 2);
+    assert_eq!(snapshot.notifications[0].turn_id.as_deref(), Some("turn-a"));
+    assert_eq!(snapshot.notifications[1].turn_id.as_deref(), Some("turn-b"));
+    assert!(snapshot.notifications.iter().all(|note| !note.read
+        && matches!(
+            note.kind,
+            NotificationKind::TurnEnded {
+                outcome: TurnOutcome::Unknown
+            }
+        )));
+    for name in ["start", "stop"] {
+        let mut input = fixture(name);
+        input["turn_id"] = json!("turn-b");
+        let event = normalize_codex(&input, &identity(), 999999)
+            .unwrap()
+            .remove(0);
+        assert!(!store.apply(&event).should_notify);
+    }
+    assert_eq!(store.snapshot(), snapshot);
+}
