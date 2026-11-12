@@ -99,11 +99,13 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** `platform::create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError>`；前端 `FrameMeter.record(timestampMs: number): void`、`report(): { intervalsMs: number[]; p95Ms: number }`。诊断报告必须包含 OS、架构、WebView、依赖版本及窗口可见/聚焦状态。
 
-- [ ] **1. 固定实验。** 在两个系统上定义“透明窄窗口、拖动、外缘穿透、后台不抢焦点、未聚焦播放 60 秒”用例，先记录当前没有对应应用的基线；为 frame-meter 写 `intervals [33,34,33] → p95≤50` 的失败测试。
-- [ ] **2. 运行失败测试。** `pnpm --filter @codex-pet/desktop test -- frame-meter`，确认统计行为尚未实现。
-- [ ] **3. 实现最小壳。** 建立 Tauri 2 与 Vite；只画测试角色/已有首帧和移动轨迹，不做设置页。透明、置顶、焦点和后台节流使用锁定版本支持的 API；确需原生 API 时放入 platform 文件。初始化三个目标的构建 CI，但不发布。
+- [x] **1. 固定实验。** 在两个系统上定义“透明窄窗口、拖动、外缘穿透、后台不抢焦点、未聚焦播放 60 秒”用例，先记录当前没有对应应用的基线；为 frame-meter 写 `intervals [33,34,33] → p95≤50` 的失败测试。
+- [x] **2. 运行失败测试。** `pnpm --filter @codex-pet/desktop test -- frame-meter`，确认统计行为尚未实现。
+- [x] **3. 实现最小壳。** 建立 Tauri 2 与 Vite；只画测试角色/已有首帧和移动轨迹，不做设置页。透明、置顶、焦点和后台节流使用锁定版本支持的 API；确需原生 API 时放入 platform 文件。初始化三个目标的构建 CI，但不发布。
 - [ ] **4. 验证。** `pnpm --filter @codex-pet/desktop test -- frame-meter`、`pnpm --filter @codex-pet/desktop tauri build --debug --no-bundle`；Windows 本机运行同样命令。分别实测前述输入/后台场景并记录数据，未测项标记未验证；阶段一资源预算在该报告中锁定。
-- [ ] **5. 提交。** `git commit -m "添加双平台桌宠窗口与性能诊断"`，只暂存本任务文件和生成的依赖锁文件。
+- [x] **5. 提交。** `git commit -m "添加双平台桌宠窗口与性能诊断"`，只暂存本任务文件和生成的依赖锁文件。
+
+实现与代码审阅已通过（4739933）；步骤4的本机自动检查及部分原生查询已执行，完整双平台/物理交互验收仍未通过，保留未勾选状态。按该步骤的未测项记录约定，继续阶段一来源探测，检查点A仍为未通过。
 
 ### Task 3:Codex 桌面事件探测、Hook 转换与安全安装
 

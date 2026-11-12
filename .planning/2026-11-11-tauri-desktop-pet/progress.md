@@ -34,3 +34,13 @@
 - Task 1 已完成实现及独立审阅：基础提交 7fa8a43，首轮审阅两项 Important 经 d36aefe 修复，scoped re-review 判定两项均 ADDRESSED，质量 Approved。
 - Task 1 完整 Rust 测试 37/37、fmt、严格 Clippy 通过；原始 RED/GREEN 日志、审阅报告均保存在专属 SDD 目录。尚无桌面或 Windows 运行验收结论。
 - 继续 Task 2：最小透明窗口、后台帧率诊断、平台基础与 CI 构建配置。
+
+## 2026-11-12：窗口输入修复
+
+- Task2最小壳与诊断基线提交69fbf87；独立审阅指出轮询点击竞态与临时错误永久退出两项Important。
+- 修复4739933删除全局光标/按键轮询；macOS采用公开AppKit原生命中代理parent与穿透Canvas child，Windows采用SetWindowRgn。原生查询确认本机实体命中代理、透明角命中下层；真实拖动与其他平台仍待验。
+- 修复后Rust43、前端6、fmt/clippy/typecheck/build通过；60秒后台绘制P95为50ms且99.555%间隔不超过50ms，隐藏组0绘制。旧三模式资源数据仅属69fbf87历史基线，未当作修复后完整资源验收。
+- 原始RED/GREEN、最终检查和公开原生实验已归档到专属SDD目录；Task2正在scoped re-review，尚未标完整验收完成。
+- 桌面内置Codex已更新为0.167.0-alpha.4.1，独立CLI仍0.145.0；新schema单独保存，未启动宿主控制服务或更改真实Hook配置。
+
+- Task2 fix1独立复审Approved，原两Important均ADDRESSED，无修复diff新增阻断项。实现与代码审阅门完成，完整原生验收仍未通过；依据设计阶段一并列验证安排，继续Task3来源探测，不关闭检查点A或发行验收门。
