@@ -1,0 +1,16 @@
+{
+  "fixtureVersion": 1,
+  "evidence": "synthetic_negative_case_not_observed",
+  "codexVersion": "0.145.0",
+  "input": {
+    "session_id": "test-session",
+    "turn_id": "test-turn",
+    "hook_event_name": "PostToolUse",
+    "cwd": "/测试/示例",
+    "tool_name": "request_user_input",
+    "tool_response": {
+      "cancelled": true
+    }
+  },
+  "caseIntent": "负面案例：假设返回含cancelled字段，未观察到真实宿主此形状，不据此推断请求解除"
+}

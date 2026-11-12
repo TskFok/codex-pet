@@ -1,0 +1,16 @@
+[package]
+name = "pet-bridge"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pet-core = { path = "../pet-core" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10.9"
+base64 = "0.22.1"
+uuid = { version = "1.23.1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.26.0"

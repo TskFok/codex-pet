@@ -1,0 +1,14 @@
+{
+  "fixtureVersion": 1,
+  "evidence": "synthetic_negative_case_not_observed",
+  "codexVersion": "0.145.0",
+  "input": {
+    "session_id": "test-session",
+    "turn_id": "test-turn",
+    "hook_event_name": "PreToolUse",
+    "cwd": "/测试/示例",
+    "tool_name": "Bash",
+    "tool_input": {}
+  },
+  "caseIntent": "负面案例：普通工具开始不能证明Stop之后继续执行"
+}

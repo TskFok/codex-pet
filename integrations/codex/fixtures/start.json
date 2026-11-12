@@ -1,0 +1,12 @@
+{
+  "fixtureVersion": 1,
+  "evidence": "synthetic_documented_shape_not_live",
+  "codexVersion": "0.145.0",
+  "input": {
+    "session_id": "test-session",
+    "turn_id": "test-turn",
+    "hook_event_name": "UserPromptSubmit",
+    "cwd": "/测试/示例",
+    "prompt": "仅测试提示词"
+  }
+}

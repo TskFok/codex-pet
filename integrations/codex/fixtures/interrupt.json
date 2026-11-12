@@ -1,0 +1,12 @@
+{
+  "fixtureVersion": 1,
+  "evidence": "synthetic_current_docs_not_version_verified",
+  "codexVersion": null,
+  "input": {
+    "session_id": "test-session",
+    "turn_id": "test-turn",
+    "hook_event_name": "Interrupt",
+    "cwd": "/测试/示例"
+  },
+  "caseIntent": "当前官方文档描述Interrupt；锁定0.145.0源码事件表没有此项，实际二进制覆盖未验"
+}

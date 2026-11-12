@@ -1,0 +1,14 @@
+{
+  "fixtureVersion": 1,
+  "evidence": "synthetic_negative_case_not_observed",
+  "codexVersion": "0.145.0",
+  "input": {
+    "session_id": "test-session",
+    "turn_id": "test-turn",
+    "hook_event_name": "PreToolUse",
+    "cwd": "/测试/示例",
+    "tool_name": "request_user_input",
+    "tool_input": {}
+  },
+  "caseIntent": "负面案例：request_user_input 是否实际经过工具Hook尚未验证"
+}

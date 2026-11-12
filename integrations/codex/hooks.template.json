@@ -1,0 +1,57 @@
+{
+  "description": "仅供结构审阅；请用 pet-bridge hooks plan-install 生成实际平台的配置，不直接安装此模板",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/替换为绝对路径/pet-bridge' codex --installation-id 00000000-0000-4000-8000-000000000000",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnADsAIAAmACAAJwBDADoAXAD/ZmJjOk6eW0WW742EX1wAcABlAHQALQBiAHIAaQBkAGcAZQAuAGUAeABlACcAIABjAG8AZABlAHgAIAAtAC0AaQBuAHMAdABhAGwAbABhAHQAaQBvAG4ALQBpAGQAIAAnADAAMAAwADAAMAAwADAAMAAtADAAMAAwADAALQA0ADAAMAAwAC0AOAAwADAAMAAtADAAMAAwADAAMAAwADAAMAAwADAAMAAwACcAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
+            "timeout": 1,
+            "statusMessage": "Codex 桌宠通知（pet-bridge/v1）"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/替换为绝对路径/pet-bridge' codex --installation-id 00000000-0000-4000-8000-000000000000",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnADsAIAAmACAAJwBDADoAXAD/ZmJjOk6eW0WW742EX1wAcABlAHQALQBiAHIAaQBkAGcAZQAuAGUAeABlACcAIABjAG8AZABlAHgAIAAtAC0AaQBuAHMAdABhAGwAbABhAHQAaQBvAG4ALQBpAGQAIAAnADAAMAAwADAAMAAwADAAMAAtADAAMAAwADAALQA0ADAAMAAwAC0AOAAwADAAMAAtADAAMAAwADAAMAAwADAAMAAwADAAMAAwACcAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
+            "timeout": 1,
+            "statusMessage": "Codex 桌宠通知（pet-bridge/v1）"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/替换为绝对路径/pet-bridge' codex --installation-id 00000000-0000-4000-8000-000000000000",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnADsAIAAmACAAJwBDADoAXAD/ZmJjOk6eW0WW742EX1wAcABlAHQALQBiAHIAaQBkAGcAZQAuAGUAeABlACcAIABjAG8AZABlAHgAIAAtAC0AaQBuAHMAdABhAGwAbABhAHQAaQBvAG4ALQBpAGQAIAAnADAAMAAwADAAMAAwADAAMAAtADAAMAAwADAALQA0ADAAMAAwAC0AOAAwADAAMAAtADAAMAAwADAAMAAwADAAMAAwADAAMAAwACcAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
+            "timeout": 1,
+            "statusMessage": "Codex 桌宠通知（pet-bridge/v1）"
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/替换为绝对路径/pet-bridge' codex --installation-id 00000000-0000-4000-8000-000000000000",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnADsAIAAmACAAJwBDADoAXAD/ZmJjOk6eW0WW742EX1wAcABlAHQALQBiAHIAaQBkAGcAZQAuAGUAeABlACcAIABjAG8AZABlAHgAIAAtAC0AaQBuAHMAdABhAGwAbABhAHQAaQBvAG4ALQBpAGQAIAAnADAAMAAwADAAMAAwADAAMAAtADAAMAAwADAALQA0ADAAMAAwAC0AOAAwADAAMAAtADAAMAAwADAAMAAwADAAMAAwADAAMAAwACcAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
+            "timeout": 1,
+            "statusMessage": "Codex 桌宠通知（pet-bridge/v1）"
+          }
+        ]
+      }
+    ]
+  }
+}
