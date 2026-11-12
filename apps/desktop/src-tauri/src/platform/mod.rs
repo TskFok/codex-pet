@@ -3,8 +3,8 @@ mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
-use std::{fmt, thread, time::Duration};
-use tauri::{Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+use std::fmt;
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Debug)]
 pub struct PlatformError(tauri::Error);
@@ -29,6 +29,7 @@ pub fn create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError> {
         .decorations(false)
         .shadow(false)
         .transparent(true)
+        .background_color(tauri::window::Color(0, 0, 0, 0))
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
@@ -38,63 +39,40 @@ pub fn create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError> {
     #[cfg(target_os = "windows")]
     let builder = windows::configure(builder);
     let window = builder.build()?;
-    window.set_ignore_cursor_events(true)?;
-    window.on_window_event(|event| {
-        if let tauri::WindowEvent::Moved(position) = event {
-            eprintln!("桌宠窗口位置：{},{}", position.x, position.y);
-        }
-    });
-
-    let app = app.clone();
-    thread::spawn(move || {
-        let mut ignoring = true;
-        let mut dragging = crate::windows::DragTracker::default();
-        while let Some(window) = app.get_webview_window("pet") {
-            // 使用物理坐标差后除以当前 DPI；不要依赖透明像素隐式穿透。
-            let result = (|| -> tauri::Result<bool> {
-                let visible = window.is_visible()? && !window.is_minimized()?;
-                let ignore = if visible {
-                    let cursor = app.cursor_position()?;
-                    let origin = window.inner_position()?;
-                    let scale = window.scale_factor()?;
-                    let hit = crate::windows::hits_pet(
-                        (cursor.x - f64::from(origin.x)) / scale,
-                        (cursor.y - f64::from(origin.y)) / scale,
-                    );
-                    #[cfg(target_os = "macos")]
-                    let down = macos::left_button_down();
-                    #[cfg(target_os = "windows")]
-                    let down = windows::left_button_down();
-                    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-                    let down = false;
-                    if let Some((x, y)) =
-                        dragging.update((cursor.x, cursor.y), down, hit, (origin.x, origin.y))
-                        && (x, y) != (origin.x, origin.y)
-                    {
-                        window.set_position(PhysicalPosition::new(x, y))?;
-                    }
-                    !hit
-                } else {
-                    true
-                };
-                if ignore != ignoring {
-                    window.set_ignore_cursor_events(ignore)?;
-                    ignoring = ignore;
-                    if std::env::var_os("PET_DIAGNOSTICS_DIR").is_some() {
-                        eprintln!("桌宠输入忽略：{ignore}");
-                    }
-                }
-                Ok(visible)
-            })();
-            let visible = match result {
-                Ok(visible) => visible,
-                Err(error) => {
-                    eprintln!("桌宠命中区更新失败：{error}");
-                    break;
-                }
-            };
-            thread::sleep(Duration::from_millis(if visible { 16 } else { 250 }));
-        }
-    });
+    #[cfg(target_os = "macos")]
+    macos::install_input(&window)?;
+    #[cfg(target_os = "windows")]
+    windows::install_input(&window)?;
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::Value> {
+    macos::route_report(window)
+}
+
+/// 操作整个桌宠窗口组，调用者不能只隐藏 macOS 的 Canvas 子窗。
+pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app;
+        macos::set_visible(visible)?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri::Manager;
+        if let Some(window) = app.get_webview_window("pet") {
+            if visible {
+                window.show()?;
+            } else {
+                window.hide()?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn shutdown_input() {
+    macos::shutdown_input();
 }

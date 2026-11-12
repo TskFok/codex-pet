@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { FrameCadence } from './diagnostics/frame-cadence';
 import { FrameMeter } from './diagnostics/frame-meter';
 import { recordReport, runtimeInfo } from './diagnostics/platform-report';
@@ -9,6 +10,7 @@ let meter = new FrameMeter();
 let drawCount = 0;
 let visible = false;
 let phase = 'animation';
+let operatingSystem = '';
 let frame = 0;
 let cadence = new FrameCadence();
 
@@ -33,8 +35,8 @@ function draw(timestamp: number): void {
   context.stroke();
   context.strokeStyle = '#a9d6c499';
   context.beginPath();
-  context.moveTo(35, 161);
-  context.lineTo(80 + movement * 30, 161);
+  context.moveTo(50, 121);
+  context.lineTo(80 + movement * 20, 121);
   context.stroke();
   drawCount += 1;
   if (phase !== 'idle') meter.record(timestamp);
@@ -61,8 +63,15 @@ function updateVisibility(next: boolean): void {
 async function refresh(): Promise<void> {
   const runtime = await runtimeInfo();
   phase = runtime.phase;
+  operatingSystem = runtime.os;
   updateVisibility(runtime.visible && !document.hidden);
 }
+
+canvas.addEventListener('pointerdown', (event) => {
+  if (operatingSystem === 'windows') {
+    void invoke('pointer_input', { input: { phase: 'down', x: event.offsetX, y: event.offsetY, button: event.button } }).catch(console.error);
+  }
+});
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) updateVisibility(false);

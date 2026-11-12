@@ -14,70 +14,63 @@
 
 资源实验：分别以静止（idle）、动画（animation）、隐藏（hidden）运行 5 分钟；记录主进程与 WebView 子进程 CPU/RSS、隐藏绘制计数。实际测量结果与锁定预算在后续记录，不以猜测当实测。
 
-## 可复现实验入口
+## 修复 round1：当前输入结构与验证状态
 
-先使用 `.node-version` 的 Node 24.11.1、pnpm 10.28.2 和 `rust-toolchain.toml` 的 Rust 1.93.1：
+2026-11-12：移除光标/按键轮询和从采样推断的拖动锚点。点击路由由操作系统在真实按下时处理，拖动只由本次实际 mouseDown / PointerDown 触发。
+
+- macOS：Tauri + Canvas 显示窗固定整窗穿透，原生 CPU 椭圆输入代理位于其下方。代理是 parent，Canvas 是 above child；WindowServer 拖动代理时整组移动。两窗同为不可聚焦窗口，显隐使用 `platform::set_pet_visible` 操作整组，关闭/Exit 清理代理关联与强引用。
+- 代理底色与 Canvas 不透明实体一致，细节仍由 Canvas 显示。此为几何原型；Task9 须使用缓存 AlphaMask 并复核半透明边界。轨迹移入实体内部，避免在输入遮罩外绘图。
+- Windows：以 `SetWindowRgn` 设置系统椭圆区域，按真实客户区物理尺寸与窗口/客户区偏移换算。实际 PointerDown 坐标、按钮和阶段在 Rust 入口验证后调用原生拖动。初始区域失败会使初始化失败；后续失败不删除回调、不提交缓存，下次窗口生命周期事件重试。
+- 原有 GetCursorPos/GetAsyncKeyState/NSEvent.pressedMouseButtons 路径已移除，不存在其一次失败后永久终止输入线程的路径。单次原生拖动失败不保留关闭状态，下一个真实 Down 仍可处理。
+- macOS 14+ 禁用背景节流；Windows/macOS 13 对该 API 无支持保证。隐藏/文档不可见时停止 RAF。未使用猜测的 CGS 私有 ABI，也未增加输入监控权限。
+
+### 可复现入口
+
+使用 `.node-version` 的 Node 24.11.1、pnpm 10.28.2、Rust 1.93.1：
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm --filter @codex-pet/desktop test -- frame-meter
+cargo test -p pet-desktop --lib
 pnpm --filter @codex-pet/desktop tauri build --debug --no-bundle
-# macOS：每阶段单独运行 300 秒，完成后终止该次启动的进程。
 PET_VALIDATION_PHASE=animation PET_DIAGNOSTICS_DIR="$PWD/diagnostics/animation" target/debug/pet-desktop
-# phase 可选 idle / animation / hidden。默认 animation；idle 只画首帧，hidden 在创建后立即隐藏。
 ```
 
-Windows PowerShell 使用相同测试、构建命令，再运行：
+Windows PowerShell 在相同测试/构建后设置 `$env:PET_VALIDATION_PHASE = 'animation'`、`$env:PET_DIAGNOSTICS_DIR = "$PWD\diagnostics\animation"`，再运行 `.\target\debug\pet-desktop.exe`。phase 可选 idle / animation / hidden；默认动画，idle 只画首帧，hidden 在初始化时隐藏整组。
 
-```powershell
-$env:PET_VALIDATION_PHASE = 'animation'
-$env:PET_DIAGNOSTICS_DIR = "$PWD\diagnostics\animation"
-.\target\debug\pet-desktop.exe
-```
+仅指定 `PET_DIAGNOSTICS_DIR` 才写入 `runtime.jsonl`，每 60 秒报告 OS/版本/架构、WebView 与依赖版本、可见/聚焦、DPI、位置/大小、累计绘制数及真实绘制间隔。macOS 另有 `runtime.inputRoute`，记录两窗编号/父子关系/显隐/位置和公开原生命中查询。原型的全局光标字段已移除。
 
-`runtime.jsonl` 每 60 秒记录一段，包含 OS 版本/架构、实际 WebView 版本、Tauri 和前端依赖版本、窗口可见/聚焦状态、DPI、位置/大小、全局光标位置、累计绘制数及实际绘制间隔。间隔不做去噪，P95 为 nearest-rank；恢复可见后开始新段，不把隐藏时间混入绘制间隔。只有显式提供 `PET_DIAGNOSTICS_DIR` 才落盘；默认仅控制台诊断。五分钟运行应包含至少四个完整 60 秒段（最后一段与终止时间可能竞争）。
+### 本轮原生证据
 
-macOS 的 CUA 观察使用临时 `.app` 包装同一调试二进制以便识别窗口；此包装不等同正式应用包签名或分发验证。
+测试环境仍为 macOS 27.0.1 / aarch64 / 缩放 2 / WebKit 22625.1.29.11.28。公开 [NSWindow 命中查询](https://developer.apple.com/documentation/appkit/nswindow/windownumber(at:belowwindowwithwindownumber:)) 使用真实 mouseDown 的路由规则，避免 CUA 定向事件不改变全局指针的问题。
 
-## 实现与平台限制
-
-- 窗口在创建时设置透明、无边框、无阴影、置顶、`focused(false)` 和 `focusable(false)`，从不调用 focus。macOS 另外关闭启动时强制激活，使用 Accessory 激活策略。
-- 绘制角色为椭圆几何测试图；图标逐字节复制自 `pet-output/yueying-cape-dancer/run/frames/idle/00.png`，ICO 仅封装同一 PNG，不修改原素材。
-- 实体命中椭圆为中心 `(80,84)`、半轴 `(52,60)` 逻辑像素。16ms 轮询全局光标，换算当前窗口 DPI，按命中区切换整窗 `set_ignore_cursor_events`；透明轨迹也穿透。轮询在快速进入实体并立即点击时存在最多一个周期的竞争，不能当作逐像素原生命中测试。
-- 实体按下后按初始锚点拖动，平台层分别读取 macOS `NSEvent.pressedMouseButtons` / Windows `GetAsyncKeyState(VK_LBUTTON)`，避免异步 WebView IPC 丢失当前拖动事件；在透明区按下再移入实体不会捕获拖动。混合 DPI 和跨屏拖动仍须真机验证。
-- macOS 14+ 设置 `background_throttling(Disabled)`；Windows 和 macOS 13 没有对应支持保证。隐藏/文档不可见时取消 RAF，原生命中轮询降到 250ms；休眠由系统暂停，恢复后的实际系统行为仍需专项实验。
-- macOS 2.12.1+ `macOSPrivateApi` 已无效，因此没有沿用旧配置。
-- CI 只检查与上传调试二进制：macOS arm64 / x86_64、Windows x86_64；没有自动发布，也没有用 CI 构建代替 Windows 10/11 桌面交互验收。
-
-参考：[Tauri 配置](https://v2.tauri.app/reference/config/#windowconfig)、[窗口输入 API](https://v2.tauri.app/reference/javascript/api/namespacewindow/#setignorecursorevents)、[Vite 集成](https://v2.tauri.app/start/frontend/vite/)、[实际锁定 Tauri 2.12.4 源码](https://github.com/tauri-apps/tauri/tree/tauri-v2.12.4)、[GitHub runner 标签](https://github.com/actions/runner-images#available-images)。
-
-## 当前平台覆盖
-
-| 环境 | 构建/单测 | 窗口/输入/60秒/资源 |
+| 实验 | 实体 / 透明角结果 | 结论 |
 | --- | --- | --- |
-| macOS 27.0.1，Apple Silicon | 本机已构建，最终命令结果见下文 | 60秒帧率与主进程预算通过；输入/合成等未验，见下文 |
-| macOS 13，Apple Silicon | 未验证 | 未验证；不支持后台节流开关，必须单独测 |
-| macOS Intel | CI 已配置，尚未运行 | 未验证，需 Intel 真机 |
-| Windows 10 22H2 x64 | 未验证 | 未验证，需原生 Windows、WebView2、MSVC 构建工具与交互桌面 |
-| Windows 11 x64 | 未验证 | 未验证，同上 |
+| WK + 输入覆盖视图，ignore=false | 两点都命中 renderer 29409 | 自动 alpha 路由未成立 |
+| 移除覆盖视图，opaque=false、背景 alpha=0 | 两点都命中 renderer 29471 | 覆盖视图不是该问题来源 |
+| 显式透明 under-page 背景 | 两点都命中 renderer 29481 | 不能依赖本机 WK 合成的自动透明命中 |
+| 独立 CPU 椭圆，窗口 29502 | 实体命中 29502；角命中 108/2606 | 原生 CPU alpha 命中成立 |
+| 独立 proxy 29522 / render 29523 child | 实体命中 29522；角命中 2606 | 固定穿透显示窗与代理分工成立 |
+| 实际 Tauri renderer 29549 / proxy 29550 | 实体命中 29550；角命中 108，等于 belowProxy 108 | 当前组合的系统路由通过 |
 
-## 待人工交互验收的精确步骤
+所有组的相对测试位置是客户区 `(80,84)` 与 `(5,5)`；前面三组未打印绝对坐标，保留相对点定义及原始诊断位置，不补造绝对值。CPU/实际代理组打印的屏幕坐标为实体 `(200,718)`、角 `(125,797)`，原生 frame 为 `(120,622,160,180)`。父窗移动到 `(220,722)` 后，子窗同幅移动，两个测试点成为 `(300,818)`、`(225,897)`；orderOut 两窗都隐藏，orderFront 两窗都恢复；解除父子关联并关闭后两窗都不可见、parent=0。
 
-必须使用真实系统指针和键盘；本次 CUA 定向事件不会同步系统全局鼠标位置与按键状态，不能替代以下步骤。
+实际 Tauri 组合在 60.008 秒报告 1798 个绘制间隔，P95=50ms，≤50ms 为 99.555%，focused=false；120.008 秒段 P95=50ms、≤50ms 为 99.610%。隐藏组 renderer 29561 / proxy 29562 均不可见，60.103 / 120.204 秒累计绘制数均为 0，两测试点均命中下层。执行中断期间隐藏进程继续产生日志，共保留 23 条、均为 0 次绘制/两窗隐藏；这不包含 CPU/RSS 采样，不充当完整资源验证。
 
-1. 启动一个专用点击计数底板/测试页面，将它放到桌宠初始位置 `(120,180)` 后面；角色客户区为 160×180 逻辑像素。
-2. 聚焦底板或临时编辑器并输入文字，启动桌宠。观察当前应用和输入光标是否保留，继续打字 60 秒，核对 JSONL 中 `runtime.focused=false`。不要通过点击桌宠来改变初始焦点。
-3. 观察完整桌面合成，确认窗口外缘能看到底板，切换底板活动状态后角色仍置顶。单独截取桌宠窗口的图像不能证明合成或置顶。
-4. 将真实指针移到角色客户区 `(80,84)`，按住左键拖动 100 逻辑像素，再释放。核对原生日志「桌宠窗口位置」或下一条 JSONL 的 `runtime.position`；缩放为 2 时应约移动 200 物理像素。再次按住拖动，确认释放状态复位。
-5. 点击客户区 `(5,5)`、`(155,5)` 等透明角，底板计数应递增；点击实体中心应不递增。另测「透明区按下后拖入实体」，不得捕获桌宠拖动。重复快速进入并点击以评估 16ms 轮询竞争。
-6. 保持角色可见、焦点在另一应用，运行 60 秒。读取该完整段 `frames.intervalsMs`，独立计算 `≤50ms` 的比例须≥95%，不能仅看平均 FPS。若发生隐藏/跨屏/休眠，该次需重测。
-7. 分别运行 idle / animation / hidden 各 300 秒，记录进程范围及 WebView 归属，隐藏段累计绘制数须为 0。混合 DPI、显示器移除与休眠恢复单独登记，不由本机默认显示器结果代替。
+原始输出：`diagnostics/fix-round1-proxy/runtime.jsonl`、`diagnostics/fix-round1-hidden/runtime.jsonl`；独立原生对照源码/输出与 RED/GREEN/完整检查日志保存在 `.superpowers/sdd/2026-11-11-tauri-desktop-pet/`。恢复后进程检查确认四类实验进程均不存在。CUA 访问隐藏应用超时，未据此宣称实际 Tauri 自然退出已验证；独立双窗关闭对照已通过。
 
-Windows 10 22H2 和 Windows 11 需分别执行；CI 的 Windows Server 2022 构建成功也不代表这两个系统交互验收成功。
+### 当前覆盖与后续接口约束
 
-Windows 原生按键读取采用 [GetAsyncKeyState 官方约定](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getasynckeystate) 的负值高位判断；它读取物理左键，并受当前桌面/UIPI 权限条件影响。切换物理左右键或前台提升权限的场景尚未验证。macOS 使用 [NSEvent.pressedMouseButtons](https://developer.apple.com/documentation/appkit/nsevent/pressedmousebuttons)。
+- 前端 6 项、Rust workspace 43 项测试、类型检查、fmt/clippy、macOS debug 构建通过。Windows 10/11 原生构建/交互、macOS 13/Intel、混合 DPI、休眠、真实指针完整拖动、另一应用持续保持键盘焦点和完整视觉合成仍待验证；三目标 CI 已配置，未实际执行。
+- 真实指针验收仍按开头五个固定用例：透明角点击应到专用底板；实体按下拖动、释放、再次拖动；快速跨边界点击；透明区按下再移入实体不能触发拖动。当前原生路由查询不代替完整物理交互流程。
+- Task8 的位置、显隐和关闭必须操作整个窗口组，不能只移动/隐藏 Canvas child；诊断快照边界问题（审阅 Minor1）按主控安排留 Task8 整合。本轮未扩大为诊断重构。
+- Task9 将原型椭圆替换为缓存 AlphaMask；Task12 重做最终资源和平台验收。既定预算保留在以下历史表中，当前修复版本尚未完成完整资源预算验收。
 
-## 2026-11-11 本机最终实测与阶段一预算
+参考：[Tauri 配置限制](https://v2.tauri.app/reference/config/#windowconfig)、[Windows 系统区域及所有权](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowrgn)。
+
+## 69fbf87 原型历史资源基线（2026-11-11）
+
+以下十五分钟数据全部来自 `69fbf8734fe2f11a5d6501823bc09dae32a5484a` 的轮询原型。修复后输入架构已改变；这些数值不作为当前版本的新测量，完整资源验收留给 Task12。
 
 环境：macOS 27.0.1 / aarch64，缩放 2，WebKit 22625.1.29.11.28；Node 24.11.1 / Rust 1.93.1 / Tauri 2.12.4，debug 二进制（最低部署目标 13.0，SDK 27.0）。三个阶段各 300 秒、61 次资源采样，排除前 10 秒预热后统计。
 
@@ -96,7 +89,7 @@ Windows 原生按键读取采用 [GetAsyncKeyState 官方约定](https://learn.m
 | 180.002s | 1799 | 34ms | 100.000% | true / false |
 | 240.002s | 1799 | 34ms | 100.000% | true / false |
 
-本机未聚焦连续 60 秒绘制指标通过，不能由此推广 Windows/macOS 13。静止段四次完整诊断的累计绘制数均为 1；隐藏段至 240.401 秒的四次完整诊断均为 0、visible=false、documentVisible=false。采样在 300 秒终止，与第五次诊断定时器竞争，因此没有把不存在的第五段当作数据。
+69fbf87 原型的本机未聚焦 60 秒绘制指标通过；此结论不推广到修复后的版本或 Windows/macOS 13。静止段四次完整诊断的累计绘制数均为 1；隐藏段至 240.401 秒的四次完整诊断均为 0、visible=false、documentVisible=false。采样在 300 秒终止，与第五次诊断定时器竞争，因此没有把不存在的第五段当作数据。
 
 阶段一数值预算现锁定如下（以后调整必须记录依据）：
 
@@ -106,8 +99,8 @@ Windows 原生按键读取采用 [GetAsyncKeyState 官方约定](https://learn.m
 | 全部专用 WebView 进程 | 10% | 2% | 1% | 128 MiB |
 | 完整应用合计 | 20% | 7% | 2% | 256 MiB |
 
-本机主进程实测满足预算。WebKit 候选数据落在 WebView 预算内，但因归属未严格证明，**完整应用预算仍未验收**。Windows 与其他 macOS 版本/架构使用相同目标，等待各自原生实测，不能以本机预算通过代替。
+69fbf87 原型主进程实测满足预算。WebKit 候选数据落在 WebView 预算内，但因归属未严格证明，**完整应用预算仍未验收**。Windows 与其他 macOS 版本/架构使用相同目标，等待各自原生实测，不能以本机预算通过代替。
 
 原始证据在仓库 git-ignored `diagnostics/resources/{animation,idle,hidden}/{samples,runtime}.jsonl`，汇总为 `diagnostics/resources/summary.json`，底板输入证据为 `diagnostics/resources/underlay-input.log`；采样脚本和底板源码保留在本地任务报告目录。实验结束后，三个主进程、底板和上述 WebKit 候选 PID 均已退出。
 
-最终自动化结果：前端 6 个测试通过，Rust workspace 40 个测试通过，类型检查、前端构建、fmt、clippy、Tauri debug `--no-bundle` 构建通过。真实透明合成、置顶、穿透、拖动、完整焦点场景、macOS 13/Intel/混合 DPI/休眠和 Windows 10/11 仍未验证。
+69fbf87 当时的自动化结果：前端 6 个测试通过，Rust workspace 40 个测试通过，类型检查、前端构建、fmt、clippy、Tauri debug `--no-bundle` 构建通过。真实透明合成、置顶、穿透、拖动、完整焦点场景、macOS 13/Intel/混合 DPI/休眠和 Windows 10/11 仍未验证。

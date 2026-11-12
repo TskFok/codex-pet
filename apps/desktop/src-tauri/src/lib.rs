@@ -7,7 +7,6 @@ use std::{
     io::Write,
     sync::{Mutex, OnceLock},
 };
-use tauri::Manager;
 
 #[derive(Default)]
 struct DiagnosticState(Mutex<()>);
@@ -25,9 +24,10 @@ struct RuntimeInfo {
     focused: bool,
     scale_factor: f64,
     position: tauri::PhysicalPosition<i32>,
-    cursor_position: tauri::PhysicalPosition<f64>,
     size: tauri::PhysicalSize<u32>,
     phase: String,
+    #[cfg(target_os = "macos")]
+    input_route: Option<serde_json::Value>,
 }
 
 #[tauri::command]
@@ -44,11 +44,9 @@ fn runtime_info(window: tauri::WebviewWindow) -> Result<RuntimeInfo, String> {
         focused: window.is_focused().map_err(|e| e.to_string())?,
         scale_factor: window.scale_factor().map_err(|e| e.to_string())?,
         position: window.inner_position().map_err(|e| e.to_string())?,
-        cursor_position: window
-            .app_handle()
-            .cursor_position()
-            .map_err(|e| e.to_string())?,
         size: window.inner_size().map_err(|e| e.to_string())?,
+        #[cfg(target_os = "macos")]
+        input_route: platform::route_report(&window),
         phase: std::env::var("PET_VALIDATION_PHASE").unwrap_or_else(|_| "animation".into()),
     })
 }
@@ -101,22 +99,48 @@ fn record_diagnostic(
     Ok(())
 }
 
+#[tauri::command]
+fn pointer_input(
+    window: tauri::WebviewWindow,
+    input: windows::PointerInput,
+) -> Result<bool, String> {
+    windows::dispatch_pointer_input(input, || window.start_dragging()).map_err(|e| e.to_string())
+}
+
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
     let builder = builder.activate_ignoring_other_apps(false);
-    builder
+    #[cfg(target_os = "macos")]
+    let builder = builder.on_window_event(|window, event| {
+        if window.label() == "pet" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+            platform::shutdown_input();
+        }
+    });
+    let app = builder
         .manage(DiagnosticState::default())
-        .invoke_handler(tauri::generate_handler![runtime_info, record_diagnostic])
+        .invoke_handler(tauri::generate_handler![
+            runtime_info,
+            record_diagnostic,
+            pointer_input
+        ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             platform::create_pet_window(app.handle())?;
             if std::env::var("PET_VALIDATION_PHASE").as_deref() == Ok("hidden") {
-                app.get_webview_window("pet").unwrap().hide()?;
+                platform::set_pet_visible(app.handle(), false)?;
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("桌宠窗口启动失败");
+    app.run(|_, event| {
+        #[cfg(target_os = "macos")]
+        if matches!(event, tauri::RunEvent::Exit) {
+            platform::shutdown_input();
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = event;
+    });
 }
