@@ -44,3 +44,10 @@
 - 桌面内置Codex已更新为0.167.0-alpha.4.1，独立CLI仍0.145.0；新schema单独保存，未启动宿主控制服务或更改真实Hook配置。
 
 - Task2 fix1独立复审Approved，原两Important均ADDRESSED，无修复diff新增阻断项。实现与代码审阅门完成，完整原生验收仍未通过；依据设计阶段一并列验证安排，继续Task3来源探测，不关闭检查点A或发行验收门。
+
+## 2026-11-12：Codex接入候选实现
+
+- e7953e4实现pet-bridge转换/安装与撤销、脱敏probe、版本化能力表。工作区Rust61项（本任务18项）及严格bridge Clippy/fmt通过，独立需求/质量审阅进行中，未标完整Task3。
+- 公开PermissionRequest缺精确关联ID；提问工具取消可能不触发PostToolUse；当前0.145.0源码事件表无Interrupt/模型阶段Hook。未伪造待处理解除或成功，也未把合成fixture当真实宿主事件。
+- 独立临时配置停在正常Hook信任界面，未信任；已向用户请求具体隔离验证包的一次正常信任与ephemeral测试许可，答案pending。当前宿主配置、安全设置、远程控制/daemon均未改。
+- 设计必需的审批/提问解除、现有桌面事件接入、两平台精确导航和Windows运行仍未解决/未验，检查点A保持未通过。
