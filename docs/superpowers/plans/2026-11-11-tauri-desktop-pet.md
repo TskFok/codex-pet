@@ -8,7 +8,7 @@
 
 **技术栈：** Tauri 2、Rust 1.93.1、Node 24 LTS、pnpm 10.28.2、Vite、TypeScript、Vitest；Rust 使用 serde/serde_json、Tokio、Axum、notify、image，具体兼容补丁版本在任务 1/2 安装时锁定并提交锁文件。前端先使用 TypeScript DOM 组件，不增加大型 UI 框架。
 
-**设计依据：** [双平台桌宠设计](../specs/2026-11-11-tauri-desktop-pet-design.md)。实现者开始前同时阅读设计和本计划。
+**设计依据：** [双平台桌宠设计](../specs/2026-11-11-tauri-desktop-pet-design.md)。主控持有全计划；子代理使用任务brief与共享约束，按需读取设计对应章节。
 
 ## 全局约束
 
@@ -17,6 +17,7 @@
 - “首版验收目标为 macOS 13+（Apple Silicon、Intel）及 Windows 10 22H2 / Windows 11 x64。”Windows ARM64 不在首版目标。
 - “先覆盖同一台电脑、同一登录用户下的原生桌面程序和本地 CLI 会话。”WSL、SSH、容器、云端接入另行扩展。
 - “第一版提供提醒与会话跳转；任务回答、批准、执行控制不在本版范围。”
+- 2026-11-16用户确认分级支持：Codex按准确版本提供可验证的生命周期提醒/会话跳转，精确审批/提问等待和解除不列为Codex首版保证；Harness仍提供完整待处理提醒。来源卡必须区分已验证、不支持、未验证。
 - 复用现有素材，不覆盖 `pet-output/` 原包；不包含自动补帧、Live2D、多桌宠和养成系统。
 - 默认 30 FPS、60 FPS 可选；手动启动、声音关闭，开机启动可选；后台通知不抢键盘焦点。
 - 待发送区上限 2,000 条、10 MiB、24 小时；历史最多 1,000 条、7 天；去重记录独立保留至少 24 小时。
@@ -24,7 +25,7 @@
 - 正常通知端到端 P95 小于 500 ms；30 FPS 模式连续 60 秒至少 95% 绘制间隔不超过 50 ms；离线恢复单独统计。
 - 两平台分别记录待机、动画、隐藏各 5 分钟资源占用；隐藏/休眠停止绘制。资源预算在阶段一实测后锁定。
 - 个人测试包可未签名；正式签名、公证、商店和自动更新服务不在本计划范围。Windows 验收不能用交叉编译代替。
-- 本文件描述未来任务。本次只交付计划，不预先安装依赖、创建产品工程或修改用户宿主配置。
+- 当前处于用户已授权的子代理逐任务实现阶段，可以安装项目依赖和创建工程；真实来源安装/信任仍为显式操作，不在开发中默认修改宿主配置。
 
 ## 审阅重点
 
@@ -71,7 +72,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 `1 → 2 → 3 → 4 → 检查点 A → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12`。
 
-检查点 A：两平台窗口和后台绘制可行，Codex 桌面事件路径明确，Harness 精确跳转路径明确。记录宿主/OS/WebView 版本、未覆盖能力与修订后的估算。Windows 环境未落实或关键能力缺失时，保留真实状态并解决该问题，不把之后的界面开发当成验证完成。
+检查点 A：记录两平台窗口/后台绘制、分级后的Codex生命周期、Harness完整事件与精确跳转证据。代码审阅门与真实运行验收分开；缺环境的实测项保留未通过，并进入最终发行阻断清单，可以继续不依赖该缺口的后续实现，不把界面开发当验证完成。来源能力与用户批准范围不符的代码问题仍须先修复，不能以未验标签掩盖。
 
 每个任务先运行会失败的行为测试，再实现并运行同一测试；配置和脚手架不写仅检查配置文本的镜像测试，原生行为使用真实应用实验。每次只提交该任务文件，提交信息用中文；提交前运行相关检查。独立任务接口发生变化时，同步更新本计划与全部消费者。
 
@@ -113,10 +114,10 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** `normalize_codex(input: &serde_json::Value, identity: &SourceIdentity, now_ms: u64) -> Result<Vec<EventEnvelope>, AdapterError>`；`plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, InstallError>`、`apply_hook_patch(path: &Path, patch: &HookPatch) -> Result<(), InstallError>`；`HookPatch { before_hash, after_bytes, owned_entry_ids }`，应用前检查并发修改。CLI `pet-bridge codex [--probe-dir PATH]` 从 stdin 接收原始 Hook；探测模式只输出脱敏后的统一事件文件。
 
-- [ ] **1. 写失败测试。** 版本化样例覆盖 UserPromptSubmit、PermissionRequest、Stop、Interrupt、继续执行、提问、取消；`Stop → outcome Unknown`。`merge_preserves_foreign_hooks` 断言自有接入安装两次不重复，撤销不改第三方条目；中文/空格路径作为一个正确命令参数。原始 Hook 包含 100 KiB 提示词时仍产出小于 64 KiB 的状态事件，摘要不包含原始提示词和工具参数。
+- [ ] **1. 写失败测试。** 版本化样例覆盖已支持生命周期、有限子代理身份与各不支持路径；PermissionRequest、提问、取消、继续不伪造等待/解除；`Stop → outcome Unknown`。`merge_preserves_foreign_hooks` 断言自有接入安装两次不重复，撤销不改第三方条目；中文/空格路径作为一个正确命令参数。原始 Hook 包含 100 KiB 提示词时仍产出小于 64 KiB 的状态事件，摘要不包含原始提示词和工具参数。
 - [ ] **2. 运行并确认失败。** `cargo test -p pet-bridge --test codex --test hook_install`。
-- [ ] **3. 实现。** Hook 输出 `{}`，诊断只写 stderr，绝不返回批准/拒绝决定。安装备份、清单和内容 hash；撤销只移除仍匹配的自有条目，不用旧备份覆盖用户新修改。默认不更改真实配置，安装是显式操作。先保留 probe-dir 路径，可靠投递由任务 6 接入。
-- [ ] **4. 实机验证。** `cargo test -p pet-bridge --test codex --test hook_install`；在独立测试配置中安装 Hook，分别触发真实 Codex 桌面与 CLI 的开始、等待、原应用回答/取消、停止和中断。两平台记录原始事件类型到 capability 表和脱敏 fixture。若无可靠的待处理解除/提问路径，验证现有宿主连接能否补充；不能用另启 app-server 代替。以至少 3 个会话验证 `codex://threads/<id>`；能力缺失须解决或修订设计，再过检查点 A。
+- [ ] **3. 实现。** Hook 输出 `{}`，诊断只写 stderr，绝不返回批准/拒绝决定。安装备份、清单和内容 hash；撤销只移除仍匹配的自有条目，不用旧备份覆盖用户新修改。默认不更改真实配置，安装是显式操作。按用户确认的分级范围声明能力，Codex精确待处理同步为不支持；可证明的ThreadSpawn身份仅做有限生命周期映射，未知父关系或终止路径不猜。先保留 probe-dir 路径，可靠投递由任务 6 接入。
+- [ ] **4. 实机验证。** `cargo test -p pet-bridge --test codex --test hook_install`；在明确授权的配置中验证各版本已声明生命周期；不把0.145的CLI开始证据外推桌面、停止或中断。Codex精确待处理同步按已批准范围记为不支持，可靠终态/子代理范围逐项记录。真实两平台覆盖及至少3会话的 `codex://threads/<id>` 保留到检查点A与任务11/12，不以另起server或未验标签冒充通过；无环境可先完成实现和能力记录。
 - [ ] **5. 提交。** `git commit -m "添加 Codex 桌宠通知适配与接入验证"`。
 
 ### Task 4:Harness 通知插件与精确会话入口
@@ -129,7 +130,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **2. 运行并确认失败。** `pnpm --filter @codex-pet/deepseek-integration test -- events open-session`。
 - [ ] **3. 实现并锁定跳转路径。** 订阅公开事件，不修改 agent-loop；提问观察不领取请求。先验证 Host/Client 公开扩展点能否定向调用 `uiWorkspace.openSession`，注意远程事件有显式白名单。若不足，维护最小 `dsh://session/<encoded-id>` 补丁：宿主新增 `apps/desktop/src/session-deep-link.ts` 和对应测试，修改 `main.ts`、`ipc.ts`、`preload-app.ts`，Client 插件接受目标会话；覆盖冷启动排队、热启动和 Windows second-instance。补丁保存在本仓库，在 Harness 现有分支验证；修改前读取其 AGENTS.md，使用受支持的 dsh profile 启动方式。
 - [ ] **4. 验证。** 上述单测通过；两平台真实 Harness 至少 3 个会话，原应用回答、审批撤回后请求解除；点击目标链接在隐藏、已启动、冷启动状态准确打开会话。插件路径或所需补丁、兼容版本及安装方法必须写入报告，不能只留下候选路径。运行宿主补丁相关定向测试与其要求的检查，不默认跑全仓测试。
-- [ ] **5. 提交并过检查点 A。** `git commit -m "添加 Harness 通知插件与会话跳转接入"`。将两个来源的实测结论和 Windows 环境写入报告后，再继续任务 5。
+- [ ] **5. 提交并过检查点 A。** `git commit -m "添加 Harness 通知插件与会话跳转接入"`。将分级来源结论、已有实测和Windows缺项写入报告；未验项保持阻断最终发行，可继续任务5的独立实现。
 
 ### Task 5:日志、去重与有界待发送区
 
