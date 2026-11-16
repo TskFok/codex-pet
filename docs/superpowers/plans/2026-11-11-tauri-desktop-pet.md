@@ -114,11 +114,13 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** `normalize_codex(input: &serde_json::Value, identity: &SourceIdentity, now_ms: u64) -> Result<Vec<EventEnvelope>, AdapterError>`；`plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, InstallError>`、`apply_hook_patch(path: &Path, patch: &HookPatch) -> Result<(), InstallError>`；`HookPatch { before_hash, after_bytes, owned_entry_ids }`，应用前检查并发修改。CLI `pet-bridge codex [--probe-dir PATH]` 从 stdin 接收原始 Hook；探测模式只输出脱敏后的统一事件文件。
 
-- [ ] **1. 写失败测试。** 版本化样例覆盖已支持生命周期、有限子代理身份与各不支持路径；PermissionRequest、提问、取消、继续不伪造等待/解除；`Stop → outcome Unknown`。`merge_preserves_foreign_hooks` 断言自有接入安装两次不重复，撤销不改第三方条目；中文/空格路径作为一个正确命令参数。原始 Hook 包含 100 KiB 提示词时仍产出小于 64 KiB 的状态事件，摘要不包含原始提示词和工具参数。
-- [ ] **2. 运行并确认失败。** `cargo test -p pet-bridge --test codex --test hook_install`。
-- [ ] **3. 实现。** Hook 输出 `{}`，诊断只写 stderr，绝不返回批准/拒绝决定。安装备份、清单和内容 hash；撤销只移除仍匹配的自有条目，不用旧备份覆盖用户新修改。默认不更改真实配置，安装是显式操作。按用户确认的分级范围声明能力，Codex精确待处理同步为不支持；可证明的ThreadSpawn身份仅做有限生命周期映射，未知父关系或终止路径不猜。先保留 probe-dir 路径，可靠投递由任务 6 接入。
+- [x] **1. 写失败测试。** 版本化样例覆盖已支持生命周期、有限子代理身份与各不支持路径；PermissionRequest、提问、取消、继续不伪造等待/解除；`Stop → outcome Unknown`。`merge_preserves_foreign_hooks` 断言自有接入安装两次不重复，撤销不改第三方条目；中文/空格路径作为一个正确命令参数。原始 Hook 包含 100 KiB 提示词时仍产出小于 64 KiB 的状态事件，摘要不包含原始提示词和工具参数。
+- [x] **2. 运行并确认失败。** `cargo test -p pet-bridge --test codex --test hook_install`。
+- [x] **3. 实现。** Hook 输出 `{}`，诊断只写 stderr，绝不返回批准/拒绝决定。安装备份、清单和内容 hash；撤销只移除仍匹配的自有条目，不用旧备份覆盖用户新修改。默认不更改真实配置，安装是显式操作。按用户确认的分级范围声明能力，Codex精确待处理同步为不支持；可证明的ThreadSpawn身份仅做有限生命周期映射，未知父关系或终止路径不猜。先保留 probe-dir 路径，可靠投递由任务 6 接入。
 - [ ] **4. 实机验证。** `cargo test -p pet-bridge --test codex --test hook_install`；在明确授权的配置中验证各版本已声明生命周期；不把0.145的CLI开始证据外推桌面、停止或中断。Codex精确待处理同步按已批准范围记为不支持，可靠终态/子代理范围逐项记录。真实两平台覆盖及至少3会话的 `codex://threads/<id>` 保留到检查点A与任务11/12，不以另起server或未验标签冒充通过；无环境可先完成实现和能力记录。
-- [ ] **5. 提交。** `git commit -m "添加 Codex 桌宠通知适配与接入验证"`。
+- [x] **5. 提交。** `git commit -m "添加 Codex 桌宠通知适配与接入验证"`。
+
+按用户2026-11-16确认的分级目标，实现/能力记录已复审通过（2120d1b）；步骤4真实桌面、Windows与3会话导航仍未通过，保留未勾选，转A/任务11-12发行阻断。继续独立Harness实现不表示这些验收已完成。
 
 ### Task 4:Harness 通知插件与精确会话入口
 
