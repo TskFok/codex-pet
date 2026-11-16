@@ -10,7 +10,22 @@ use std::{
 
 pub type InstallError = String;
 const MARKER: &str = "Codex 桌宠通知（pet-bridge/v1）";
-const EVENTS: [&str; 4] = ["UserPromptSubmit", "PermissionRequest", "Stop", "Interrupt"];
+const EVENTS: [&str; 5] = [
+    "UserPromptSubmit",
+    "Stop",
+    "Interrupt",
+    "SubagentStart",
+    "SubagentStop",
+];
+// 识别旧版自有审批条目以迁移，不继续安装不处理的事件。
+const RECOGNIZED_EVENTS: [&str; 6] = [
+    "UserPromptSubmit",
+    "PermissionRequest",
+    "Stop",
+    "Interrupt",
+    "SubagentStart",
+    "SubagentStop",
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -89,7 +104,7 @@ pub fn plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, In
     let mut installation_id = None;
     let mut previous_entries = Vec::new();
     // 仅识别完整匹配的自有条目。标记相同但内容改过时拒绝覆盖。
-    for event in EVENTS {
+    for event in RECOGNIZED_EVENTS {
         if let Some(groups) = hooks.get(event).and_then(Value::as_array) {
             for old in groups {
                 if old["hooks"].as_array().is_some_and(|handlers| {
@@ -131,13 +146,18 @@ pub fn plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, In
     let id = installation_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let owned = group(bridge, &id)?;
     let mut owned_entry_ids = Vec::new();
+    for (event, groups) in hooks.iter_mut() {
+        groups
+            .as_array_mut()
+            .expect("已验证数组")
+            .retain(|old| !previous_entries.contains(&entry_id(event, old)));
+    }
     for event in EVENTS {
         let groups = hooks
             .entry(event)
             .or_insert_with(|| json!([]))
             .as_array_mut()
             .expect("已验证数组");
-        groups.retain(|old| !previous_entries.contains(&entry_id(event, old)));
         if !groups.contains(&owned) {
             groups.push(owned.clone());
         }

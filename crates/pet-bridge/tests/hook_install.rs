@@ -186,3 +186,132 @@ fn binary_upgrade_changes_path_without_changing_installation_identity() {
         "echo foreign"
     );
 }
+
+// 固定v1旧配置形状，事件范围故意不随当前安装器常量变化。
+fn legacy_v1_config(bridge: &Path) -> Value {
+    let id = "11111111-1111-4111-8111-111111111111";
+    let path = bridge.to_str().unwrap();
+    use base64::Engine;
+    let legacy_script = format!(
+        "$ErrorActionPreference='Stop'; & '{}' codex --installation-id '{}'; exit $LASTEXITCODE",
+        path.replace('\'', "''"),
+        id
+    );
+    let legacy_bytes: Vec<_> = legacy_script
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    let legacy_windows = format!(
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {}",
+        base64::engine::general_purpose::STANDARD.encode(legacy_bytes)
+    );
+    let group = json!({"hooks":[{"type":"command","command":format!("'{}' codex --installation-id {id}",path.replace('\'',"'\"'\"'")),"commandWindows":legacy_windows,"timeout":1,"statusMessage":"Codex 桌宠通知（pet-bridge/v1）"}]});
+    json!({"description":"旧版用户配置","hooks":{"UserPromptSubmit":[group.clone()],"PermissionRequest":[group.clone(),{"hooks":[{"type":"command","command":"foreign approval hook"}]}],"Stop":[group.clone()],"Interrupt":[group]}})
+}
+
+#[test]
+fn legacy_install_migrates_to_handled_lifecycles_without_orphaning_old_permission_hook() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("hooks.json");
+    let old_bridge = dir.path().join("旧 版本/pet-bridge");
+    let legacy = legacy_v1_config(&old_bridge);
+    let old = serde_json::to_vec(&legacy).unwrap();
+    std::fs::write(&path, &old).unwrap();
+    let new_bridge = dir.path().join("新版本/pet-bridge");
+    let patch = plan_hook_install(&old, &new_bridge).unwrap();
+    apply_hook_patch(&path, &patch).unwrap();
+    let migrated: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        migrated["hooks"]["PermissionRequest"],
+        json!([{"hooks":[{"type":"command","command":"foreign approval hook"}]}])
+    );
+    for name in [
+        "UserPromptSubmit",
+        "Stop",
+        "Interrupt",
+        "SubagentStart",
+        "SubagentStop",
+    ] {
+        let command = migrated["hooks"][name][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(command.contains("新版本"));
+        assert!(command.ends_with(" --installation-id 11111111-1111-4111-8111-111111111111"));
+        let mut input = json!({"hook_event_name":name,"session_id":"root","turn_id":"own-turn"});
+        if name.starts_with("Subagent") {
+            input["agent_id"] = json!("child");
+        }
+        let identity = pet_core::SourceIdentity {
+            source: pet_core::Source::Codex,
+            installation_id: "i".into(),
+            instance_id: "p".into(),
+        };
+        assert_eq!(
+            pet_bridge::codex::normalize_codex(&input, &identity, 1)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+    let second = plan_hook_install(&patch.after_bytes, &new_bridge).unwrap();
+    assert_eq!(second.after_bytes, patch.after_bytes);
+    let removal = plan_hook_remove(&second.after_bytes, &second).unwrap();
+    apply_hook_patch(&path, &removal).unwrap();
+    let after: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        after["hooks"]["PermissionRequest"],
+        migrated["hooks"]["PermissionRequest"]
+    );
+    for groups in after["hooks"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name.as_str() != "PermissionRequest")
+        .map(|(_, value)| value)
+    {
+        assert!(groups.as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn modified_legacy_permission_hook_blocks_migration_and_is_preserved_by_removal() {
+    let bridge = std::env::temp_dir().join("pet-bridge");
+    let mut legacy = legacy_v1_config(&bridge);
+    legacy["hooks"]["PermissionRequest"][0]["hooks"][0]["timeout"] = json!(2);
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    assert!(plan_hook_install(&bytes, &bridge).is_err());
+    let old = legacy_v1_config(&bridge);
+    let canonical = serde_json::to_vec(&old).unwrap();
+    let known = plan_hook_install(&canonical, &bridge).unwrap();
+    let removal = plan_hook_remove(&bytes, &known).unwrap();
+    let after: Value = serde_json::from_slice(&removal.after_bytes).unwrap();
+    assert_eq!(
+        after["hooks"]["PermissionRequest"],
+        legacy["hooks"]["PermissionRequest"]
+    );
+}
+
+#[test]
+fn fresh_defaults_only_subscribe_to_events_the_adapter_handles() {
+    let patch = plan_hook_install(b"{}", &std::env::temp_dir().join("pet-bridge")).unwrap();
+    let value: Value = serde_json::from_slice(&patch.after_bytes).unwrap();
+    assert!(value["hooks"].get("PermissionRequest").is_none());
+    let identity = pet_core::SourceIdentity {
+        source: pet_core::Source::Codex,
+        installation_id: "i".into(),
+        instance_id: "p".into(),
+    };
+    for (name, _) in value["hooks"].as_object().unwrap() {
+        let mut input = json!({"hook_event_name":name,"session_id":"root","turn_id":"turn"});
+        if name.starts_with("Subagent") {
+            input["agent_id"] = json!("child");
+        }
+        assert_eq!(
+            pet_bridge::codex::normalize_codex(&input, &identity, 1)
+                .unwrap()
+                .len(),
+            1,
+            "{name}"
+        );
+    }
+}

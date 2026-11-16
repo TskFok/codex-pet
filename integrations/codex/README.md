@@ -1,10 +1,32 @@
-# Codex 桌宠 Hook 探测接入
+# Codex 桌宠 Hook 接入
 
-当前交付转换器、显式安装/撤销工具和脱敏探测模式。正常通知投递留待任务 6；当前现有桌面会话的完整审批、提问、解除和精确跳转尚未验证，不能据此宣称完整 Codex 支持。版本与逐项证据见 [compatibility.json](compatibility.json) 和[验证记录](../../docs/validation/desktop-pet/codex.md)。
+首版按用户确认的分级范围提供生命周期提醒。**当前适配器不支持 Codex 精确审批、提问等待及其回答/拒绝/取消/撤回解除同步**，不会生成猜测的请求事件；Harness 的完整待处理目标与通用请求协议保留。正常投递由任务 6 接入，目前提供转换、显式安装/撤销及脱敏 probe-dir。能力证据见 [compatibility.json](compatibility.json) 和[验证记录](../../docs/validation/desktop-pet/codex.md)。
 
-## 先生成可审阅计划
+| 能力 | 当前实现和证据等级 |
+| --- | --- |
+| UserPromptSubmit 开始 | 已实现；仅 0.145.0 隔离 CLI 的一次真实 Hook 已验证 |
+| Stop / SubagentStop | 已实现 Unknown 结束；不等于任务成功；真实停止未验证 |
+| Interrupt | 已实现根回合中断；0.145.0 无此事件，alpha4/alpha11 有准确源码；未实测 |
+| ThreadSpawn 子代理 | 有限身份与正常开始/结束映射；源码和合成测试，未实测 |
+| 精确待处理同步 | 当前适配器不支持，默认不订阅 PermissionRequest |
+| 精确会话跳转 | 任务 11 待实现/验收，真实验证 0/3 |
+| Windows / 现有桌面覆盖 | 未验证，保留到检查点 A 与任务 11/12 的发行门 |
 
-不会默认读取或修改真实用户配置。`--config` 与 `--bridge` 使用绝对路径；目标父目录须已存在。推荐先在临时测试目录执行：
+## 身份与生命周期边界
+
+根事件使用公开 `session_id`；带 `agent_id` 的 UserPromptSubmit 与 SubagentStart/SubagentStop 使用实际子线程 ID 作为统一 `sessionId`，`turnId` 保留该子线程的 `turn_context.sub_id`。Stop、SubagentStop 均转为 Unknown 结束；不把普通 Stop 或主线程 Interrupt 扇出到全部子代理。
+
+准确 0.169.0-alpha.11.1 源码说明原始 `session_id` 是根与全部后代共享的身份，不是直接父线程 ID。当前载荷没有直接父 ID，故 `parentSessionId` 留空；嵌套子代理不猜父，不采信未公开的 parent 字段，也不从 transcript 路径推导。通用核心与 Harness 的真实父关系/折叠能力不变。
+
+ThreadSpawn 在 alpha11 的 Startup/Fork 可产生 SubagentStart，正常子回合结束产生 SubagentStop；内部/系统子代理及部分终止路径没有这套覆盖，子代理 Interrupt 被 producer 排除。独立核对的 0.145.0 源码只证明 Startup 开始与正常 SubagentStop，不能把 Fork 覆盖倒推旧版。子代理取消、异常退出、所有内部代理和直接父关系都不保证；源码存在不等于桌面已触发。
+
+安装 ID 由计划生成 UUID，写入命令/清单，重复安装和路径升级保留。CLI 默认观察范围为 `hook-session:<统一 sessionId>`，因此根、多个子线程不会共享根作用域；同一个子线程多次 Hook 保持稳定。`--instance-id` 可显式提供已验证宿主的运行实例。这个兜底不表示宿主进程生命周期、存活或重启。
+
+`sequence` 和 `upstreamEventId` 不造值；无序多轮当前投影可能 Unknown，但每个明确 turn 的结束事实保留独立历史/提醒，精确去重，不重开已知终态，不清其他回合 pending/未读。Task5 必须持久化私有 `confirmed_turn_ends` 等因果标记，不能只存公开快照。不生成快照、心跳或断线推断。
+
+## 生成并显式应用安装计划
+
+默认只订阅实际处理的五个生命周期：UserPromptSubmit、Stop、Interrupt、SubagentStart、SubagentStop。宿主版本可能忽略不支持的事件；安装成功不等于来源能力验证。
 
 ```sh
 cargo build -p pet-bridge
@@ -13,7 +35,7 @@ PET_BRIDGE="$PWD/target/debug/pet-bridge"
 "$PET_BRIDGE" hooks plan-install --config "$PET_TEST_ROOT/hooks.json" --bridge "$PET_BRIDGE" --plan "$PET_TEST_ROOT/install-plan.json"
 ```
 
-标准输出是合并后的 Hook JSON；计划文件包含原始内容 SHA-256、修改后字节和自有条目哈希。生成计划不会写 `hooks.json`。`hooks.template.json` 仅作结构示例，路径与安装 ID 必须由安装器生成。
+`--config` 和 `--bridge` 必须为绝对路径，父目录已存在。stdout 是合并后的配置供审阅；计划包含原内容 SHA-256、修改后字节和自有条目哈希，不写 hooks.json。模板仅供结构审阅，须用安装器生成实际路径与 UUID。
 
 审阅后显式应用：
 
@@ -21,53 +43,34 @@ PET_BRIDGE="$PWD/target/debug/pet-bridge"
 "$PET_BRIDGE" hooks apply --config "$PET_TEST_ROOT/hooks.json" --plan "$PET_TEST_ROOT/install-plan.json"
 ```
 
-安装器保留第三方字段和条目，应用前、提交前各核对配置哈希。同目录独占锁防止多个安装器交叠；以 `0600` 创建备份、清单、临时文件（Unix），原子替换后同步目录。崩溃遗留的锁必须确认没有安装操作正在运行后人工清理。用户编辑器不遵守此锁，最后一次检查与文件替换间仍有极短竞态窗口；这不是跨进程文件系统 CAS。
+重复安装不重复；路径升级保留 UUID。升级会识别旧 v1 完整未改的四事件配置，移除自有 PermissionRequest、添加两个子代理事件，保留第三方审批 Hook；可能保留空的 PermissionRequest 数组，但没有本适配器命令。旧自有条目带保留标记但内容被修改时明确报冲突，避免覆盖；无法再识别为自有的条目按外来内容保留。迁移后用**最新已应用计划/清单**撤销全部当前条目，不拿旧清单代替升级清单。
 
-应用生成 `.hooks.json.pet-bridge.<事务 UUID>.backup.json` 与 `.manifest.json`。备份只供审查和人工恢复，撤销不会直接恢复旧备份。重复安装不增加条目；升级二进制路径时保留安装 UUID，仅替换完整匹配生成格式的旧条目。修改过的自有条目会阻止自动安装升级，避免覆盖用户改动。Codex 通常需要重新审阅变更后的 Hook。
+应用前和提交前各核对内容哈希，同目录独占锁防止安装器交叠；Unix 以 0600 创建备份/清单/临时文件，原子替换并同步目录。生成 `.hooks.json.pet-bridge.<UUID>.backup.json` 与 `.manifest.json`。不遵守锁的外部编辑器仍有检查后竞态，不声称文件系统 CAS；崩溃遗留锁需确认无安装器运行后人工清理。
 
-## 正常信任与探测
+## 正常信任与脱敏探测
 
-非托管 Hook 必须由用户在原应用的信任界面审阅；CLI 使用 `/hooks`，桌面在 Hooks 设置或提示处审阅。安装器不写宿主信任状态，不改安全设置，不返回批准或拒绝。所有 Hook 调用（包括无效 JSON、超限输入、文件写入错误和参数错误）在 stdout 只输出 `{}`，诊断只在 stderr。
-
-当前安装命令没有正常投递目的地，执行会诊断“通知投递尚未接入”。要独立检查归一化行为，可明确指定探测目录：
+不会默认读取或更改真实用户 Hook/安全设置。非托管 Hook 必须由用户在来源正常界面审阅/信任（CLI `/hooks`，桌面 Hooks 设置或提示）；安装器不写信任状态，不返回批准/拒绝。Hook stdout 固定 `{}`，错误只 stderr，不含原始 JSON。正常投递未接入时明确诊断。
 
 ```sh
 printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"test-session","turn_id":"test-turn","prompt":"仅测试"}' |
   "$PET_BRIDGE" codex --probe-dir "$PET_TEST_ROOT/events"
 ```
 
-要验证宿主真实 Hook，需在隔离配置的命令后明确添加 `--probe-dir '绝对测试目录'`，再由用户正常信任**修改后的具体命令**。这属于测试配置，修改后的条目不会匹配原安装清单；保留原配置与测试配置的哈希，测试结束清理隔离目录。不要自动安装到真实 `$CODEX_HOME`、绕过信任或为制造审批修改真实安全设置。
+真实 Hook 验证要在明确授权的隔离配置命令后添加 `--probe-dir '绝对测试目录'`，再正常信任修改后的具体内容。测试修改会使原安装清单不匹配，须保留具体配置/哈希并仅清理隔离目录；不能自动装到真实来源或绕过信任。
 
-探测目录仅当前用户可访问；不使用已开放组/其他用户权限的现有目录。保存 `.installation-id` 和 UUID 命名的统一事件，不保存原始 Hook、提示词、工具参数、消息正文、cwd 或 transcript。输入完整读取至 8 MiB 上限，先归一化再应用 64 KiB 统一事件限制，超限不截断 JSON 后继续解析。没有可靠事件摘要时省略摘要。
+probe 目录仅当前用户访问，保存 `.installation-id` 与 UUID 事件文件，不保存原始 Hook、提示词、参数、消息正文、cwd 或 transcript。输入上限 8 MiB，先归一化再检查 64 KiB 事件上限；超限 JSON 不截断解析，无可靠摘要时省略。
 
-## 事件与身份边界
+2026-11-12 已授权的一次隔离 CLI 测试只观察到一条 378 字节开始事件。`fixtures/live-start-cli-0.145.json` 是身份/时间脱敏的统一事件，非原始 Hook。其余 fixture 均注明合成/负面证据；alpha11 子代理 fixture 未标实测。本轮没有重复或扩用该授权，旧临时四事件配置未迁移、未运行。
 
-- `UserPromptSubmit` → `turn_started`；`Stop` → `turn_ended/unknown`；候选 `Interrupt` → `turn_ended/interrupted`。锁定0.145.0源码事件表没有Interrupt，当前文档与实际版本须分别核对，不能声称旧CLI支持。`Stop` 不证明任务成功，也不能排除其他 Hook 要求继续执行。
-- `PermissionRequest` 没有公开可与解除事件配对的请求 ID。本实现不会造出待处理请求，也不会用工具完成、用户新消息、超时或静默伪造解除。提问、回答、拒绝、取消、撤回和继续执行仍有能力缺口。
-- 安装 ID 是安装计划生成并写入命令的 UUID，重复安装、二进制路径升级不变。`--instance-id` 可由以后已验证的宿主连接显式提供。
-- 公开 Hook 无宿主进程生命周期 ID，默认 `instance_id = hook-session:<session_id>` 只表示“会话观察范围”，不代表宿主进程实例或重启检测。未给安装 ID 的手工探测将 UUID 持久化到探测目录。
-- `sequence` 与 `upstreamEventId` 保持缺省；不从本机时间戳或 Hook 到达顺序捏造上游顺序。每次 Hook 调用有独立事件 UUID；后续可靠投递必须留存并复用该统一事件。
-- 当前跳过带 `agent_id` 的 Hook 和子代理事件，避免将父 `session_id` 误归成子代理会话。不产生快照、断线、心跳或存活推断。
-
-## 只撤销仍匹配的自有条目
-
-使用**最近一次已应用安装/升级**的计划或同目录生成的安装清单：
+## 按当前清单撤销
 
 ```sh
 "$PET_BRIDGE" hooks plan-remove --config "$PET_TEST_ROOT/hooks.json" --manifest "$PET_TEST_ROOT/install-plan.json" --plan "$PET_TEST_ROOT/remove-plan.json"
 "$PET_BRIDGE" hooks apply --config "$PET_TEST_ROOT/hooks.json" --plan "$PET_TEST_ROOT/remove-plan.json"
 ```
 
-先审阅计划再应用。用户后来新增或修改的第三方条目保留；用户修改过的自有条目也保留，需人工检查。不得用旧备份覆盖当前配置。
+先审阅再应用。只删除最新安装清单内容哈希仍匹配的自有条目；第三方更新、后来新增配置和改过的自有条目保留。不以旧备份覆盖当前文件。
 
-## Windows 命令
+## Windows
 
-生成的 `commandWindows` 调用 `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand`。UTF-16LE 编码脚本使用调用运算符 `&` 和转义后的单引号路径，把 `codex`、`--installation-id`、UUID 作为独立参数，继承标准输入/输出。它不关闭 ExecutionPolicy、不提权、不禁用安全设置。锁定 CLI 0.145.0 的官方命令运行器使用 `COMSPEC` / `cmd.exe /C`；额外编码避免中文、空格、单引号和 shell 元字符成为外层命令结构。
-
-Windows 原生执行测试已写入 `tests/hook_install.rs`，本机 macOS 未执行；桌面 alpha.4.1 的 Windows shell 行为与真实 Windows 接入仍待验。PowerShell 启动开销与 Interrupt 的 1 秒默认上限也须实测。
-
-## 当前已验证范围补充
-
-已在用户明确授权的临时CODEX_HOME中，通过正常CLI信任界面信任三项受支持Hook，并只运行一次0.145.0 ephemeral离线测试；真实观察到一条378字节开始事件。`fixtures/live-start-cli-0.145.json`是身份/时间脱敏后的统一事件，未保存原始Hook。其他七份仍是明确标记的合成样例。审批/提问/解除、停止/中断、现有桌面与Windows仍未通过真实验收。
-
-无序多轮投影可能保持Unknown，但每个明确turn_id的结束事实都会保留历史/提醒并精确去重；不重开已结束回合，不清其他回合待处理或未读历史。私有终态因果标记必须纳入Task5持久化，不能仅保存公开快照。新版桌面alpha.4.1精确源码含Interrupt/模型尝试事件，不能以源码存在代替实际观察或请求解除屏障。
+`commandWindows` 使用 `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand`，UTF16LE 脚本以转义单引号路径和独立参数调用 bridge。没有修改 ExecutionPolicy、提权或禁用安全设置。锁定 0.145.0 源码证明外层为 COMSPEC/cmd /C；中文/空格/shell 元字符不作为外层结构解释。Windows 原生 stdin/stdout、编码、启动时间、1秒上限及当前桌面版本 shell 均未验，原生测试不能由 macOS 结果或交叉构建代替。

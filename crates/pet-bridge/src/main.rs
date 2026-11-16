@@ -1,5 +1,5 @@
 use pet_bridge::{
-    codex::{MAX_HOOK_BYTES, normalize_codex},
+    codex::{MAX_HOOK_BYTES, hook_session_id, normalize_codex},
     hook_install::{HookPatch, apply_hook_patch, plan_hook_install, plan_hook_remove},
 };
 use pet_core::{Source, SourceIdentity};
@@ -146,10 +146,7 @@ fn run_hook(args: Vec<String>) -> Result<(), String> {
                 .ok_or("缺少安装 ID；探测请显式指定 --probe-dir")?,
         )?,
     };
-    let session = input
-        .get("session_id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or("Hook 缺少会话标识")?;
+    let session = hook_session_id(&input)?;
     // 公开 Hook 不提供宿主进程生命周期；使用已知会话作用域，绝不每次调用随机生成实例。
     let instance_id = options
         .get("--instance-id")
@@ -180,7 +177,7 @@ fn run_hook(args: Vec<String>) -> Result<(), String> {
         .and_then(serde_json::Value::as_str)
         == Some("PermissionRequest")
     {
-        eprintln!("pet-bridge：审批 Hook 缺少公开请求关联与解除能力，未生成待处理提醒");
+        eprintln!("pet-bridge：当前适配器不支持 Codex 精确审批/提问等待及解除，未生成待处理提醒");
     }
     Ok(())
 }

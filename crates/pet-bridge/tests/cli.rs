@@ -152,3 +152,35 @@ fn install_plan_requires_explicit_apply_and_remove_uses_manifest() {
     let after: Value = serde_json::from_slice(&std::fs::read(config).unwrap()).unwrap();
     assert!(after["hooks"]["Stop"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn default_hook_observation_scope_tracks_actual_child_instead_of_shared_root() {
+    let dir = tempfile::tempdir().unwrap();
+    let probe = dir.path().join("events");
+    for agent in ["child-a", "child-b", "child-a"] {
+        let bytes=serde_json::to_vec(&json!({"hook_event_name":"SubagentStart","session_id":"shared-root","agent_id":agent,"turn_id":"child-turn"})).unwrap();
+        let result = hook(&["--probe-dir", probe.to_str().unwrap()], &bytes);
+        assert!(result.status.success());
+        assert_eq!(result.stdout, b"{}\n");
+    }
+    let events: Vec<Value> = std::fs::read_dir(&probe)
+        .unwrap()
+        .filter_map(|file| {
+            let path = file.unwrap().path();
+            (path.extension().is_some_and(|ext| ext == "json"))
+                .then(|| serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap())
+        })
+        .collect();
+    assert_eq!(events.len(), 3);
+    let installation = events[0]["identity"]["installationId"].clone();
+    for event in events {
+        let agent = event["sessionId"].as_str().unwrap();
+        assert!(matches!(agent, "child-a" | "child-b"));
+        assert_eq!(
+            event["identity"]["instanceId"],
+            format!("hook-session:{agent}")
+        );
+        assert_eq!(event["identity"]["installationId"], installation);
+        assert!(event.get("parentSessionId").is_none());
+    }
+}

@@ -14,19 +14,6 @@
         ]
       }
     ],
-    "PermissionRequest": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'/替换为绝对路径/pet-bridge' codex --installation-id 00000000-0000-4000-8000-000000000000",
-            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnADsAIAAmACAAJwBDADoAXAD/ZmJjOk6eW0WW742EX1wAcABlAHQALQBiAHIAaQBkAGcAZQAuAGUAeABlACcAIABjAG8AZABlAHgAIAAtAC0AaQBuAHMAdABhAGwAbABhAHQAaQBvAG4ALQBpAGQAIAAnADAAMAAwADAAMAAwADAAMAAtADAAMAAwADAALQA0ADAAMAAwAC0AOAAwADAAMAAtADAAMAAwADAAMAAwADAAMAAwADAAMAAwACcAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
-            "timeout": 1,
-            "statusMessage": "Codex 桌宠通知（pet-bridge/v1）"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
@@ -41,6 +28,32 @@
       }
     ],
     "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/替换为绝对路径/pet-bridge' codex --installation-id 00000000-0000-4000-8000-000000000000",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnADsAIAAmACAAJwBDADoAXAD/ZmJjOk6eW0WW742EX1wAcABlAHQALQBiAHIAaQBkAGcAZQAuAGUAeABlACcAIABjAG8AZABlAHgAIAAtAC0AaQBuAHMAdABhAGwAbABhAHQAaQBvAG4ALQBpAGQAIAAnADAAMAAwADAAMAAwADAAMAAtADAAMAAwADAALQA0ADAAMAAwAC0AOAAwADAAMAAtADAAMAAwADAAMAAwADAAMAAwADAAMAAwACcAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
+            "timeout": 1,
+            "statusMessage": "Codex 桌宠通知（pet-bridge/v1）"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/替换为绝对路径/pet-bridge' codex --installation-id 00000000-0000-4000-8000-000000000000",
+            "commandWindows": "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQA9ACcAUwB0AG8AcAAnADsAIAAmACAAJwBDADoAXAD/ZmJjOk6eW0WW742EX1wAcABlAHQALQBiAHIAaQBkAGcAZQAuAGUAeABlACcAIABjAG8AZABlAHgAIAAtAC0AaQBuAHMAdABhAGwAbABhAHQAaQBvAG4ALQBpAGQAIAAnADAAMAAwADAAMAAwADAAMAAtADAAMAAwADAALQA0ADAAMAAwAC0AOAAwADAAMAAtADAAMAAwADAAMAAwADAAMAAwADAAMAAwACcAOwAgAGUAeABpAHQAIAAkAEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==",
+            "timeout": 1,
+            "statusMessage": "Codex 桌宠通知（pet-bridge/v1）"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
       {
         "hooks": [
           {

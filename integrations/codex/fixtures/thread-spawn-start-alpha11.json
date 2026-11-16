@@ -1,0 +1,17 @@
+{
+  "fixtureVersion": 1,
+  "evidence": "synthetic_exact_tag_source_shape_not_live",
+  "codexVersion": "0.169.0-alpha.11.1",
+  "source": "core/src/hook_runtime.rs; core/src/session/session.rs; hooks/src/schema.rs",
+  "input": {
+    "hook_event_name": "SubagentStart",
+    "session_id": "root-session",
+    "agent_id": "child-thread",
+    "agent_type": "default",
+    "turn_id": "child-turn",
+    "transcript_path": null,
+    "cwd": "/测试",
+    "model": "test",
+    "permission_mode": "default"
+  }
+}

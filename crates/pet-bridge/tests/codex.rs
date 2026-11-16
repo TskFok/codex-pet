@@ -65,16 +65,13 @@ fn huge_prompt_and_tool_arguments_never_enter_normalized_event() {
     assert!(!text.contains("秘密"));
 }
 #[test]
-fn invalid_identity_missing_turn_or_session_and_subagents_are_rejected() {
+fn invalid_source_identity_or_missing_turn_and_session_are_rejected() {
     let mut input = fixture("start");
     input["session_id"] = json!("");
     assert!(normalize_codex(&input, &identity(), 42).is_err());
     input = fixture("start");
     input.as_object_mut().unwrap().remove("turn_id");
     assert!(normalize_codex(&input, &identity(), 42).is_err());
-    input = fixture("start");
-    input["agent_id"] = json!("subagent");
-    assert!(normalize_codex(&input, &identity(), 42).unwrap().is_empty());
     let mut wrong = identity();
     wrong.source = Source::Deepseek;
     assert!(normalize_codex(&fixture("start"), &wrong, 42).is_err());
@@ -131,4 +128,130 @@ fn normalized_unsequenced_turns_keep_each_end_without_guessing_current_turn() {
         assert!(!store.apply(&event).should_notify);
     }
     assert_eq!(store.snapshot(), snapshot);
+}
+
+#[test]
+fn thread_spawn_lifecycle_uses_child_identity_and_own_turn_without_guessing_parent() {
+    use pet_core::{AttentionReason, SessionStatus, SessionStore};
+    let mut store = SessionStore::default();
+    let root = normalize_codex(&json!({"hook_event_name":"UserPromptSubmit","session_id":"root-session","turn_id":"root-turn"}), &identity(), 1).unwrap().remove(0);
+    store.apply(&root);
+    let mut request = root.clone();
+    request.event_id = "root-request".into();
+    request.kind = EventKind::AttentionRequested {
+        request_id: "root-approval".into(),
+        reason: AttentionReason::Approval,
+    };
+    store.apply(&request);
+    let mut child_end = None;
+    for name in ["thread-spawn-start-alpha11", "thread-spawn-stop-alpha11"] {
+        let mut input = fixture(name);
+        input["parent_session_id"] = json!("forged-direct-parent");
+        let event = normalize_codex(&input, &identity(), 2).unwrap().remove(0);
+        assert_eq!(event.session_id, "child-thread");
+        assert_eq!(event.turn_id.as_deref(), Some("child-turn"));
+        assert_eq!(event.parent_session_id, None);
+        assert_eq!(event.identity, identity());
+        assert_eq!(event.sequence, None);
+        let is_end = name.contains("stop");
+        assert_eq!(store.apply(&event).should_notify, is_end);
+        if is_end {
+            child_end = Some(event);
+        }
+    }
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.sessions.len(), 2);
+    let root = snapshot
+        .sessions
+        .iter()
+        .find(|session| session.key.session_id == "root-session")
+        .unwrap();
+    assert_eq!(root.status, SessionStatus::NeedsAttention);
+    assert_eq!(root.turn_id.as_deref(), Some("root-turn"));
+    assert_eq!(root.pending[0].id, "root-approval");
+    assert_eq!(snapshot.notifications.len(), 2);
+    assert!(snapshot.notifications.iter().all(|note| !note.read));
+    assert!(!store.apply(&child_end.unwrap()).should_notify);
+    assert!(
+        !store
+            .apply(
+                &normalize_codex(&fixture("thread-spawn-stop-alpha11"), &identity(), 4)
+                    .unwrap()
+                    .remove(0)
+            )
+            .should_notify
+    );
+    store.apply(
+        &normalize_codex(&fixture("thread-spawn-start-alpha11"), &identity(), 5)
+            .unwrap()
+            .remove(0),
+    );
+    assert_eq!(store.snapshot(), snapshot);
+}
+
+#[test]
+fn shared_root_does_not_merge_sibling_or_nested_thread_identities() {
+    use pet_core::SessionStore;
+    let mut store = SessionStore::default();
+    for agent in ["child-a", "child-b", "nested-child"] {
+        let mut input = fixture("thread-spawn-start-alpha11");
+        input["agent_id"] = json!(agent);
+        input["turn_id"] = json!(format!("{agent}-turn"));
+        input["parent_thread_id"] = json!("untrusted-field");
+        let event = normalize_codex(&input, &identity(), 1).unwrap().remove(0);
+        assert_eq!(event.session_id, agent);
+        assert_eq!(event.parent_session_id, None);
+        store.apply(&event);
+    }
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.sessions.len(), 3);
+    assert!(
+        snapshot
+            .sessions
+            .iter()
+            .all(|session| session.pending.is_empty() && session.parent_session_id.is_none())
+    );
+}
+
+#[test]
+fn user_prompt_agent_identity_is_supported_but_root_only_stop_and_interrupt_are_not_child_events() {
+    let mut input = fixture("start");
+    input["agent_id"] = json!("child-thread");
+    input["turn_id"] = json!("child-turn");
+    let event = normalize_codex(&input, &identity(), 1).unwrap().remove(0);
+    assert_eq!(event.session_id, "child-thread");
+    assert_eq!(event.turn_id.as_deref(), Some("child-turn"));
+    for name in ["stop", "interrupt"] {
+        let mut input = fixture(name);
+        input["agent_id"] = json!("child-thread");
+        assert!(normalize_codex(&input, &identity(), 2).unwrap().is_empty());
+    }
+}
+
+#[test]
+fn invalid_or_ambiguous_agent_identity_never_falls_back_to_root() {
+    for value in [
+        json!(""),
+        json!("  "),
+        json!(7),
+        json!(false),
+        json!("root-session"),
+    ] {
+        let mut input = fixture("thread-spawn-start-alpha11");
+        input["agent_id"] = value;
+        assert!(normalize_codex(&input, &identity(), 1).is_err(), "{input}");
+    }
+    for field in ["session_id", "agent_id", "turn_id"] {
+        let mut input = fixture("thread-spawn-start-alpha11");
+        input.as_object_mut().unwrap().remove(field);
+        assert!(normalize_codex(&input, &identity(), 1).is_err());
+    }
+    let mut input = fixture("start");
+    input["agent_id"] = json!(42);
+    assert!(normalize_codex(&input, &identity(), 1).is_err());
+    input["agent_id"] = Value::Null;
+    assert_eq!(
+        normalize_codex(&input, &identity(), 1).unwrap()[0].session_id,
+        "test-session"
+    );
 }

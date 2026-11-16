@@ -1,10 +1,11 @@
 {
   "schemaVersion": 1,
-  "checkedAt": "2026-11-12",
+  "checkedAt": "2026-11-16",
   "platform": {
     "os": "macOS 27.0.1",
     "build": "26A434",
-    "arch": "arm64"
+    "arch": "arm64",
+    "evidenceDate": "2026-11-12"
   },
   "hosts": [
     {
@@ -14,43 +15,74 @@
       "liveHookExecution": "partially_verified_start_only_in_isolated_cli",
       "taggedSourceInterruptEvent": false,
       "taggedSourceModelRequestHooks": false,
-      "normalTrust": "three_supported_events_trusted_through_normal_cli_ui",
+      "normalTrust": "historical_three_event_test_profile_2026_11_12_not_current_five_event_install",
       "observedHookKinds": [
         "turn_started"
-      ]
+      ],
+      "threadSpawnSourceCoverage": {
+        "tag": "rust-v0.145.0",
+        "startupStart": true,
+        "forkStart": false,
+        "normalStop": true,
+        "liveSubagentExecution": "unverified"
+      }
     },
     {
-      "kind": "existing_desktop",
+      "kind": "historical_desktop_binary",
       "embeddedCliVersion": "0.167.0-alpha.4.1",
       "hooksFeature": true,
       "liveHookExecution": "unverified",
-      "controlSocket": "absent",
+      "controlSocket": "historically_absent_not_a_current_connection_claim",
       "interruptEvent": "unverified",
       "modelRequestHooks": "unverified",
       "taggedSourceInterruptEvent": true,
       "taggedSourceModelRequestHooks": true,
-      "taggedSourceVersion": "rust-v0.167.0-alpha.4.1"
+      "taggedSourceVersion": "rust-v0.167.0-alpha.4.1",
+      "evidenceDate": "2026-11-12"
+    },
+    {
+      "kind": "existing_desktop",
+      "embeddedCliVersion": "0.169.0-alpha.11.1",
+      "versionEvidence": "controller_exact_version_research_2026_11_16",
+      "taggedSourceVersion": "rust-v0.169.0-alpha.11.1",
+      "taggedHookEventCount": 14,
+      "taggedSourceInterruptEvent": true,
+      "taggedSourceModelRequestHooks": true,
+      "liveHookExecution": "unverified",
+      "threadSpawnSourceCoverage": {
+        "startupStart": true,
+        "forkStart": true,
+        "normalStop": true,
+        "internalOrSystemAgents": "not_covered_by_this_mapping",
+        "cancellationAndAbnormalTermination": "not_guaranteed",
+        "liveExecution": "unverified"
+      },
+      "supportedExistingObserverConnection": "not_established"
     }
   ],
   "normalization": {
-    "UserPromptSubmit": "turn_started",
-    "Stop": "turn_ended_unknown",
-    "Interrupt": "turn_ended_interrupted",
-    "PermissionRequest": "ignored_missing_public_correlation_and_resolution",
-    "question_answer_cancel": "unverified_ignored",
-    "continuation": "unverified_ignored",
-    "subagents": "ignored_to_avoid_parent_misattribution"
+    "UserPromptSubmit": "turn_started_root_or_actual_agent_id",
+    "Stop": "turn_ended_unknown_root_only",
+    "Interrupt": "turn_ended_interrupted_root_only_when_source_version_supports_it",
+    "SubagentStart": "turn_started_actual_agent_id_and_own_turn",
+    "SubagentStop": "turn_ended_unknown_actual_agent_id_and_own_turn",
+    "PermissionRequest": "unsupported_precise_pending_sync_no_events",
+    "question_answer_cancel": "unsupported_by_current_adapter_no_events",
+    "continuation": "no_inferred_pending_resolution"
   },
   "identity": {
     "installation": "persisted_uuid_in_hook_command_and_manifest",
-    "fallbackInstance": "hook-session:<session_id>",
+    "fallbackInstance": "hook-session:<effectiveSession>",
     "fallbackMeaning": "session_observation_scope_not_host_process_lifecycle",
     "sequence": null,
     "snapshots": false,
-    "disconnectionInference": false
+    "disconnectionInference": false,
+    "effectiveSession": "agent_id_for_child_otherwise_raw_session_id",
+    "parentSessionId": "omitted_raw_session_id_is_shared_root_not_direct_parent",
+    "unsupportedParentFields": "ignored_not_trusted"
   },
   "validation": {
-    "fixtures": "synthetic_cases_plus_one_redacted_live_normalized_start",
+    "fixtures": "synthetic_and_negative_cases_plus_one_redacted_historical_live_start",
     "macosFileAndProcessTests": "passed",
     "windowsNativeExecution": "not_run",
     "desktopAlpha4WindowsShell": "unverified",
@@ -58,13 +90,39 @@
     "preciseNavigationSessionsRequired": 3,
     "checkpointA": "not_passed",
     "fix1CoreAndBridgeTestsPassed": 63,
-    "unsequencedTurns": "current_projection_may_remain_unknown_but_each_explicit_turn_end_is_retained_and_deduplicated"
+    "unsequencedTurns": "current_projection_may_remain_unknown_but_each_explicit_turn_end_is_retained_and_deduplicated",
+    "fix2NewLiveTests": false,
+    "requiredRuntimeGate": "checkpoint_A_and_tasks_11_12_release_blockers",
+    "privateCausalityPersistence": "task_5_must_preserve_confirmed_turn_ends",
+    "fix2CoreAndBridgeTestsPassed": 71
   },
   "delivery": "deferred_task_6",
   "sources": [
     "https://learn.chatgpt.com/docs/hooks",
     "https://learn.chatgpt.com/docs/app-server",
     "https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/engine/command_runner.rs",
-    "https://github.com/openai/codex/blob/rust-v0.167.0-alpha.4.1/codex-rs/hooks/src/lib.rs"
-  ]
+    "https://github.com/openai/codex/blob/rust-v0.167.0-alpha.4.1/codex-rs/hooks/src/lib.rs",
+    "https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/core/src/session/session.rs#L775",
+    "https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/core/src/hook_runtime.rs#L137",
+    "https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/core/src/hook_runtime.rs#L103"
+  ],
+  "supportScope": {
+    "decisionDate": "2026-11-16",
+    "codex": "tiered_lifecycle_notifications_and_navigation",
+    "precisePendingSync": "unsupported_by_current_adapter",
+    "harnessPendingScope": "unchanged_full_pending_goal"
+  },
+  "installation": {
+    "defaultEvents": [
+      "UserPromptSubmit",
+      "Stop",
+      "Interrupt",
+      "SubagentStart",
+      "SubagentStop"
+    ],
+    "legacyPermissionEntry": "migrate_remove_only_canonical_unmodified_owned_group",
+    "installationUuid": "preserved_across_profile_and_path_upgrade",
+    "changedOwnedGroups": "conflict_when_marker_remains_otherwise_preserved_as_foreign",
+    "uninstall": "use_latest_applied_manifest_preserve_third_party"
+  }
 }

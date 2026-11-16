@@ -1,70 +1,46 @@
-# Codex 接入验证记录
+# Codex 分级接入验证
 
-记录日期：2026-11-12。环境 macOS 27.0.1（26A434）、arm64。独立 CLI 为 `0.145.0`，桌面内置二进制为 `0.167.0-alpha.4.1`（`/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex`）。旧 `alpha.3.2` schema 仅作历史，不能替代当前验证。
+更新：2026-11-16。用户已确认按来源分级支持：Codex 提供有证据的生命周期提醒和会话跳转，**当前适配器不支持精确审批/提问等待及解除同步**。Harness 完整待处理目标保留。代码审阅门与真实运行验收分开，未验项继续进入检查点 A 与任务 11/12 发行阻断清单。
 
-当前结果是**转换器和安全安装器可测试，完整桌面接入未通过检查点 A**。自动测试、生成协议、文档支持和真实宿主事件分别记录，不能互相替代。
+## 当前能力与证据
 
-| 能力 | 自动转换/安装 | 独立 CLI 实测 | 已有桌面实测 | Windows |
-| --- | --- | --- | --- | --- |
-| 提交开始 | 合成 fixture 通过 | 隔离正常信任后观察到1条真实开始Hook事件 | 未验证 | 未验证 |
-| Stop | 转换 Unknown，通过 | 未触发验证 | 未验证 | 未验证 |
-| Interrupt | 转换 Interrupted，通过 | 未触发验证 | 未验证 | 未验证 |
-| 审批出现与精确解除 | 未实现：缺公开关联链路 | 未验证 | 未验证 | 未验证 |
-| 提问、回答/拒绝/取消/撤回 | 保守忽略，负面测试通过 | 未验证 | 未验证 | 未验证 |
-| 继续执行 | 不从任意工具事件推断 | 未验证 | 未验证 | 未验证 |
-| 安装、重复安装、升级路径、仅撤销自有条目 | 本机文件/进程测试通过 | 隔离配置安装通过 | 未改真实配置 | 原生测试待执行 |
-| 正常可靠投递 | 留任务 6 | 未接入 | 未接入 | 未接入 |
-| 现有宿主补充连接 | schema 有请求/解除结构 | daemon 控制 socket 缺失 | 未连到现有桌面 | 未验证 |
-| `codex://threads/<id>` 精确定位 | 不在转换器实现 | 0/3 会话验证 | 0/3 会话验证 | 未验证 |
+| 能力 | 实现/源码 | 真实运行证据与限制 |
+| --- | --- | --- |
+| 根开始 UserPromptSubmit | 已实现 | 仅0.145.0隔离CLI一次开始Hook已验证；不外推其他来源/版本 |
+| Stop | Unknown结束，非业务成功 | 未触发验证；其他Hook可能要求继续执行 |
+| Interrupt | 根回合Interrupted | 0.145.0不支持；历史alpha4、当前alpha11源码存在；未实测 |
+| ThreadSpawn子代理 | 实际agent_id隔离，子自身turn，有限开始/正常结束 | 仅精确源码和合成测试；内部/系统代理、部分终止、子代理取消不保证 |
+| 直接父关系 | 当前原生Hook不给直接父ID，parent留空 | 不把共享根ID冒充直接父，不猜嵌套关系；核心/Harness保留真实父关系能力 |
+| 审批/提问/回答/拒绝/取消/撤回精确同步 | 当前适配器不支持，不默认安装PermissionRequest | 不以负面测试或其他工具事件伪造待处理/解除 |
+| 安装/重复/路径升级/旧配置迁移/撤销 | 本机文件和进程行为测试 | 未改真实来源；新五事件配置未真实安装或信任 |
+| 正常可靠投递 | 留任务6 | 当前只有probe-dir |
+| 精确会话跳转 | 留任务11 | 真实0/3会话，两平台未验 |
+| Windows/现有桌面/Intel覆盖 | 实现/源码不等于运行验收 | 未完成，继续A/11-12，不标通过 |
 
-## 已取得的具体证据
+## 准确版本身份依据
 
-独立 CLI 与桌面内置二进制现场执行 `--version` 得到上列版本。新版桌面二进制执行只读 `app-server daemon version` 返回 `failed to connect to /Users/ushopal/.codex/app-server-control/app-server-control.sock`，原因 `No such file or directory (os error 2)`。没有启动 daemon、远程控制或另起 app-server 来代替当前宿主观察。
+当前桌面内置CLI为0.169.0-alpha.11.1，独立CLI为0.145.0（沿用主控2026-11-16研究的版本依据，本轮无新宿主探测）。0.167.0-alpha.4.1是2026-11-12历史基线，不能当当前进程事实。
 
-使用独立临时 CODEX_HOME、独立测试 cwd 和明确测试提示词进行 CLI 探测，不复制真实 auth/config。Ollama 方案因无本地服务失败；之后隔离离线 provider `http://127.0.0.1:9/v1` 运行到 `thread.started`、`turn.started` 后因502失败。它们是 exec JSON 事件，**不是 Hook 已触发的证据**。`--ignore-user-config` 的试验也不能用作用户层 Hook 发现已成功的证明。
+alpha11 [`core/src/session/session.rs:775-782`](https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/core/src/session/session.rs#L775) 区分具体thread_id与根/后代共享session_id，1090附近说明session_id为根线程ID。Hook载荷没有直接parent_thread_id，内部ThreadSpawn的父字段没有被序列化。[schema](https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/hooks/src/schema.rs#L550) 中SubagentStart/Stop只有session_id、agent_id和自身turn_id等字段。
 
-独立 CLI 的隔离终端最终显示 `Hooks need review`，界面提示3个新/修改 Hook 和继续但不信任则不会运行。JSON 配置是4个事件，二者差异未解释，不能宣称4个事件都已加载或运行。初始试验没有信任 Hook。测试目录的目录信任提示仅影响该隔离配置。后续获得明确授权后的正常信任与唯一一次CLI测试记录见下文；当前真实宿主配置仍未更改。
+[`hook_runtime.rs:137-160`](https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/core/src/hook_runtime.rs#L137) 证明ThreadSpawn Startup/Fork派发SubagentStart，turn_id来自当前子turn_context.sub_id；[正常停止:383](https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/core/src/hook_runtime.rs#L383) 派发SubagentStop；[agent身份:1100](https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/core/src/hook_runtime.rs#L1100) 为sess.thread_id；[UserPromptSubmit:708](https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/core/src/hook_runtime.rs#L708) 同样使用该子turn上下文与ThreadSpawn身份。故统一sessionId取agent_id、turnId保留自身turn；parentSessionId留空，不读取伪造parent字段或转录路径。
 
-测试配置仅指向离线 provider，不使用真实模型；Codex 自身仍会尝试远程插件目录（未登录401），不能称完全无网络。没有记录真实会话提示词、工具参数或凭证。
+内部/系统子代理跳过这套开始/停止路径，Interrupt对任何SubAgent来源直接返回，不能扇出根中断。独立核对的[0.145.0 producer](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/core/src/hook_runtime.rs#L103)只证明Startup开始与正常SubagentStop；该版本[session getter](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/core/src/session/session.rs#L460)同样区分共享根与具体线程，不把alpha11 Fork语义倒推旧版。
 
-## 版本化字段依据
+历史alpha4准确tag事件表含14项（Interrupt/模型尝试事件）；0.145事件表11项、不含Interrupt/模型事件。当前alpha11也有14项，但“进入下一模型阶段等于全部pending解除”的契约没有建立，未采用清空屏障。[准确版本PermissionRequest](https://github.com/openai/codex/blob/rust-v0.169.0-alpha.11.1/codex-rs/hooks/src/events/permission_request.rs#L175)仍没有可公开配对的请求ID；Hook出现也不保证审批UI已成为待处理。App-server协议有真实请求关联，但没有已证明的当前桌面受支持观察连接，不另启server代替。
 
-[官方 Hooks 文档](https://learn.chatgpt.com/docs/hooks) 是发布行为参考。锁定 `rust-v0.145.0` 的 [PermissionRequest 源码](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/events/permission_request.rs) 中，内部 `run_id_suffix` 没有进入 `build_command_input` 的 stdin 字段；[PostToolUse 源码](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/events/post_tool_use.rs) 虽输出 `tool_use_id`，不能凭内部名称为前者造一个对应 ID。
+## 已有真实试验（2026-11-12，不在本轮重复）
 
-[Windows command runner](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/engine/command_runner.rs) 与[官方测试](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/engine/command_runner_tests.rs) 证明该版本的默认 COMSPEC/cmd /C 与外层引用方式；不证明 alpha.4.1 Windows 已实测。公开匹配 Hook 存在并发，不能凭收到时间构造可信跨调用序号。
+macOS 27.0.1 / 26A434 / arm64。用户授权原临时四事件包后，0.145.0正常TUI逐项信任PermissionRequest/UserPromptSubmit/Stop，各Installed1/Active1；未加载Interrupt。固定提示词ephemeral CLI只运行一次，provider为127.0.0.1:9，不调用真实模型。退出1，exec类型thread.started/item.completed/turn.started/error/turn.failed。真实probe新增1条378字节turn_started事件，不含提示词、参数或回答；`fixtures/live-start-cli-0.145.json`仅保留脱敏统一事件，rawHookCaptured=false。
 
-[App Server 文档](https://learn.chatgpt.com/docs/app-server) 和本机生成 schema 只证明协议存在请求、结束、请求解除结构。没有现有宿主连接时，不启用这类输入，不宣称已观察审批或提问。
+当时hooks.json SHA-256为`22533cc31c285cdfacf32ba2a9b3b98ecd4a3939f3b02e44eaeba0e974d58dec`，测试bridge SHA-256为`511a431f083fc1980c7297276b6872bc65a35fe35d93990afe75e6927d9e3a2b`。这些是旧测试包/二进制历史，不能声称本轮重编译仍相同；本轮未执行或更新旧临时Hook。
 
-原七份fixture明确标记为合成或负面案例；后续新增一份真实Hook归一化事件脱敏样例，未保存原始Hook。开始/审批/停止的形状以0.145.0源码核对；Interrupt仅来自当前文档，版本留空，不能说0.145.0支持。假设性的取消响应不是已经观察到的宿主行为。
+此前无Ollama服务、离线provider失败、exec输出及生成schema都不算真实Hook证据；TUI与测试进程已退出。Codex曾尝试官方插件目录，未登录401，不能称完全无网络。2026-11-12与主控11-16只读daemon探测均无控制socket，不是已接入现有桌面的证据；本轮不重复该探测、不启daemon/远控、不改真实安全设置。
 
-## 身份、隐私与未决项
+## 本轮代码门与后续验收
 
-安装 UUID 持久保存在配置/清单，重复安装和路径升级保留。公开 Hook 的 `hook-session:<session_id>` 实例兜底仅代表会话观察范围，不代表宿主进程生命周期。无顺序、快照、心跳或断线推断；子代理暂时跳过，避免父子会话混淆。原始输入上限8 MiB；统一事件上限64 KiB；不转发提示词、工具参数、回答正文、cwd 或 transcript。
+默认只装实际处理的UserPromptSubmit/Stop/Interrupt/SubagentStart/SubagentStop。旧v1未改PermissionRequest自有项在计划中迁移移除，保留UUID、第三方与用户修改内容；新增配置重复安装、路径升级和按最新清单撤销有行为测试。不将宿主忽略旧版未知事件当运行支持。
 
-缺口需主控裁定：隔离CLI开始路径现已获得正常信任并验证；审批/提问/解除仍需受支持入口和实际证据，无法取得时必须修订接入设计或暂缓完整Codex支持。启用受支持的现有宿主控制入口属于另一项需明确授权的真实配置变化，不能擅自执行。Windows 原生验收和至少3个真实会话深链精确定位均未完成。
+父子/兄弟/嵌套ID独立、子自身turn与父请求保留、无直接父关系不猜、重复结束/迟到开始、空/非法agent、CLI子会话观察范围、默认订阅与旧迁移由合成数据和真实本机进程/文件测试覆盖，不标实测子代理Verified。无序投影可Unknown，明确终态历史仍保留，`confirmed_turn_ends`仍需Task5持久化。
 
-## 新文档事件与锁定版本的差异
-
-锁定 [0.145.0 的事件表](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/lib.rs) 仅列11项，缺少 `Interrupt`、`PreModelRequest`、`PostModelRequest`。隔离信任界面显示3项而配置含4个事件，可能与Interrupt不在旧事件表有关，尚不能断言实际加载机制。安装器模板保留当前文档候选Interrupt，不代表旧CLI支持它。
-
-当前文档的模型尝试事件不能作为“同会话全部待处理已解除”的已知屏障：0.145.0没有这些事件；已从alpha.4.1精确源码标签确认模型事件存在，但未取得真实覆盖及等待审批/提问期间不会并发进入模型阶段的契约。重试与子代理作用域也需区分。不实现清空pending，不凭本机接收顺序替代源端因果。
-
-提问应独立判断：[PreToolUse](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/hooks/src/events/pre_tool_use.rs) 与PostToolUse均序列化tool_use_id；[request_user_input](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/core/src/tools/handlers/request_user_input.rs) 使用默认工具运行接口，[registry](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/core/src/tools/registry.rs) 仅成功结果执行post。取消或不可用模式会返回错误，pre不证明已经呈现问题，单靠pre/post不保证取消解除。它是值得实测的独立候选，状态保持Unverified，而非因PermissionRequest缺ID断定不支持。
-
-## 授权后的隔离 CLI 测试（fix1）
-
-用户明确允许已审包中的隔离测试后，通过0.145.0正常TUI逐项审阅并信任了PermissionRequest、UserPromptSubmit、Stop。来源均为包内临时CODEX_HOME/hooks.json，最终表中各Installed=1、Active=1，其他事件为0。TUI里没有Interrupt，证实本次此CLI仅加载包内三个受支持事件。没有使用bypass参数、直接修改信任状态或改真实用户配置。TUI已退出；固定提示词的ephemeral CLI只调用一次，provider仍为127.0.0.1:9，没有切换provider或调用真实模型。
-
-临时hooks.json执行前后SHA-256均为`22533cc31c285cdfacf32ba2a9b3b98ecd4a3939f3b02e44eaeba0e974d58dec`；实际bridge SHA-256均为`511a431f083fc1980c7297276b6872bc65a35fe35d93990afe75e6927d9e3a2b`。CLI退出1，类型顺序为thread.started、item.completed、turn.started、error、turn.failed；只记录类型，没有保留测试提示词或模型请求参数。
-
-真实probe新增一个378字节`turn_started`统一事件，仅含schemaVersion/eventId/identity/sessionId/turnId/occurredAtMs/kind。脱敏并置换所有身份/时间后的样例是`integrations/codex/fixtures/live-start-cli-0.145.json`，标记`live_normalized_event_only`、`rawHookCaptured=false`。这证明此隔离CLI开始Hook到bridge探测落盘的路径；没有观察到Stop、审批、提问、解除、中断，不证明当前桌面接入或Windows支持。I1/I3整体继续open，检查点A未过。
-
-## 无序多轮事件的最小语义修复
-
-normalize→SessionStore的两轮测试现在覆盖A开始/结束、B开始/结束：不制造sequence、时间戳顺序或新的session/instance；投影可以保持A/Unknown，但A、B的明确结束各保留一条历史和提醒。重复事件、同回合不同事件ID的重复结束、迟到开始不会重开或再次提醒。非当前回合结束只解除精确回合请求，不清其他回合pending、未读结束或历史；同回合低sequence结束的既有保护及无turn_id但可比较新开始的周期语义保留。
-
-新增私有`confirmed_turn_ends`按SessionKey和明确turn_id保存，独立于可见历史和投影替换。Task5必须持久化该集合或完整保留能重建它的事件；仅持久化公开快照会丢失因果标记。恢复、历史裁剪/清空、快照替换和已结束回合快照防重开均有回归。上游顺序仍未解决，不能把Unknown称为新回合Running。
-
-## 桌面精确版本源码补证
-
-已只读核对[alpha.4.1事件表](https://github.com/openai/codex/blob/rust-v0.167.0-alpha.4.1/codex-rs/hooks/src/lib.rs)：共14项，包含Interrupt与PreModelRequest/PostModelRequest。该精确版本的[审批输入构建](https://github.com/openai/codex/blob/rust-v0.167.0-alpha.4.1/codex-rs/hooks/src/events/permission_request.rs)仍无公开请求ID；模型事件输入含session_id/turn_id/可选agent_id，但“进入下一模型阶段等于全部pending已解除”的屏障契约仍未建立。本轮不改授权包四事件配置，也不据此清空pending或宣称观察到当前桌面。
+Windows原生包装/编码/启动时间、macOS Intel、真实桌面停止/中断/子代理覆盖，以及至少3会话精确导航仍未验证，留检查点A/任务11-12发行门。代码可按用户批准范围继续独立后续任务；不能填成两个平台均可用。
