@@ -31,7 +31,7 @@
 
 1. 安装路径有空格、中文或发生升级，已有第三方 Hook 被用户修改：自有接入仍可安装/撤销，其他配置不被覆盖；归任务 3、12。
 2. 写入中崩溃、响应丢失、历史压缩后重发：已确认事件不丢、不重复提醒，半条日志不破坏其余历史；归任务 5、6。
-3. 审批在原应用中处理、请求撤回、旧回合迟到：桌宠解除准确的请求，不恢复过期气泡，不覆盖新回合；归任务 1、4、6。
+3. 审批在原应用中处理、请求撤回、旧回合迟到、timed问题跨回合回答：桌宠解除准确的请求，不恢复过期气泡，不覆盖新回合；归任务 1、4、6。
 4. 混合 DPI、显示器移除、未聚焦和休眠恢复：宠物仍在可见工作区、不抢焦点、按目标绘制且隐藏时停止；归任务 2、8、9。
 5. 宿主接口不支持、CLI 身份与桌面不一致、深链只唤起应用：能力表明确缺失，跳转失败可恢复，不误报精确定位成功；归任务 3、4、11。
 
@@ -59,9 +59,10 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 - `Source = Codex | Deepseek`；`SourceIdentity { source, installation_id: String, instance_id: String }`。安装 ID 持久化。支持宿主连接的实例 ID 按其运行生命周期创建；公开 Codex Hooks 缺宿主实例字段时，允许带 `hook-session:` 前缀的稳定会话观察范围，保持 `sequence = None`，不生成快照/断开或推断存活/重启。不能给每次 Hook 调用随意换安装 ID。
 - `EventEnvelope { schema_version: u16, event_id: String, identity: SourceIdentity, session_id: String, parent_session_id: Option<String>, turn_id: Option<String>, upstream_event_id: Option<String>, sequence: Option<u64>, occurred_at_ms: u64, received_at_ms: Option<u64>, summary: Option<String>, project: Option<ProjectContext>, kind: EventKind }`；`ProjectContext { name: String, directory: Option<String> }`。接收端填写 received_at_ms。
-- `EventKind = TurnStarted | AttentionRequested { request_id, reason: Answer|Approval } | AttentionResolved { request_id } | TurnEnded { outcome: Completed|Interrupted|Failed|Unknown } | SourceDisconnected | SourceSnapshot { sessions: Vec<SessionProjection> }`。
-- `SessionProjection { key: SessionKey, parent_session_id: Option<String>, turn_id: Option<String>, status: Running|NeedsAttention|Ended|Interrupted|Failed|Unknown, pending: Vec<PendingRequest>, project: Option<ProjectContext>, summary: Option<String>, unread: bool, last_event_at_ms: u64 }`；`PendingRequest { id: String, turn_id: Option<String>, reason: Answer|Approval, summary: Option<String> }`；`SessionKey { source: Source, installation_id: String, session_id: String }`。
-- `NotificationRecord { id: String, key: SessionKey, turn_id: Option<String>, kind: NotificationKind, summary: Option<String>, project: Option<ProjectContext>, occurred_at_ms: u64, read: bool }`；NotificationKind 为 `Attention { request_id: String, reason: Answer|Approval, resolved: bool }` 或 `TurnEnded { outcome: Completed|Interrupted|Failed|Unknown }`。
+- `EventKind = TurnStarted | AttentionRequested { request_id, reason: Answer|Approval, lifetime: RequestLifetime } | AttentionResolved { request_id } | TurnEnded { outcome: Completed|Interrupted|Failed|Unknown } | SourceDisconnected | SourceSnapshot { sessions: Vec<SessionProjection> }`。
+- `RequestLifetime = Turn | UntilResolved`，JSON为`turn`/`until_resolved`，默认Turn且省略默认值。当前生产事件协议2，兼容读取v1普通Turn语义；v1携持续请求、未知版本拒绝。持续请求跨回合保留，仅原会话/原请求turn/requestId精确解除；pending持续请求与投影当前turn可不同，普通Turn约束不放宽。
+- `SessionProjection { key: SessionKey, parent_session_id: Option<String>, turn_id: Option<String>, status: Running|NeedsAttention|Ended|Interrupted|Failed|Unknown, pending: Vec<PendingRequest>, project: Option<ProjectContext>, summary: Option<String>, unread: bool, last_event_at_ms: u64 }`；`PendingRequest { id: String, turn_id: Option<String>, reason: Answer|Approval, summary: Option<String>, lifetime: RequestLifetime }`；`SessionKey { source: Source, installation_id: String, session_id: String }`。
+- `NotificationRecord { id: String, key: SessionKey, turn_id: Option<String>, kind: NotificationKind, summary: Option<String>, project: Option<ProjectContext>, occurred_at_ms: u64, read: bool }`；NotificationKind 为 `Attention { request_id: String, reason: Answer|Approval, resolved: bool, lifetime: RequestLifetime }` 或 `TurnEnded { outcome: Completed|Interrupted|Failed|Unknown }`。
 - `PetSnapshot { revision: u64, sessions: Vec<SessionProjection>, notifications: Vec<NotificationRecord>, active: Option<SessionKey> }`。结束不是业务成功；无可靠因果信息时保持 Unknown。通知最多保留设计规定的 1,000 条，角色绘制不因通知列表刷新而重新初始化。
 - `SessionStore::apply(&mut self, event: &EventEnvelope) -> ApplyResult`、`mark_read(&mut self, key: &SessionKey) -> ApplyResult`、`clear_history(&mut self) -> ApplyResult`、`snapshot(&self) -> PetSnapshot`、`restore(events: &[EventEnvelope], now_ms: u64) -> Self`；`ApplyResult { changed: bool, should_notify: bool }`。
 - 任务 1 建立 `crates/pet-core/tests/support/mod.rs`，`load_case(name: &str) -> EventCase`，`EventCase { events: Vec<EventEnvelope>, expected: PetSnapshot }`。后续 Rust 测试内联读取 fixture，或使用各 crate 的本地辅助模块，不直接导入另一个 crate 的 tests 目录。
@@ -90,7 +91,7 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
   assert_eq!(store.snapshot(), case.expected);
   ```
 - [x] **2. 运行并确认失败。** `cargo test -p pet-core --test state`，失败来自缺少状态行为，不将网络/编译环境错误当成红灯用例。
-- [x] **3. 实现协议与状态。** 固定协议版本 1，去重按事件 ID，顺序按上游序号/回合/请求关联；resolve tombstone 防止请求倒序复活。缺少可比较的回合/顺序信息时不猜新旧，返回 Unknown；restore 将旧 Running 变为 Unknown，优先级按设计。
+- [x] **3. 实现协议与状态。** 初始协议版本1（Task4升级生产2并兼容读取v1），去重按事件 ID，顺序按上游序号/回合/请求关联；resolve tombstone 防止请求倒序复活。缺少可比较的回合/顺序信息时不猜新旧，返回 Unknown；restore 将旧 Running 变为 Unknown，优先级按设计。
 - [x] **4. 验证。** `cargo test -p pet-core --test protocol --test state`，全部通过；确认 snapshot 对同一事件重放稳定，已读和新回合的关系有独立用例。
 - [x] **5. 提交。** 暂存本任务文件，`git commit -m "添加桌宠事件协议与会话状态管理"`。
 
@@ -126,11 +127,11 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **文件：** 新建 `integrations/deepseek-harness/{package.json,tsconfig.json,src/index.ts,src/events.ts,src/open-session.ts,tests/events.test.ts,tests/open-session.test.ts,README.md,compatibility.json,fixtures/*.json}`、`docs/validation/desktop-pet/harness.md`；若必须补宿主入口，增加 `patches/desktop-session-deep-link.patch`。
 
-**接口：** `apply(ctx: Context, config: PluginConfig): void`；`toPetEvents(observation: HarnessObservation, identity: SourceIdentity): EventEnvelope[]`；`PluginConfig { bridgePath: string; probeDir?: string }`。HarnessObservation 为本任务定义的宿主事件联合类型，包含会话 ID、父会话 ID、turn、seq 和挑选后的状态字段。`openHarnessSession(sessionId: string): Promise<{ status: 'requested' | 'unavailable'; reason?: string }>` 不把仅唤起应用作为精确打开。
+**接口：** `apply(ctx: Context, config: PluginConfig): void`；`toPetEvents(observation: HarnessObservation, identity: SourceIdentity): EventEnvelope[]`；`PluginConfig { bridgePath: string; installationId: string; probeDir?: string }`。HarnessObservation 为本任务定义的宿主事件联合类型，包含会话ID、父会话ID、原始请求turn、真实seq、请求生命周期及挑选后的状态字段。`openHarnessSession(sessionId: string): Promise<{ status: 'requested' | 'unavailable'; reason?: string }>` 不把仅唤起应用作为精确打开。
 
-- [ ] **1. 写失败测试。** `approval_decided_clears_only_matching_request`、`question_listener_always_delegates`、`cancelled_question_resolves_attention`、`parent_child_ids_remain_distinct`，对 `next` 调用一次、保留返回值与异常分别断言；转发器失败时原宿主流程仍继续。
+- [ ] **1. 写失败测试。** `approval_decided_clears_only_matching_request`、`question_listener_always_delegates`、`cancelled_question_resolves_attention`、`parent_child_ids_remain_distinct`及timed超时后跨回合保留/late reply精确解除、无seq请求先于turn/start到达，对 `next` 调用一次、保留返回值与异常分别断言；转发器失败时原宿主流程仍继续。
 - [ ] **2. 运行并确认失败。** `pnpm --filter @codex-pet/deepseek-integration test -- events open-session`。
-- [ ] **3. 实现并锁定跳转路径。** 订阅公开事件，不修改 agent-loop；提问观察不领取请求。先验证 Host/Client 公开扩展点能否定向调用 `uiWorkspace.openSession`，注意远程事件有显式白名单。若不足，维护最小 `dsh://session/<encoded-id>` 补丁：宿主新增 `apps/desktop/src/session-deep-link.ts` 和对应测试，修改 `main.ts`、`ipc.ts`、`preload-app.ts`，Client 插件接受目标会话；覆盖冷启动排队、热启动和 Windows second-instance。补丁保存在本仓库，在 Harness 现有分支验证；修改前读取其 AGENTS.md，使用受支持的 dsh profile 启动方式。
+- [ ] **3. 实现并锁定跳转路径。** 订阅公开事件，不修改agent-loop；提问观察不领取请求。安装身份显式持久化；日志流实例/真实seq仅声明已证明的正常持久前缀，崩溃回退交Task6源代次处理。允许本任务最小扩展pet-core请求生命周期/协议2与harness桥接probe，精确匹配跨回合持续请求，所有消费者/旧版默认兼容同步。先验证 Host/Client 公开扩展点能否定向调用 `uiWorkspace.openSession`，注意远程事件有显式白名单。若不足，维护最小 `dsh://session/<encoded-id>` 补丁：宿主新增 `apps/desktop/src/session-deep-link.ts` 和对应测试，修改 `main.ts`、`ipc.ts`、`preload-app.ts`，Client 插件接受目标会话；覆盖冷启动排队、热启动和 Windows second-instance。补丁保存在本仓库，在 Harness 现有分支验证；修改前读取其 AGENTS.md，使用受支持的 dsh profile 启动方式。
 - [ ] **4. 验证。** 上述单测通过；两平台真实 Harness 至少 3 个会话，原应用回答、审批撤回后请求解除；点击目标链接在隐藏、已启动、冷启动状态准确打开会话。插件路径或所需补丁、兼容版本及安装方法必须写入报告，不能只留下候选路径。运行宿主补丁相关定向测试与其要求的检查，不默认跑全仓测试。
 - [ ] **5. 提交并过检查点 A。** `git commit -m "添加 Harness 通知插件与会话跳转接入"`。将分级来源结论、已有实测和Windows缺项写入报告；未验项保持阻断最终发行，可继续任务5的独立实现。
 

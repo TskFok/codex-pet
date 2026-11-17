@@ -60,3 +60,9 @@
 - 代码审阅与真实平台验收分别跟踪，环境缺项保留在A/最终发行清单，不阻断独立代码实现，也不填验收通过。
 
 - Task3 fix2提交2120d1b已独立复审通过：新分级范围需求✅、代码Approved。有限ThreadSpawn身份与旧Hook迁移落实，相关71项通过；原I3真实平台/导航门未关闭。继续Task4完整Harness插件与精确跳转。
+
+## 2026-11-17：Harness持续请求协议前置
+
+- Host/Client会话入口基础与waterfall已TDD推进，宿主29项定向和完整build通过；doc-sync有一个CLI help SIGKILL未报全绿。主入口待身份裁定的加载smoke明确RED。
+- 准许installationId显式持久配置与有证据的正常日志流实例，崩溃尾回退留Task6；新增最小harness规范事件probe入口，正常网络留Task6。
+- Harness timed问题会跨回合继续等待，批准RequestLifetime Turn/UntilResolved及生产协议2（兼容旧v1普通语义），精确解除/默认行为/快照和消费者同步；完整Harness目标未缩减。原代理继续原工作区，不重做已过宿主build。

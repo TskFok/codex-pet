@@ -86,13 +86,13 @@ Windows 调用时不弹出命令行窗口。脚本使用绝对安装路径与结
 | 事件种类 | 解释与处理 |
 | --- | --- |
 | `turn_started` | 当前回合开始，设为工作中 |
-| `attention_requested` | 有明确的回答或审批请求，保存请求 ID 和原因 |
+| `attention_requested` | 有明确回答/审批请求，保存请求ID、原因与生命周期；普通Turn请求随回合清理，UntilResolved持续请求仅精确解除 |
 | `attention_resolved` | 对应请求被回答、拒绝、取消或撤回，解除该请求的提醒 |
 | `turn_ended` | 一轮已结束，结果可为正常结束、中断、失败或未知；不宣称业务目标达成 |
 | `source_disconnected` | 仅用于具备可靠连接状态的适配器；无心跳的 Hook 来源不凭静默推断断线 |
 | `source_snapshot` | 支持查询的来源返回当前快照，用于重连校正 |
 
-以来源安装 ID、会话 ID 区分会话；每个会话同时维护当前回合状态、未解决请求和未读结束提醒。优先展示需要回答/审批、明确失败、未读结束、工作中、待机，同级按最近事件排序；通知列表始终保留全部会话。
+以来源安装 ID、会话 ID 区分会话；每个会话同时维护当前回合状态、未解决请求和未读结束提醒。Harness定时问题超时后可跨回合待回答，须独立保存原请求turn和UntilResolved生命周期，不因回合结束、新回合或普通快照替换自动清除。优先展示需要回答/审批、明确失败、未读结束、工作中、待机，同级按最近事件排序；通知列表始终保留全部会话。
 
 使用上游序号、回合和请求 ID 处理因果关系。重复 `eventId` 不重复提醒；同一回合的迟到开始事件不能覆盖已确认的终态，旧回合不能清除新回合的待处理请求。适配器必须说明是否有可靠顺序与快照，缺少信息时保留未知状态，不用时间戳猜测成功。
 
@@ -121,7 +121,7 @@ Codex 会话跳转使用官方 `codex://threads/<thread-id>`，对 ID 编码并�
 
 ## 8. DeepSeek Harness 适配
 
-以外部 Cordis 插件观察公开事件，保持运行循环不变。主要使用 `agent/status` 和 `session/event` 中的 `turn/start`、`turn/end`、`approval/asked`、`approval/decided`。等待回答使用 `user-questions/request`；如果采用 waterfall 监听，转发后仍调用 `next()`，不领取或消费原请求。取消和回答完成都必须产生解除提醒的事件。
+以外部 Cordis 插件观察公开事件，保持运行循环不变。主要使用 `agent/status` 和 `session/event` 中的 `turn/start`、`turn/end`、`approval/asked`、`approval/decided`。等待回答使用 `user-questions/request`；如果采用 waterfall 监听，转发后仍调用 `next()`，不领取或消费原请求。取消和回答完成都必须产生精确解除事件；timed超时不是取消，后续回合的late reply仍解除原始请求。当前生产协议2承载该生命周期，读取v1保持普通Turn默认；旧接收器不能忽略新属性后错误清除。
 
 插件只转发状态变化与重要提醒，不转发 token 流或每个工具的全部输出。父会话、子代理使用各自身份；子代理噪声默认折叠进父会话，保留可定位的会话信息。
 
