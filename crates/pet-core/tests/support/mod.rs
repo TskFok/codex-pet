@@ -28,7 +28,7 @@ pub fn event(
 ) -> EventEnvelope {
     decode_event(
         &serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 1, "eventId": id,
+            "schemaVersion": pet_core::SCHEMA_VERSION, "eventId": id,
             "identity": {"source": "codex", "installationId": "local", "instanceId": "process-1"},
             "sessionId": "s", "turnId": turn, "sequence": sequence,
             "occurredAtMs": 100, "kind": kind

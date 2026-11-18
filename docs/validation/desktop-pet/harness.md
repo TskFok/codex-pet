@@ -1,0 +1,20 @@
+# Harness 验证记录
+
+本轮实现完整待处理适配与精确入口代码；平台发行验收尚未完成。宿主 `0.2.2-rc.1`，准确源码/补丁版本见接入目录 compatibility.json。生产协议 v2，旧 v1 仅保留 Turn 默认语义，新生命周期不得静默送旧接收器。
+
+| 范围 | 证据 | 结论 |
+| --- | --- | --- |
+| SDK→真实 bridge→SessionStore | 12条捕获事件、审批a/b、timed超时、正常保存恢复、turn2晚回复精确解除原turn1、c并发和q2取消、重复/反序 | 已通过，实际捕获位于 integrations/deepseek-harness/fixtures/host-roundtrip.json |
+| 无活动回合提问 | 正式Context事件测试，出生turn省略，UntilResolved，真实回答才解除 | 已通过 |
+| 普通请求旧语义、持续请求 | Rust回归覆盖旧水位/None周期/终态保护、跨回合保留、快照/墓碑/并发、Unknown和已证终态恢复 | 已通过 |
+| 官方临时profile | 正常startup URL换cookie，匿名401→认证200，公开inventory显示生产Host Fiber active，真实Client启动批次200/工厂字节命中 | 已通过；没有运行浏览器apply或原生跳转 |
+| waterfall | next恰好一次，答案/异常对象不变，失败转发不影响宿主 | 已通过 |
+| 私有probe | v2、64KiB、拒绝其它来源/原文、私有权限、精确重放幂等；无probe明确未配置 | 已通过 |
+| 父子关系 | 仅读真实subagent header；普通fork不猜父关系 | SDK/消费者通过；实际agent委派未验 |
+| 冷启动早到/未就绪/热隐藏/Windows argv | 主进程队列＋公开引用导航；不存在目标不改变选择 | 单元通过；实际原生会话定位未验 |
+| 观察源恢复 | 有原生callId的timed正常持久恢复通过；无原生callId的direct/idle question在观察插件卸载后重载未形成公开权威恢复；未flush崩溃可能复用seq | Task6阻断，不用空快照猜解除 |
+| 正常通知投递 | 当前为脱敏probe；outbox归Task5，网络/broker归Task6 | 尚未接线，不宣称Delivered |
+
+安装使用可审阅的新目录配置bundle，UUID一次生成并持久在patch，升级显式复用；固定注册表依赖与正式 dsh.bundle 格式，无本机绝对代码依赖。方法和撤销说明见[接入README](../../../integrations/deepseek-harness/README.md)。
+
+真实验收仍需两平台至少三个持久会话，在原应用验证回答、审批撤回/取消、真实委派父子关系；点击目标在热、隐藏、冷启动状态实际选中该会话。不得把mock、Host激活、Client工厂交付或单纯唤起应用当原生精确定位通过。本轮未发模型或用户会话消息、未改真实配置/安全设置、未开远控；若后续真实实验需要这些操作，应先提交具体步骤交主控取得许可。

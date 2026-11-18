@@ -70,7 +70,8 @@ fn wire_format_is_camel_case_with_tagged_snake_case_kinds() {
         decoded.kind,
         EventKind::AttentionRequested {
             request_id: "q".into(),
-            reason: AttentionReason::Approval
+            reason: AttentionReason::Approval,
+            lifetime: RequestLifetime::Turn
         }
     );
     let output = serde_json::to_value(decoded).unwrap();

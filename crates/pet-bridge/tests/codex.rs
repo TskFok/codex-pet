@@ -141,6 +141,7 @@ fn thread_spawn_lifecycle_uses_child_identity_and_own_turn_without_guessing_pare
     request.kind = EventKind::AttentionRequested {
         request_id: "root-approval".into(),
         reason: AttentionReason::Approval,
+        lifetime: pet_core::RequestLifetime::Turn,
     };
     store.apply(&request);
     let mut child_end = None;

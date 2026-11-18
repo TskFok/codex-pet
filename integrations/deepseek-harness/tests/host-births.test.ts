@@ -1,0 +1,28 @@
+import {Context} from '@deepseek-ai/cordis';
+import SessionStore,{Session,SessionId,SessionLogOffset} from '@deepseek-ai/dsh-session';
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection';
+import {createToolResultMessage,createUserMessage,ToolCallId} from '@deepseek-ai/dsh-llm';
+import {expect,it} from 'vitest';
+import {installQuestionBirths} from '../src/host-births.js';
+it('真实持久日志恢复后，late reply关联原始turn而非回复当前turn',async()=>{
+  const ctx=new Context(); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjectionRegistry);
+  const reader=await installQuestionBirths(ctx);
+  const session=ctx.sessions.create(SessionId('s'));
+  session.append('turn/start',{turn:1});
+  session.append('tool/call',{turn:1,step:1,callId:ToolCallId('q'),name:'ask_user_question',arguments:'{}'});
+  session.append('tool/result',{turn:1,step:1,message:createToolResultMessage({callId:ToolCallId('q'),content:[{type:'text',text:'{"pending":true}'}],isError:false})},{surfaceOp:'append'});
+  session.append('turn/end',{turn:1,reason:{kind:'completed'}});
+  const seed=session.snapshotEvents(); const header=session.header;
+  expect(reader.birth(session,'q')?.turn).toBe(1);
+  await ctx.fiber.dispose();
+  const next=new Context(); await next.plugin(SessionStore); await next.plugin(SessionProjectionRegistry);
+  const recovered=await installQuestionBirths(next);
+  const restored=Session.fromRestore(header.id,seed,header,SessionLogOffset(0),'shared-frozen');
+  next.sessions.enter(restored); next.sessions.announce(restored);
+  restored.append('turn/start',{turn:2});
+  expect(recovered.birth(restored,'q')?.turn).toBe(1);
+  const seq=restored.append('user/message',createUserMessage({source:{kind:'user-question-reply',callId:ToolCallId('q'),outcome:'answered'},content:[{type:'text',text:'{"answers":[]}'}]}),{surfaceOp:'append'});
+  expect(recovered.closed(restored,seq.seq)).toMatchObject({requestId:'question:q',turn:1});
+  expect(recovered.birth(restored,'q')).toBeUndefined();
+  await next.fiber.dispose();
+});

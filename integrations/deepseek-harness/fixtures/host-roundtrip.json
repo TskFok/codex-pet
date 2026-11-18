@@ -1,0 +1,229 @@
+[
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",0,\"turn/start\",null]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "1",
+    "upstreamEventId": "child:0",
+    "sequence": 0,
+    "occurredAtMs": 1794885472696,
+    "kind": {
+      "type": "turn_started"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",1,\"approval/asked\",\"a\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "1",
+    "upstreamEventId": "child:1",
+    "sequence": 1,
+    "occurredAtMs": 1794885472702,
+    "kind": {
+      "type": "attention_requested",
+      "requestId": "a",
+      "reason": "approval"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",2,\"approval/asked\",\"b\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "1",
+    "upstreamEventId": "child:2",
+    "sequence": 2,
+    "occurredAtMs": 1794885472702,
+    "kind": {
+      "type": "attention_requested",
+      "requestId": "b",
+      "reason": "approval"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",3,\"approval/decided\",\"a\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "1",
+    "upstreamEventId": "child:3",
+    "sequence": 3,
+    "occurredAtMs": 1794885472703,
+    "kind": {
+      "type": "attention_resolved",
+      "requestId": "a"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",\"99e0d5a3-297d-4f85-ba52-bdf04cfce47d\",\"question/requested\",\"question:q1\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "1",
+    "occurredAtMs": 1794885472706,
+    "kind": {
+      "type": "attention_requested",
+      "requestId": "question:q1",
+      "reason": "answer",
+      "lifetime": "until_resolved"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",6,\"turn/end\",null]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "1",
+    "upstreamEventId": "child:6",
+    "sequence": 6,
+    "occurredAtMs": 1794885472729,
+    "kind": {
+      "type": "turn_ended",
+      "outcome": "completed"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",8,\"turn/start\",null]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "2",
+    "upstreamEventId": "child:8",
+    "sequence": 8,
+    "occurredAtMs": 1794885474536,
+    "kind": {
+      "type": "turn_started"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",9,\"approval/asked\",\"c\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "2",
+    "upstreamEventId": "child:9",
+    "sequence": 9,
+    "occurredAtMs": 1794885474536,
+    "kind": {
+      "type": "attention_requested",
+      "requestId": "c",
+      "reason": "approval"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",10,\"question/resolved\",\"question:q1\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "1",
+    "upstreamEventId": "child:10",
+    "sequence": 10,
+    "occurredAtMs": 1794885474537,
+    "kind": {
+      "type": "attention_resolved",
+      "requestId": "question:q1"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",11,\"approval/decided\",\"c\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "2",
+    "upstreamEventId": "child:11",
+    "sequence": 11,
+    "occurredAtMs": 1794885474537,
+    "kind": {
+      "type": "attention_resolved",
+      "requestId": "c"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",\"58d2918c-b128-4ee9-8d13-9e508953db48\",\"question/requested\",\"question:df52cc64-9654-4020-8bfb-9646cadcfd82\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "2",
+    "occurredAtMs": 1794885474538,
+    "kind": {
+      "type": "attention_requested",
+      "requestId": "question:df52cc64-9654-4020-8bfb-9646cadcfd82",
+      "reason": "answer",
+      "lifetime": "until_resolved"
+    }
+  },
+  {
+    "schemaVersion": 2,
+    "eventId": "[\"11111111-1111-4111-8111-111111111111\",\"session-log:child:1794885472690\",\"child\",\"58d2918c-b128-4ee9-8d13-9e508953db48:resolved\",\"question/resolved\",\"question:df52cc64-9654-4020-8bfb-9646cadcfd82\"]",
+    "identity": {
+      "source": "deepseek",
+      "installationId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "session-log:child:1794885472690"
+    },
+    "sessionId": "child",
+    "parentSessionId": "parent",
+    "turnId": "2",
+    "occurredAtMs": 1794885474538,
+    "kind": {
+      "type": "attention_resolved",
+      "requestId": "question:df52cc64-9654-4020-8bfb-9646cadcfd82"
+    }
+  }
+]

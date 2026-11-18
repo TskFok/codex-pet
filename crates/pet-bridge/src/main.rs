@@ -13,7 +13,13 @@ use std::{
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("codex") {
+    let command = args.next();
+    if command.as_deref() == Some("harness") {
+        if let Err(error) = run_harness(args.collect()) {
+            eprintln!("pet-bridge：{error}");
+            std::process::exit(1);
+        }
+    } else if command.as_deref() == Some("codex") {
         // 所有 Hook 失败均保持无决定输出，诊断绝不包含宿主原始 JSON。
         if let Err(error) = run_hook(args.collect()) {
             eprintln!("pet-bridge：{error}");
@@ -68,7 +74,7 @@ fn private_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .and_then(|_| file.sync_all())
         .map_err(|_| "无法持久化输出文件".into())
 }
-fn probe_identity(directory: &Path) -> Result<String, String> {
+fn prepare_probe_directory(directory: &Path) -> Result<(), String> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -97,6 +103,10 @@ fn probe_identity(directory: &Path) -> Result<String, String> {
             return Err("探测目录只允许当前用户访问".into());
         }
     }
+    Ok(())
+}
+fn probe_identity(directory: &Path) -> Result<String, String> {
+    prepare_probe_directory(directory)?;
     let identity = directory.join(".installation-id");
     if !identity.exists() {
         let id = uuid::Uuid::new_v4().to_string();
@@ -180,6 +190,42 @@ fn run_hook(args: Vec<String>) -> Result<(), String> {
         eprintln!("pet-bridge：当前适配器不支持 Codex 精确审批/提问等待及解除，未生成待处理提醒");
     }
     Ok(())
+}
+fn run_harness(args: Vec<String>) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let options = options(&args, &["--probe-dir"])?;
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take(pet_core::MAX_EVENT_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "无法读取Harness规范事件")?;
+    let event = pet_core::decode_event(&bytes)
+        .map_err(|_| "Harness事件不是受支持的完整统一协议，或超过64KiB")?;
+    if event.identity.source != Source::Deepseek {
+        return Err("Harness入口拒绝其他来源的事件".into());
+    }
+    let directory = options
+        .get("--probe-dir")
+        .map(PathBuf::from)
+        .ok_or("通知投递尚未接入；当前仅支持显式 --probe-dir 探测")?;
+    prepare_probe_directory(&directory)?;
+    let canonical = serde_json::to_vec(&event).map_err(|_| "规范事件序列化失败")?;
+    let name = format!("{:x}.json", Sha256::digest(event.event_id.as_bytes()));
+    let path = directory.join(name);
+    match fs::symlink_metadata(&path) {
+        Ok(meta) => {
+            if !meta.is_file() || meta.file_type().is_symlink() {
+                return Err("探测事件文件类型无效".into());
+            }
+            if fs::read(&path).map_err(|_| "无法核对已有探测事件")? == canonical {
+                return Ok(());
+            }
+            return Err("相同事件标识对应不同内容，未覆盖探测记录".into());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("无法检查探测事件文件".into()),
+    }
+    private_write(&path, &canonical)
 }
 fn read_config(path: &Path) -> Result<Vec<u8>, String> {
     match fs::read(path) {

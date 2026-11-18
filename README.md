@@ -20,7 +20,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 核心入口
 
-`crates/pet-core` 不依赖 GUI 或宿主。跨进程输入先经过 `protocol::decode_event`：协议版本固定为 1，JSON 不超过 64 KiB，摘要不超过 512 个 Unicode 字符。JSON 字段使用 camelCase，枚举值使用 snake_case，事件种类位于 `kind.type`；未设置的可选字段序列化时省略。接收时间由接收端填入。
+`crates/pet-core` 不依赖 GUI 或宿主。跨进程输入先经过 `protocol::decode_event`：生产协议版本为 2，兼容读取旧 v1 的 Turn 默认生命周期；v1 携带 until_resolved 明确拒绝。JSON 不超过 64 KiB，摘要不超过 512 个 Unicode 字符。JSON 字段使用 camelCase，枚举值使用 snake_case，事件种类位于 `kind.type`；未设置的可选字段序列化时省略。接收时间由接收端填入。
 
 `SessionStore` 提供 `apply`、`mark_read`、`clear_history`、`snapshot` 与 `restore`。`SessionKey` 使用来源、安装 ID、会话 ID 隔离状态；实例 ID 标识来源进程生命周期。`ApplyResult.changed` 只表示公开快照变化；接收事件的持久化与去重不能以此作为是否接收的判断。`should_notify` 仅表示本次实时新增的重要提醒，恢复批次后应统一展示最终快照中的未解决请求与未读结束提醒。
 
@@ -40,3 +40,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 `tests/fixtures/events/` 保存脱敏事件及手工期望快照；`tests/fixtures/protocol/` 保存协议输入，供后续 Rust、TypeScript 与适配器共同使用。`pet-core` 集成测试使用本地 `tests/support` 辅助模块加载，不跨 crate 导入测试目录。
 
 完整设计见 [双平台桌宠设计](docs/superpowers/specs/2026-11-11-tauri-desktop-pet-design.md)。本任务没有验证桌面事件覆盖、精确会话跳转、原生窗口、资源预算或双平台运行能力。
+
+
+持续请求使用 `RequestLifetime::UntilResolved`（JSON `until_resolved`），普通请求默认 `Turn` 且省略默认字段。持续请求保留原始出生回合，跨回合结束、新回合和普通快照替换保留，只有精确解除事实移除；存在持续请求时聚合显示待处理，解除后恢复可证的活动/终态，活动因果未知时仍为 Unknown。Task5必须持久化完整重放事件或全部私有墓碑、已知终态、活动事实及延后请求，公开快照本身不足以恢复因果。

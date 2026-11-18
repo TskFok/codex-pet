@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA_VERSION: u16 = 1;
+pub const SCHEMA_VERSION: u16 = 2;
 pub const MAX_EVENT_BYTES: usize = 64 * 1024;
 pub const MAX_SUMMARY_CHARS: usize = 512;
 
@@ -42,6 +42,20 @@ pub enum AttentionReason {
     Approval,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestLifetime {
+    #[default]
+    Turn,
+    UntilResolved,
+}
+
+impl RequestLifetime {
+    fn is_turn(&self) -> bool {
+        *self == Self::Turn
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TurnOutcome {
@@ -63,6 +77,8 @@ pub enum EventKind {
     AttentionRequested {
         request_id: String,
         reason: AttentionReason,
+        #[serde(default, skip_serializing_if = "RequestLifetime::is_turn")]
+        lifetime: RequestLifetime,
     },
     AttentionResolved {
         request_id: String,
@@ -119,6 +135,8 @@ pub struct PendingRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     pub reason: AttentionReason,
+    #[serde(default, skip_serializing_if = "RequestLifetime::is_turn")]
+    pub lifetime: RequestLifetime,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
 }
@@ -152,6 +170,8 @@ pub enum NotificationKind {
     Attention {
         request_id: String,
         reason: AttentionReason,
+        #[serde(default, skip_serializing_if = "RequestLifetime::is_turn")]
+        lifetime: RequestLifetime,
         resolved: bool,
     },
     TurnEnded {
@@ -201,8 +221,25 @@ pub fn decode_event(bytes: &[u8]) -> Result<EventEnvelope, ProtocolError> {
     }
     let event: EventEnvelope =
         serde_json::from_slice(bytes).map_err(|error| ProtocolError(error.to_string()))?;
-    if event.schema_version != SCHEMA_VERSION {
+    if event.schema_version != 1 && event.schema_version != SCHEMA_VERSION {
         return invalid("不支持的事件协议版本");
+    }
+    if event.schema_version == 1 {
+        let has_until = match &event.kind {
+            EventKind::AttentionRequested { lifetime, .. } => {
+                *lifetime == RequestLifetime::UntilResolved
+            }
+            EventKind::SourceSnapshot { sessions } => sessions.iter().any(|session| {
+                session
+                    .pending
+                    .iter()
+                    .any(|pending| pending.lifetime == RequestLifetime::UntilResolved)
+            }),
+            _ => false,
+        };
+        if has_until {
+            return invalid("协议 v1 不支持跨回合请求生命周期");
+        }
     }
     nonempty(&event.event_id)?;
     nonempty(&event.identity.installation_id)?;
@@ -252,7 +289,10 @@ pub fn decode_event(bytes: &[u8]) -> Result<EventEnvelope, ProtocolError> {
                     nonempty(&pending.id)?;
                     optional_id(&pending.turn_id)?;
                     summary(&pending.summary)?;
-                    if pending.turn_id != session.turn_id || !requests.insert(&pending.id) {
+                    if (pending.lifetime == RequestLifetime::Turn
+                        && pending.turn_id != session.turn_id)
+                        || !requests.insert((&pending.turn_id, &pending.id))
+                    {
                         return invalid("请求回合不匹配或请求重复");
                     }
                 }

@@ -1,0 +1,28 @@
+import {Context} from '@deepseek-ai/cordis';
+import SessionStore,{SessionId} from '@deepseek-ai/dsh-session';
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection';
+import {ApprovalRequestId} from '@deepseek-ai/dsh-user-approval/types';
+import {expect,it} from 'vitest';
+import {mkdtemp,writeFile,readFile,rm,access} from 'node:fs/promises';
+import {join} from 'node:path';import {tmpdir} from 'node:os';
+import * as plugin from '../src/index.js';
+it.skipIf(process.platform==='win32')('实际Cordis加载Host入口，真实子进程转发脱敏协议且不抢答',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'pet-plugin-'));
+ const bridge=join(directory,'中文 bridge');const output=join(directory,'events.jsonl');
+ await writeFile(bridge,`#!${process.execPath}\nimport fs from 'node:fs';let input='';for await(const chunk of process.stdin)input+=chunk;fs.appendFileSync(process.argv.at(-1),input+'\\n',{mode:0o600});\n`,{mode:0o700});
+ const ctx=new Context();await ctx.plugin(SessionStore);await ctx.plugin(SessionProjectionRegistry);
+ await ctx.plugin(plugin,{bridgePath:bridge,probeDir:output,installationId:'11111111-1111-4111-8111-111111111111'});
+ const session=ctx.sessions.create(SessionId('child'),{meta:{origin:'subagent',parentSession:SessionId('parent')}});
+ session.append('turn/start',{turn:1});
+ session.append('approval/asked',{id:ApprovalRequestId('a'),toolName:'不应转发工具名'});
+ session.append('approval/decided',{id:ApprovalRequestId('a'),outcome:'cancelled'});
+ const answer={answers:[]};let calls=0;
+ expect(await ctx.waterfall('user-questions/request',{agent:{id:session.id},questions:[{id:'q',question:'私密原文'}]},async()=>{calls++;return answer;})).toBe(answer);
+ expect(calls).toBe(1);await ctx.fiber.dispose();
+ expect(await access(output).then(()=>true,()=>false)).toBe(true);
+ const raw=await readFile(output,'utf8');const events=raw.trim().split('\n').map(line=>JSON.parse(line));
+ expect(events.map(e=>e.kind.type)).toEqual(['turn_started','attention_requested','attention_resolved','attention_requested','attention_resolved']);
+ expect(events[0]).toMatchObject({schemaVersion:2,sessionId:'child',parentSessionId:'parent',identity:{installationId:'11111111-1111-4111-8111-111111111111',instanceId:`session-log:child:${session.header.createdAt}`}});
+ expect(events[3].kind.lifetime).toBe('until_resolved');expect(events[3].sequence).toBeUndefined();
+ expect(raw).not.toContain('私密原文');expect(raw).not.toContain('不应转发工具名');await rm(directory,{recursive:true,force:true});
+});

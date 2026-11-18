@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "lib": [
+      "ES2024",
+      "DOM"
+    ]
+  },
+  "include": [
+    "src/events.ts",
+    "src/index.ts",
+    "src/host*.ts",
+    "src/open-session.ts",
+    "tests/events.test.ts",
+    "tests/host*.test.ts",
+    "tests/open-session.test.ts"
+  ]
+}

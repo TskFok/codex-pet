@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist/client-types",
+    "declaration": true
+  },
+  "include": [
+    "src/client.ts",
+    "src/session-links-client.ts",
+    "tests/client.test.ts"
+  ]
+}

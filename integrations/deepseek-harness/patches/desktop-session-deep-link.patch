@@ -1,0 +1,274 @@
+diff --git a/apps/desktop/README.i18n.yaml b/apps/desktop/README.i18n.yaml
+index 18cc78031f..9a416a84b5 100644
+--- a/apps/desktop/README.i18n.yaml
++++ b/apps/desktop/README.i18n.yaml
+@@ -77,3 +77,6 @@
+ /deepseek-harness-desktop/dev-note:
+   en: 8e26b460ba31f21b
+   zh: fbcd0307b3867125
++/deepseek-harness-desktop/section:
++  en: 37c47e0410c2dbae
++  zh: 37c47e0410c2dbae
+diff --git a/apps/desktop/README.md b/apps/desktop/README.md
+index f59840e5c8..7722e57b94 100644
+--- a/apps/desktop/README.md
++++ b/apps/desktop/README.md
+@@ -401,3 +401,7 @@ The account provider’s `embeddedPageDist` configuration adds a `dist` query pa
+ ## Dev Note
+ 
+ Pre-launch CDN and capacity decisions are tracked in the [Desktop update proposal](../../.agents/notes/proposed/feature/2026-09-08-desktop-update-policy-and-installation.md#cdn-and-capacity-qualification).
++
++## 会话深链
++
++`dsh://session/<编码后的会话ID>` 由桌面主进程在应用就绪前排队，Windows 后续实例参数使用同一入口。主窗口进入工作区后，兼容 Client 插件通过 `dshDesktop.sessionLinks` 订阅通知、读取尚未确认目标，并在保留会话引用且等待 `ready` 成功后调用 `uiWorkspace.openSession`。仅唤起窗口不确认目标；不存在的会话明确确认不可用并保留原选择。该入口不创建会话、不启动模型、不回答或批准请求；需要另行安装兼容 Client 插件。
+diff --git a/apps/desktop/README.zh.md b/apps/desktop/README.zh.md
+index 62e19b7e8c..ca09002d98 100644
+--- a/apps/desktop/README.zh.md
++++ b/apps/desktop/README.zh.md
+@@ -401,3 +401,7 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
+ ## 开发备注
+ 
+ 上线前 CDN 与容量决策见[桌面更新提案](../../.agents/notes/proposed/feature/2026-09-08-desktop-update-policy-and-installation.zh.md#cdn-and-capacity-qualification)。
++
++## 会话深链
++
++`dsh://session/<编码后的会话ID>` 由桌面主进程在应用就绪前排队，Windows 后续实例参数使用同一入口。主窗口进入工作区后，兼容 Client 插件通过 `dshDesktop.sessionLinks` 订阅通知、读取尚未确认目标，并在保留会话引用且等待 `ready` 成功后调用 `uiWorkspace.openSession`。仅唤起窗口不确认目标；不存在的会话明确确认不可用并保留原选择。该入口不创建会话、不启动模型、不回答或批准请求；需要另行安装兼容 Client 插件。
+diff --git a/apps/desktop/src/ipc.ts b/apps/desktop/src/ipc.ts
+index 83ebe7415a..ecdd170b7e 100644
+--- a/apps/desktop/src/ipc.ts
++++ b/apps/desktop/src/ipc.ts
+@@ -10,6 +10,9 @@ import type { DesktopFileDrag } from '@deepseek-ai/dsh-util-file-drag'
+ 
+ /** IPC channel names kept private to the desktop application bundle. */
+ export const DESKTOP_IPC = {
++  sessionLinksPending: 'dsh-desktop:session-links-pending',
++  sessionLinksAcknowledge: 'dsh-desktop:session-links-acknowledge',
++  sessionLinksChanged: 'dsh-desktop:session-links-changed',
+   fileSave: 'dsh-desktop:file-save',
+   clipboardImageRead: 'dsh-desktop:clipboard-image-read',
+   shortcutsInput: 'dsh-desktop:shortcuts-input',
+@@ -91,6 +94,11 @@ export interface DesktopUpdatePresentation {
+ 
+ /** Product documents cannot supply update versions, package URLs, or installation authorization. */
+ export interface DshDesktopProductApi {
++  readonly sessionLinks: {
++    pending(): Promise<{ id: number; sessionId: string }[]>
++    acknowledge(id: number, status: 'opened' | 'unavailable'): Promise<void>
++    subscribe(listener: () => void): () => void
++  }
+   readonly fileActions: DesktopFileActions
+   readonly protocolVersion: 1
+   readonly browser: DesktopBrowserBridge
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index dd3141228b..8fdf43c7af 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -1,3 +1,4 @@
++import { DesktopSessionLinks } from './session-deep-link.ts'
+ /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
+ 
+ import { installFileActions } from './file-actions.ts'
+@@ -72,6 +73,13 @@ import { DesktopQuitConfirmation } from './quit-confirmation.ts'
+ import { DesktopTray } from './tray.ts'
+ import { DesktopBackgroundNotice } from './background-notice.ts'
+ 
++const sessionLinks = new DesktopSessionLinks()
++app.on('open-url', (event, url) => {
++  event.preventDefault()
++  if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
++  else sessionLinks.accept(url)
++})
++sessionLinks.acceptArgv(process.argv)
+ let focusPrimaryWindow = (): void => {}
+ let stopForRecovery = async (): Promise<void> => { await stopOperationReports() }
+ let shuttingDown = false
+@@ -816,6 +824,19 @@ async function main(): Promise<void> {
+     return { injections, streamBaseUrl: new URL(hostUrl).origin }
+   })
+ 
++  ipcMain.handle(DESKTOP_IPC.sessionLinksPending, (event) => {
++    assertDesktopSender(event, ['app'])
++    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('会话入口拒绝非主窗口请求')
++    return sessionLinks.pending(enteredWorkspace)
++  })
++  ipcMain.handle(DESKTOP_IPC.sessionLinksAcknowledge, (event, id: unknown, status: unknown) => {
++    assertDesktopSender(event, ['app'])
++    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('会话入口拒绝非主窗口请求')
++    if (typeof id !== 'number' || !Number.isSafeInteger(id) || (status !== 'opened' && status !== 'unavailable')) throw new Error('会话入口确认无效')
++    if (status === 'unavailable') console.warn('目标会话不可用，请在Harness中检查会话是否存在并重试')
++    sessionLinks.acknowledge(id)
++  })
++
+   ipcMain.handle(DESKTOP_IPC.bootFailed, (event, message: unknown) => {
+     assertDesktopSender(event, ['app'])
+     if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) {
+@@ -1348,6 +1369,7 @@ async function main(): Promise<void> {
+     if (activate) window.show()
+     else window.showInactive()
+     enteredWorkspace = true
++    mainWindow?.webContents.send(DESKTOP_IPC.sessionLinksChanged)
+     if (welcomeWindow !== undefined) {
+       welcomeWindow.close()
+       window.webContents.send(DESKTOP_IPC.enterWorkspace)
+@@ -1457,9 +1479,9 @@ async function main(): Promise<void> {
+   }
+ 
+   if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
+-  app.on('open-url', (event, url) => {
+-    event.preventDefault()
+-    if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
++  sessionLinks.attach(() => {
++    focusPrimaryWindow()
++    if (enteredWorkspace) mainWindow?.webContents.send(DESKTOP_IPC.sessionLinksChanged)
+   })
+ 
+   app.on('activate', (_event, hasVisibleWindows) => {
+@@ -1572,7 +1594,7 @@ async function main(): Promise<void> {
+   publishUpdate(updateState)
+ }
+ 
+-const ownsDesktopInstance = claimDesktopSingleInstance(app, () => { focusPrimaryWindow() })
++const ownsDesktopInstance = claimDesktopSingleInstance(app, (_event, argv) => { sessionLinks.acceptArgv(argv); focusPrimaryWindow() })
+ 
+ if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
+   const message = error instanceof Error ? error.message : String(error)
+diff --git a/apps/desktop/src/preload-app.ts b/apps/desktop/src/preload-app.ts
+index 6b4e989614..1f4889b356 100644
+--- a/apps/desktop/src/preload-app.ts
++++ b/apps/desktop/src/preload-app.ts
+@@ -16,6 +16,14 @@ import type { FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
+ function createProductApi(): DshDesktopProductApi {
+   return {
+     protocolVersion: 1,
++    sessionLinks: {
++      pending: () => ipcRenderer.invoke(DESKTOP_IPC.sessionLinksPending) as Promise<{ id: number; sessionId: string }[]>,
++      acknowledge: (id, status) => ipcRenderer.invoke(DESKTOP_IPC.sessionLinksAcknowledge, id, status) as Promise<void>,
++      subscribe: (listener) => {
++        ipcRenderer.on(DESKTOP_IPC.sessionLinksChanged, listener)
++        return () => { ipcRenderer.off(DESKTOP_IPC.sessionLinksChanged, listener) }
++      },
++    },
+     fileActions: {
+       save: request => ipcRenderer.invoke(DESKTOP_IPC.fileSave, request) as Promise<FileSaveResult>,
+       readClipboardImage: url => ipcRenderer.invoke(DESKTOP_IPC.clipboardImageRead, url) as
+diff --git a/apps/desktop/src/session-deep-link.ts b/apps/desktop/src/session-deep-link.ts
+new file mode 100644
+index 0000000000..c96e2ac1ca
+--- /dev/null
++++ b/apps/desktop/src/session-deep-link.ts
+@@ -0,0 +1,55 @@
++/** 桌面启动期间保留经过验证的会话跳转目标，不领取会话或启动任务。 */
++
++/**
++ * 解析单个编码会话ID；拒绝额外路径、凭据、查询、片段和无效编码。
++ * @param input - 操作系统提供的不可信URL。
++ * @returns 有效会话标识，否则undefined。
++ */
++export function parseSessionDeepLink(input: string): string | undefined {
++  try {
++    const url = new URL(input)
++    if (url.protocol !== 'dsh:' || url.hostname !== 'session' || url.username !== '' || url.password !== ''
++      || url.port !== '' || url.search !== '' || url.hash !== '' || !/^\/[^/]+$/.test(url.pathname)) return undefined
++    const id = decodeURIComponent(url.pathname.slice(1))
++    return id.trim() !== '' && !/[\u0000-\u001f\u007f]/.test(id) && id.length <= 1024 ? id : undefined
++  } catch (_error: unknown) {
++    // 无效URL不进入队列，保持原窗口和会话不变。
++    return undefined
++  }
++}
++
++/** 由唯一Electron主进程持有；Client明确确认后移除目标，渲染重载不会提前消费。 */
++export class DesktopSessionLinks {
++  private readonly targets = new Map<number, string>()
++  private serial = 0
++  private notify: (() => void) | undefined
++
++  /** @param url - 不可信系统URL；无效URL不产生副作用。 */
++  accept(url: string): void {
++    const sessionId = parseSessionDeepLink(url)
++    if (sessionId === undefined) return
++    // 外部协议最多保留64个尚未确认目标，限制操作系统输入占用内存。
++    if (this.targets.size >= 64) {
++      console.warn('会话入口队列已满，请在宿主就绪后重试')
++      return
++    }
++    this.targets.set(++this.serial, sessionId)
++    this.notify?.()
++  }
++
++  /** @param argv - 冷启动或Windows second-instance的完整参数；其他参数忽略。 */
++  acceptArgv(argv: readonly string[]): void { for (const arg of argv) this.accept(arg) }
++
++  /** @param notify - 主窗口可用后的唤醒回调；附加时立刻检查早到目标。 */
++  attach(notify: () => void): void { this.notify = notify; notify() }
++
++  /** @param workspaceReady - false时保留全部目标，true时返回副本。
++   * @returns 尚未确认的目标；不会把仅唤起报告为已定位。
++   */
++  pending(workspaceReady: boolean): { id: number; sessionId: string }[] {
++    return workspaceReady ? [...this.targets].map(([id, sessionId]) => ({ id, sessionId })) : []
++  }
++
++  /** @param id - Client完成或明确拒绝的目标序号；未知序号没有副作用。 */
++  acknowledge(id: number): void { this.targets.delete(id) }
++}
+diff --git a/apps/desktop/src/single-instance.ts b/apps/desktop/src/single-instance.ts
+index 7911b46c5b..a35f5261c5 100644
+--- a/apps/desktop/src/single-instance.ts
++++ b/apps/desktop/src/single-instance.ts
+@@ -4,7 +4,7 @@
+ export interface DesktopSingleInstanceApplication {
+   requestSingleInstanceLock(): boolean
+   quit(): void
+-  on(event: 'second-instance', listener: () => void): unknown
++  on(event: 'second-instance', listener: (event: unknown, argv: readonly string[]) => void): unknown
+ }
+ 
+ /**
+@@ -15,7 +15,7 @@ export interface DesktopSingleInstanceApplication {
+  */
+ export function claimDesktopSingleInstance(
+   application: DesktopSingleInstanceApplication,
+-  focusOwner: () => void,
++  focusOwner: (event: unknown, argv: readonly string[]) => void,
+ ): boolean {
+   if (!application.requestSingleInstanceLock()) {
+     application.quit()
+diff --git a/apps/desktop/tests/session-deep-link.spec.ts b/apps/desktop/tests/session-deep-link.spec.ts
+new file mode 100644
+index 0000000000..a4564180f9
+--- /dev/null
++++ b/apps/desktop/tests/session-deep-link.spec.ts
+@@ -0,0 +1,32 @@
++import { describe, expect, it } from 'vitest'
++import { DesktopSessionLinks, parseSessionDeepLink } from '../src/session-deep-link.ts'
++
++describe('桌面精确会话入口', () => {
++  it('只接受单个编码会话标识，拒绝其他地址及无效编码', () => {
++    expect(parseSessionDeepLink('dsh://session/%E4%BC%9A%E8%AF%9D%2Fa')).toBe('会话/a')
++    for (const url of ['dsh://open', 'dsh://session/', 'dsh://session/a/b', 'dsh://session/%ZZ', 'dsh://session/a?x=1', 'https://session/a']) expect(parseSessionDeepLink(url)).toBeUndefined()
++  })
++  it('冷启动早到与workspace未就绪均排队，就绪后提醒且确认前保留', () => {
++    const links = new DesktopSessionLinks()
++    const updates: string[] = []
++    links.accept('dsh://session/cold')
++    expect(links.pending(false)).toEqual([])
++    links.attach(() => { updates.push('ready') })
++    expect(updates).toEqual(['ready'])
++    expect(links.pending(true)).toEqual([{ id: 1, sessionId: 'cold' }])
++    expect(links.pending(true)).toHaveLength(1)
++    links.acknowledge(1)
++    expect(links.pending(true)).toEqual([])
++  })
++  it('热启动、隐藏窗口和Windows second-instance保留目标而非仅唤起', () => {
++    const links = new DesktopSessionLinks()
++    let wakes = 0
++    links.attach(() => { wakes++ })
++    links.acceptArgv(['app.exe', 'dsh://session/win'])
++    links.accept('dsh://session/hot')
++    expect(wakes).toBe(3)
++    expect(links.pending(true).map(value => value.sessionId)).toEqual(['win', 'hot'])
++    links.acknowledge(999)
++    expect(links.pending(true)).toHaveLength(2)
++  })
++})

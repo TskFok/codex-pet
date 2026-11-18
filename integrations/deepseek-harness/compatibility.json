@@ -1,0 +1,58 @@
+{
+  "manifestVersion": 1,
+  "source": "deepseek",
+  "hostVersion": "0.2.2-rc.1",
+  "hostBaseCommit": "fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159",
+  "eventSchemaVersion": 2,
+  "legacyEventSchemaVersionsRead": [
+    1
+  ],
+  "status": "implemented_platform_acceptance_pending",
+  "events": {
+    "approvals": "verified_sdk_bridge_consumer",
+    "continuousQuestions": "verified_sdk_bridge_consumer",
+    "timedNormalSaveRestore": "verified_original_call_id_and_birth_turn",
+    "idleQuestionWithoutTurn": "verified_sdk",
+    "parentChildHeader": "verified_sdk_consumer",
+    "realAgentDelegation": "unverified"
+  },
+  "identity": {
+    "installation": "explicit_persisted_uuid",
+    "instance": "durable_session_log_scope_not_process",
+    "nativeSequenceOnly": true,
+    "unflushedCrashRollback": "task6_unresolved"
+  },
+  "recovery": {
+    "directOrIdleQuestionObserverReload": "task6_public_active_request_or_audit_needed",
+    "emptyPendingIsNotResolution": true
+  },
+  "loading": {
+    "officialTemporaryProfileHostFiber": "active_verified",
+    "authenticatedInitialClientFactory": "delivered_verified",
+    "browserClientApply": "unverified"
+  },
+  "delivery": {
+    "probe": "verified_private_real_bridge",
+    "durableOutbox": "task5_pending",
+    "brokerNetwork": "task6_pending",
+    "noProbe": "explicit_failure_not_delivered"
+  },
+  "navigation": {
+    "requiresDesktopPatch": true,
+    "parserQueueAndIpc": "unit_tested",
+    "macosNativeExactSession": "unverified",
+    "windowsNativeExactSession": "unverified",
+    "wakeOnlyIsExact": false
+  },
+  "package": {
+    "codePackage": "library",
+    "installer": "create-install.mjs_generates_dsh_bundle_in_new_explicit_directory",
+    "installationIdUpgrade": "explicit_reuse_required"
+  },
+  "releaseBlockers": [
+    "macOS/Windows三真实会话与原生精确跳转未验",
+    "未flush崩溃尾回退与direct/idle question观察器重载权威恢复待Task6",
+    "outbox/broker尚未接线"
+  ],
+  "hostPatchedCommit": "2809f54899deb4477517be5437521cd51b7c4a5e"
+}

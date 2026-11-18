@@ -124,5 +124,10 @@
     "installationUuid": "preserved_across_profile_and_path_upgrade",
     "changedOwnedGroups": "conflict_when_marker_remains_otherwise_preserved_as_foreign",
     "uninstall": "use_latest_applied_manifest_preserve_third_party"
-  }
+  },
+  "legacyCaptureSchemaVersion": 1,
+  "eventSchemaVersion": 2,
+  "legacyEventSchemaVersionsRead": [
+    1
+  ]
 }

@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declaration": true
+  },
+  "include": [
+    "src/events.ts",
+    "src/index.ts",
+    "src/host*.ts",
+    "src/open-session.ts"
+  ],
+  "exclude": [
+    "tests"
+  ]
+}
