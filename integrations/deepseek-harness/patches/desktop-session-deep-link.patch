@@ -2,10 +2,7 @@ diff --git a/apps/desktop/README.i18n.yaml b/apps/desktop/README.i18n.yaml
 index 18cc78031f..9a416a84b5 100644
 --- a/apps/desktop/README.i18n.yaml
 +++ b/apps/desktop/README.i18n.yaml
-@@ -77,3 +77,6 @@
- /deepseek-harness-desktop/dev-note:
-   en: 8e26b460ba31f21b
-   zh: fbcd0307b3867125
+@@ -79,0 +80,3 @@
 +/deepseek-harness-desktop/section:
 +  en: 37c47e0410c2dbae
 +  zh: 37c47e0410c2dbae
@@ -13,10 +10,7 @@ diff --git a/apps/desktop/README.md b/apps/desktop/README.md
 index f59840e5c8..7722e57b94 100644
 --- a/apps/desktop/README.md
 +++ b/apps/desktop/README.md
-@@ -401,3 +401,7 @@ The account provider’s `embeddedPageDist` configuration adds a `dist` query pa
- ## Dev Note
- 
- Pre-launch CDN and capacity decisions are tracked in the [Desktop update proposal](../../.agents/notes/proposed/feature/2026-09-08-desktop-update-policy-and-installation.md#cdn-and-capacity-qualification).
+@@ -403,0 +404,4 @@ Pre-launch CDN and capacity decisions are tracked in the [Desktop update proposa
 +
 +## 会话深链
 +
@@ -25,10 +19,7 @@ diff --git a/apps/desktop/README.zh.md b/apps/desktop/README.zh.md
 index 62e19b7e8c..ca09002d98 100644
 --- a/apps/desktop/README.zh.md
 +++ b/apps/desktop/README.zh.md
-@@ -401,3 +401,7 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
- ## 开发备注
- 
- 上线前 CDN 与容量决策见[桌面更新提案](../../.agents/notes/proposed/feature/2026-09-08-desktop-update-policy-and-installation.zh.md#cdn-and-capacity-qualification)。
+@@ -403,0 +404,4 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
 +
 +## 会话深链
 +
@@ -37,41 +28,23 @@ diff --git a/apps/desktop/src/ipc.ts b/apps/desktop/src/ipc.ts
 index 83ebe7415a..ecdd170b7e 100644
 --- a/apps/desktop/src/ipc.ts
 +++ b/apps/desktop/src/ipc.ts
-@@ -10,6 +10,9 @@ import type { DesktopFileDrag } from '@deepseek-ai/dsh-util-file-drag'
- 
- /** IPC channel names kept private to the desktop application bundle. */
- export const DESKTOP_IPC = {
+@@ -12,0 +13,3 @@ export const DESKTOP_IPC = {
 +  sessionLinksPending: 'dsh-desktop:session-links-pending',
 +  sessionLinksAcknowledge: 'dsh-desktop:session-links-acknowledge',
 +  sessionLinksChanged: 'dsh-desktop:session-links-changed',
-   fileSave: 'dsh-desktop:file-save',
-   clipboardImageRead: 'dsh-desktop:clipboard-image-read',
-   shortcutsInput: 'dsh-desktop:shortcuts-input',
-@@ -91,6 +94,11 @@ export interface DesktopUpdatePresentation {
- 
- /** Product documents cannot supply update versions, package URLs, or installation authorization. */
- export interface DshDesktopProductApi {
+@@ -93,0 +97,5 @@ export interface DshDesktopProductApi {
 +  readonly sessionLinks: {
 +    pending(): Promise<{ id: number; sessionId: string }[]>
 +    acknowledge(id: number, status: 'opened' | 'unavailable'): Promise<void>
 +    subscribe(listener: () => void): () => void
 +  }
-   readonly fileActions: DesktopFileActions
-   readonly protocolVersion: 1
-   readonly browser: DesktopBrowserBridge
 diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
 index dd3141228b..8fdf43c7af 100644
 --- a/apps/desktop/src/main.ts
 +++ b/apps/desktop/src/main.ts
-@@ -1,3 +1,4 @@
+@@ -0,0 +1 @@
 +import { DesktopSessionLinks } from './session-deep-link.ts'
- /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
- 
- import { installFileActions } from './file-actions.ts'
-@@ -72,6 +73,13 @@ import { DesktopQuitConfirmation } from './quit-confirmation.ts'
- import { DesktopTray } from './tray.ts'
- import { DesktopBackgroundNotice } from './background-notice.ts'
- 
+@@ -74,0 +76,7 @@ import { DesktopBackgroundNotice } from './background-notice.ts'
 +const sessionLinks = new DesktopSessionLinks()
 +app.on('open-url', (event, url) => {
 +  event.preventDefault()
@@ -79,13 +52,7 @@ index dd3141228b..8fdf43c7af 100644
 +  else sessionLinks.accept(url)
 +})
 +sessionLinks.acceptArgv(process.argv)
- let focusPrimaryWindow = (): void => {}
- let stopForRecovery = async (): Promise<void> => { await stopOperationReports() }
- let shuttingDown = false
-@@ -816,6 +824,19 @@ async function main(): Promise<void> {
-     return { injections, streamBaseUrl: new URL(hostUrl).origin }
-   })
- 
+@@ -818,0 +827,13 @@ async function main(): Promise<void> {
 +  ipcMain.handle(DESKTOP_IPC.sessionLinksPending, (event) => {
 +    assertDesktopSender(event, ['app'])
 +    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('会话入口拒绝非主窗口请求')
@@ -99,47 +66,23 @@ index dd3141228b..8fdf43c7af 100644
 +    sessionLinks.acknowledge(id)
 +  })
 +
-   ipcMain.handle(DESKTOP_IPC.bootFailed, (event, message: unknown) => {
-     assertDesktopSender(event, ['app'])
-     if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) {
-@@ -1348,6 +1369,7 @@ async function main(): Promise<void> {
-     if (activate) window.show()
-     else window.showInactive()
-     enteredWorkspace = true
+@@ -1350,0 +1372 @@ async function main(): Promise<void> {
 +    mainWindow?.webContents.send(DESKTOP_IPC.sessionLinksChanged)
-     if (welcomeWindow !== undefined) {
-       welcomeWindow.close()
-       window.webContents.send(DESKTOP_IPC.enterWorkspace)
-@@ -1457,9 +1479,9 @@ async function main(): Promise<void> {
-   }
- 
-   if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
+@@ -1460,3 +1482,3 @@ async function main(): Promise<void> {
 -  app.on('open-url', (event, url) => {
 -    event.preventDefault()
 -    if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
 +  sessionLinks.attach(() => {
 +    focusPrimaryWindow()
 +    if (enteredWorkspace) mainWindow?.webContents.send(DESKTOP_IPC.sessionLinksChanged)
-   })
- 
-   app.on('activate', (_event, hasVisibleWindows) => {
-@@ -1572,7 +1594,7 @@ async function main(): Promise<void> {
-   publishUpdate(updateState)
- }
- 
+@@ -1575 +1597 @@ async function main(): Promise<void> {
 -const ownsDesktopInstance = claimDesktopSingleInstance(app, () => { focusPrimaryWindow() })
 +const ownsDesktopInstance = claimDesktopSingleInstance(app, (_event, argv) => { sessionLinks.acceptArgv(argv); focusPrimaryWindow() })
- 
- if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unknown) => {
-   const message = error instanceof Error ? error.message : String(error)
 diff --git a/apps/desktop/src/preload-app.ts b/apps/desktop/src/preload-app.ts
 index 6b4e989614..1f4889b356 100644
 --- a/apps/desktop/src/preload-app.ts
 +++ b/apps/desktop/src/preload-app.ts
-@@ -16,6 +16,14 @@ import type { FileDragHandle } from '@deepseek-ai/dsh-util-file-drag'
- function createProductApi(): DshDesktopProductApi {
-   return {
-     protocolVersion: 1,
+@@ -18,0 +19,8 @@ function createProductApi(): DshDesktopProductApi {
 +    sessionLinks: {
 +      pending: () => ipcRenderer.invoke(DESKTOP_IPC.sessionLinksPending) as Promise<{ id: number; sessionId: string }[]>,
 +      acknowledge: (id, status) => ipcRenderer.invoke(DESKTOP_IPC.sessionLinksAcknowledge, id, status) as Promise<void>,
@@ -148,9 +91,6 @@ index 6b4e989614..1f4889b356 100644
 +        return () => { ipcRenderer.off(DESKTOP_IPC.sessionLinksChanged, listener) }
 +      },
 +    },
-     fileActions: {
-       save: request => ipcRenderer.invoke(DESKTOP_IPC.fileSave, request) as Promise<FileSaveResult>,
-       readClipboardImage: url => ipcRenderer.invoke(DESKTOP_IPC.clipboardImageRead, url) as
 diff --git a/apps/desktop/src/session-deep-link.ts b/apps/desktop/src/session-deep-link.ts
 new file mode 100644
 index 0000000000..c96e2ac1ca
@@ -216,24 +156,12 @@ diff --git a/apps/desktop/src/single-instance.ts b/apps/desktop/src/single-insta
 index 7911b46c5b..a35f5261c5 100644
 --- a/apps/desktop/src/single-instance.ts
 +++ b/apps/desktop/src/single-instance.ts
-@@ -4,7 +4,7 @@
- export interface DesktopSingleInstanceApplication {
-   requestSingleInstanceLock(): boolean
-   quit(): void
+@@ -7 +7 @@ export interface DesktopSingleInstanceApplication {
 -  on(event: 'second-instance', listener: () => void): unknown
 +  on(event: 'second-instance', listener: (event: unknown, argv: readonly string[]) => void): unknown
- }
- 
- /**
-@@ -15,7 +15,7 @@ export interface DesktopSingleInstanceApplication {
-  */
- export function claimDesktopSingleInstance(
-   application: DesktopSingleInstanceApplication,
+@@ -18 +18 @@ export function claimDesktopSingleInstance(
 -  focusOwner: () => void,
 +  focusOwner: (event: unknown, argv: readonly string[]) => void,
- ): boolean {
-   if (!application.requestSingleInstanceLock()) {
-     application.quit()
 diff --git a/apps/desktop/tests/session-deep-link.spec.ts b/apps/desktop/tests/session-deep-link.spec.ts
 new file mode 100644
 index 0000000000..a4564180f9

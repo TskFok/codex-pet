@@ -29,7 +29,7 @@ node integrations/deepseek-harness/create-install.mjs \
 
 ## 精确会话入口
 
-Host 无法直接调用 Client uiWorkspace：Remote 能力和事件均由构建期白名单选择。先在准确宿主基线上应用 [桌面补丁](patches/desktop-session-deep-link.patch)，执行 git apply --check 后再 apply、按官方文档构建。撤销补丁先禁用本包，再 reverse --check；检查失败时保留用户改动进行比对，不强行覆盖。
+Host 无法直接调用 Client uiWorkspace：Remote 能力和事件均由构建期白名单选择。先在准确宿主基线上应用 [桌面补丁](patches/desktop-session-deep-link.patch)，补丁为零上下文diff，执行 `git apply --unidiff-zero --check 补丁路径` 后再以相同参数去掉 `--check` 应用，按官方文档构建。撤销补丁先禁用本包，再执行 `git apply --unidiff-zero --reverse --check 补丁路径`；检查失败时保留用户改动进行比对，不强行覆盖。
 
 补丁在 whenReady 前排队 `dsh://session/<编码ID>`，处理 Windows second-instance；工作区未就绪或渲染重载时目标不提前消费。Client 通过经主窗口/主 frame/原点验证的 IPC 读取目标，保留引用并等待 sessions.retain(...).ready 成功后调用 uiWorkspace.openSession；不存在目标确认 unavailable，保留原选择。Client 来自本包正式模块工厂，没有私有反射或自造跨 Remote 事件。
 
