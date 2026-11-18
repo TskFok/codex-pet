@@ -46,7 +46,8 @@ impl SessionEntry {
             },
             instance_id: event.identity.instance_id.clone(),
             sequence: None,
-            known_turns: HashSet::from([event.turn_id.clone()]),
+            // 请求的 birth turn 不是已观察到的活动回合。
+            known_turns: HashSet::new(),
             terminal: false,
             terminal_status: None,
             has_turn_fact: false,
@@ -71,6 +72,19 @@ impl SessionEntry {
             self.instance_id.clone_from(&event.identity.instance_id);
             self.sequence = event.sequence;
         }
+    }
+
+    fn take_current_deferred_requests(&mut self) -> Vec<EventEnvelope> {
+        let mut deferred = vec![];
+        self.deferred_requests.retain(|pending| {
+            if pending.turn_id == self.projection.turn_id {
+                deferred.push(pending.clone());
+                false
+            } else {
+                true
+            }
+        });
+        deferred
     }
 }
 
@@ -330,6 +344,7 @@ impl SessionStore {
             EventKind::SourceDisconnected | EventKind::SourceSnapshot { .. } => unreachable!(),
         };
         entry.has_turn_fact = true;
+        entry.known_turns.insert(event.turn_id.clone());
         entry.observe_sequence(event);
         entry.projection.last_event_at_ms =
             entry.projection.last_event_at_ms.max(event.occurred_at_ms);
@@ -345,15 +360,7 @@ impl SessionStore {
         if event.project.is_some() {
             entry.projection.project.clone_from(&event.project);
         }
-        let mut deferred = vec![];
-        entry.deferred_requests.retain(|pending| {
-            if pending.turn_id == entry.projection.turn_id {
-                deferred.push(pending.clone());
-                false
-            } else {
-                true
-            }
-        });
+        let deferred = entry.take_current_deferred_requests();
         self.sessions.insert(key, entry);
         let mut notified = notify;
         for request in deferred {
@@ -462,12 +469,15 @@ impl SessionStore {
                     .iter()
                     .filter(|request| request.lifetime == RequestLifetime::UntilResolved)
                 {
-                    if !entry
+                    if let Some(new) = entry
                         .projection
                         .pending
-                        .iter()
-                        .any(|new| new.id == request.id && new.turn_id == request.turn_id)
+                        .iter_mut()
+                        .find(|new| new.id == request.id && new.turn_id == request.turn_id)
                     {
+                        // 普通快照没有精确解除事实，不能降级已证的持续请求。
+                        *new = request.clone();
+                    } else {
                         entry.projection.pending.push(request.clone());
                     }
                 }
@@ -491,6 +501,7 @@ impl SessionStore {
             entry.known_turns = HashSet::from([projection.turn_id.clone()]);
             if let Some(old) = self.sessions.get(&projection.key) {
                 entry.known_turns.extend(old.known_turns.iter().cloned());
+                entry.deferred_requests.clone_from(&old.deferred_requests);
                 entry.external_unread_end = old.external_unread_end;
             }
             entry.external_unread = projection.unread;
@@ -519,7 +530,12 @@ impl SessionStore {
                         .pending
                         .iter()
                         .any(|pending| pending.lifetime == RequestLifetime::Turn));
+            let deferred = entry.take_current_deferred_requests();
             self.sessions.insert(projection.key.clone(), entry);
+            // 快照同样能提供回合锚点；已接收事件不再经过全局 eventId 去重。
+            for request in deferred {
+                self.apply_session_event(&request);
+            }
         }
     }
 

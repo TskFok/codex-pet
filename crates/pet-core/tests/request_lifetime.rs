@@ -259,3 +259,129 @@ fn tombstoned_ordinary_request_does_not_reestablish_running_under_until_overlay(
     apply(&mut store, "a", "t1", None, resolved("q"));
     assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Unknown);
 }
+
+#[test]
+fn review_i1_future_birth_does_not_mark_an_unobserved_turn_as_past() {
+    let mut store = SessionStore::default();
+    apply(&mut store, "q-first", "t2", None, until("q"));
+    apply(&mut store, "start1", "t1", Some(1), start());
+    apply(&mut store, "start2", "t2", Some(5), start());
+    let state = store.snapshot();
+    assert_eq!(state.sessions[0].turn_id.as_deref(), Some("t2"));
+    assert_eq!(state.sessions[0].status, SessionStatus::NeedsAttention);
+    assert_eq!(state.sessions[0].pending[0].id, "q");
+    apply(&mut store, "answer", "t2", None, resolved("q"));
+    assert!(store.snapshot().sessions[0].pending.is_empty());
+    assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Running);
+    // 已证过去的活动回合继续受保护，即使迟到开始携带更高序号。
+    apply(&mut store, "old-start", "t1", Some(9), start());
+    assert_eq!(store.snapshot().sessions[0].turn_id.as_deref(), Some("t2"));
+}
+
+#[test]
+fn review_i2_decoded_ordinary_snapshot_cannot_downgrade_persistent_request() {
+    for version in [1, 2] {
+        for explicit_lifetime in [false, true] {
+            let mut store = SessionStore::default();
+            apply(&mut store, "start1", "t1", Some(1), start());
+            apply(&mut store, "q", "t1", None, until("q"));
+            let mut projection = serde_json::to_value(&store.snapshot().sessions[0]).unwrap();
+            let pending = projection["pending"][0].as_object_mut().unwrap();
+            pending.remove("lifetime");
+            if explicit_lifetime {
+                pending.insert("lifetime".into(), json!("turn"));
+            }
+            let snapshot = event(
+                "snapshot",
+                Some("t1"),
+                Some(3),
+                json!({"type":"source_snapshot","sessions":[projection]}),
+            );
+            let mut wire = serde_json::to_value(snapshot).unwrap();
+            wire["schemaVersion"] = json!(version);
+            let decoded = decode_event(&serde_json::to_vec(&wire).unwrap()).unwrap();
+            store.apply(&decoded);
+            assert_eq!(
+                store.snapshot().sessions[0].pending[0].lifetime,
+                RequestLifetime::UntilResolved
+            );
+            apply(&mut store, "end1", "t1", Some(4), end());
+            assert_eq!(
+                store.snapshot().sessions[0].status,
+                SessionStatus::NeedsAttention
+            );
+            apply(&mut store, "start2", "t2", Some(5), start());
+            assert_eq!(store.snapshot().sessions[0].pending.len(), 1);
+            assert_eq!(
+                store.snapshot().sessions[0].pending[0].turn_id.as_deref(),
+                Some("t1")
+            );
+            apply(&mut store, "answer", "t1", None, resolved("q"));
+            assert!(store.snapshot().sessions[0].pending.is_empty());
+            assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Running);
+        }
+    }
+}
+
+#[test]
+fn review_i3_deferred_request_survives_unrelated_snapshot_until_real_start() {
+    let mut store = SessionStore::default();
+    apply(&mut store, "start1", "t1", Some(1), start());
+    let request = event(
+        "q2",
+        Some("t2"),
+        None,
+        json!({"type":"attention_requested","requestId":"q2","reason":"approval"}),
+    );
+    store.apply(&request);
+    let mut projection = store.snapshot().sessions[0].clone();
+    projection.status = SessionStatus::Running;
+    store.apply(&event(
+        "snapshot1",
+        Some("t1"),
+        Some(3),
+        json!({"type":"source_snapshot","sessions":[projection]}),
+    ));
+    apply(&mut store, "start2", "t2", Some(5), start());
+    assert_eq!(
+        store.snapshot().sessions[0].status,
+        SessionStatus::NeedsAttention
+    );
+    assert_eq!(store.snapshot().sessions[0].pending[0].id, "q2");
+    assert_eq!(store.snapshot().notifications.len(), 1);
+    assert!(!store.apply(&request).changed);
+    assert_eq!(store.snapshot().notifications.len(), 1);
+}
+
+#[test]
+fn review_i3_snapshot_anchor_consumes_deferred_request_without_redelivery() {
+    let mut store = SessionStore::default();
+    apply(&mut store, "start1", "t1", Some(1), start());
+    apply(
+        &mut store,
+        "q2",
+        "t2",
+        None,
+        json!({"type":"attention_requested","requestId":"q2","reason":"approval"}),
+    );
+    let mut projection = store.snapshot().sessions[0].clone();
+    projection.turn_id = Some("t2".into());
+    projection.status = SessionStatus::Running;
+    store.apply(&event(
+        "snapshot2",
+        Some("t2"),
+        Some(3),
+        json!({"type":"source_snapshot","sessions":[projection]}),
+    ));
+    assert_eq!(store.snapshot().sessions[0].turn_id.as_deref(), Some("t2"));
+    assert_eq!(
+        store.snapshot().sessions[0].status,
+        SessionStatus::NeedsAttention
+    );
+    assert_eq!(store.snapshot().sessions[0].pending[0].id, "q2");
+    assert_eq!(store.snapshot().notifications.len(), 1);
+    apply(&mut store, "answer2", "t2", None, resolved("q2"));
+    apply(&mut store, "later-start2", "t2", Some(4), start());
+    assert!(store.snapshot().sessions[0].pending.is_empty());
+    assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Running);
+}
