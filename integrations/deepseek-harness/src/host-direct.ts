@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Context } from '@deepseek-ai/cordis';
 import type { ObservationSink } from './host-observer.js';
 import type { HarnessObservation } from './events.js';
+import { InvalidHarnessEventError } from './host-forwarder.js';
 
 interface DirectQuestion {
   readonly id: string;
@@ -41,9 +42,9 @@ const RETRY_DELAY_MS = 500;
 
 type Snapshot = ReturnType<DirectQuestionServiceV1['observeDirectQuestions']>['snapshot'];
 
-function* recover(snapshot: Snapshot, deliveredThrough?: number): Iterable<HarnessObservation> {
+function* recover(snapshot: Snapshot, processedThrough?: number): Iterable<HarnessObservation> {
   for (const change of snapshot.settled) {
-    if (deliveredThrough === undefined || change.cursor > deliveredThrough) {
+    if (processedThrough === undefined || change.cursor > processedThrough) {
       yield observation(change.request, change.settledAt);
     }
   }
@@ -70,7 +71,7 @@ function pumpDirectQuestions(service: DirectQuestionServiceV1, send: Observation
   let task: Promise<void> | undefined;
   let unsubscribe: (() => void) | undefined;
   let baseline: Iterator<HarnessObservation> | undefined;
-  let deliveredThrough = 0;
+  let processedThrough = 0;
   let baselineCut = 0;
   let overflow = false;
 
@@ -104,7 +105,11 @@ function pumpDirectQuestions(service: DirectQuestionServiceV1, send: Observation
       try {
         await send(event);
         return true;
-      } catch (_error) {
+      } catch (error) {
+        if (error instanceof InvalidHarnessEventError) {
+          warn('桌宠直接提问事件被协议拒绝，该条事实无法恢复，继续处理其他请求');
+          return true;
+        }
         if (!warned) {
           warn('桌宠直接提问尚未接纳，将重试同一事件，请检查桥接程序和待发送区');
           warned = true;
@@ -127,17 +132,17 @@ function pumpDirectQuestions(service: DirectQuestionServiceV1, send: Observation
           continue;
         }
         baseline = undefined;
-        deliveredThrough = baselineCut;
+        processedThrough = baselineCut;
       }
       const change = pending.shift();
       if (change !== undefined) {
         if (!await deliver(observation(change.request, change.kind === 'settled' ? change.settledAt : undefined))) return;
-        deliveredThrough = change.cursor;
+        processedThrough = change.cursor;
         continue;
       }
       if (!overflow) return;
       overflow = false;
-      capture(deliveredThrough);
+      capture(processedThrough);
     }
   }
 

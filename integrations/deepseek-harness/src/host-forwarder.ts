@@ -1,6 +1,10 @@
 import {spawn} from 'node:child_process';
 import type {EventEnvelope} from './events.js';
 
+/** 单条事件无效，重新发送相同字节无法取得接纳。 */
+export class InvalidHarnessEventError extends Error {}
+const INVALID_EVENT_EXIT_CODE = 2;
+
 /** 有界串行调用原生转发器，由转发器负责耐久入队和本机投递。 */
 export class HarnessForwarder {
   private tail:Promise<void>=Promise.resolve();
@@ -12,7 +16,8 @@ export class HarnessForwarder {
   send(event:EventEnvelope):Promise<void>{
     const data=JSON.stringify(event);
     const bytes=Buffer.byteLength(data);
-    if(this.stopped||bytes>65536||this.count>=2000||this.bytes+bytes>10*1024*1024)return Promise.reject(new Error('桌宠转发未入队：已停止或超出队列限制'));
+    if(bytes>65536)return Promise.reject(new InvalidHarnessEventError('桌宠事件超过 64 KiB'));
+    if(this.stopped||this.count>=2000||this.bytes+bytes>10*1024*1024)return Promise.reject(new Error('桌宠转发未入队：已停止或超出队列限制'));
     this.count++;this.bytes+=bytes;
     const task=this.tail.then(()=>this.forward(data));
     this.tail=task.catch((_error:unknown)=>{ /* 单次失败由send调用者报告，后续事件继续尝试。 */ });
@@ -25,7 +30,12 @@ export class HarnessForwarder {
       const child=spawn(this.bridgePath,args,{stdio:['pipe','ignore','ignore'],windowsHide:true,env,timeout:5000,killSignal:'SIGKILL'});
       let failed=false;
       child.once('error',()=>{failed=true;});
-      child.once('close',(code,signal)=>!failed&&code===0&&signal===null?resolve():reject(new Error('桌宠转发器未接受事件；请检查投递配置')));
+      child.once('close',(code,signal)=>{
+        if (!failed && signal === null && code === 0) resolve();
+        else if (!failed && signal === null && code === INVALID_EVENT_EXIT_CODE) {
+          reject(new InvalidHarnessEventError('桌宠转发器拒绝协议事件'));
+        } else reject(new Error('桌宠转发器未接受事件；请检查投递配置'));
+      });
       child.stdin.on('error',()=>{failed=true;});
       child.stdin.end(data);
     });

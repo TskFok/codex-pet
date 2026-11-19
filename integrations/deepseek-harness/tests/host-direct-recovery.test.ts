@@ -50,7 +50,12 @@ it.skipIf(host === undefined)('已构建的原问题服务跨插件重载恢复 
     const first = await context.plugin(plugin, { ...properties, probeDir: join(directory, 'first') });
     const waiting = Promise.withResolvers<AskUserQuestionAnswer>();
     const cancelled = Promise.withResolvers<AskUserQuestionAnswer>();
-    context.on('user-questions/request', request => request.questions[0]?.id === 'direct' ? waiting.promise : cancelled.promise);
+    const invalid = Promise.withResolvers<AskUserQuestionAnswer>();
+    const independent = Promise.withResolvers<AskUserQuestionAnswer>();
+    const answers = new Map([
+      ['direct', waiting], ['idle', cancelled], ['invalid', invalid], ['independent', independent],
+    ]);
+    context.on('user-questions/request', request => answers.get(request.questions[0]?.id ?? '')!.promise);
     session.append('turn/start', { turn: 1 });
     const directWork = service.ask({ agent, questions: [{ id: 'direct', question: '私密原问题' }] });
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
@@ -61,16 +66,34 @@ it.skipIf(host === undefined)('已构建的原问题服务跨插件重载恢复 
     const originalError = new questions.UserQuestionError('cancelled', 'ASK_CANCELLED');
     cancelled.reject(originalError);
     await expect(idleWork).rejects.toBe(originalError);
+    const additionalAsk = (id: string, request: string) => {
+      const session = context.sessions.create(SessionId(id));
+      const owner = { id: session.id, session } as NonNullable<AskUserQuestionRequestEvent['agent']>;
+      registry!.enter(owner, false);
+      return service.ask({ agent: owner, questions: [{ id: request, question: '私密原问题' }] });
+    };
+    const invalidWork = additionalAsk('  ', 'invalid');
+    const independentWork = additionalAsk('独立会话', 'independent');
     const resumed = await context.plugin(plugin, { ...properties, probeDir: join(directory, 'resumed') });
-    await expect.poll(async () => (await probe('resumed')).length, { timeout: 5_000 }).toBe(2);
+    await expect.poll(async () => (await probe('resumed')).some(event =>
+      event.sessionId === '独立会话' && event.kind.type === 'attention_requested'), { timeout: 3_000 }).toBe(true);
     const originalAnswer = { answers: [{ id: 'direct', selected: ['私密原回答'] }] };
     waiting.resolve(originalAnswer);
     await expect(directWork).resolves.toBe(originalAnswer);
-    await expect.poll(async () => (await probe('resumed')).length, { timeout: 5_000 }).toBe(3);
+    invalid.resolve(originalAnswer);
+    independent.resolve(originalAnswer);
+    await expect(invalidWork).resolves.toBe(originalAnswer);
+    await expect(independentWork).resolves.toBe(originalAnswer);
+    await expect.poll(async () => (await probe('resumed')).length, { timeout: 5_000 }).toBe(5);
     await resumed.dispose();
 
     const firstEvents = await probe('first');
-    const secondEvents = await probe('resumed');
+    const recovered = await probe('resumed');
+    expect(recovered.some(event => event.sessionId.trim() === '')).toBe(false);
+    const other = recovered.filter(event => event.sessionId === '独立会话');
+    expect(other.map(event => event.kind.type)).toEqual(expect.arrayContaining(['attention_requested', 'attention_resolved']));
+    expect(new Set(other.map(event => 'requestId' in event.kind ? event.kind.requestId : undefined)).size).toBe(1);
+    const secondEvents = recovered.filter(event => event.sessionId === session.id);
     const requested = (events: EventEnvelope[], turnId?: string) =>
       events.find(event => event.kind.type === 'attention_requested' && event.turnId === turnId);
     const direct = requested(firstEvents, '1');

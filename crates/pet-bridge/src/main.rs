@@ -19,8 +19,8 @@ fn main() {
     let command = args.next();
     if command.as_deref() == Some("harness") {
         if let Err(error) = run_harness(args.collect()) {
-            eprintln!("pet-bridge：{error}");
-            std::process::exit(1);
+            eprintln!("pet-bridge：{}", error.message());
+            std::process::exit(error.exit_code());
         }
     } else if command.as_deref() == Some("codex") {
         // 所有 Hook 失败均保持无决定输出，诊断绝不包含宿主原始 JSON。
@@ -197,7 +197,40 @@ fn run_hook(args: Vec<String>) -> Result<(), String> {
     }
     Ok(())
 }
-fn run_harness(args: Vec<String>) -> Result<(), String> {
+enum HarnessFailure {
+    InvalidEvent(&'static str),
+    Operation(String),
+}
+
+impl HarnessFailure {
+    fn exit_code(&self) -> i32 {
+        match self {
+            Self::InvalidEvent(_) => 2,
+            Self::Operation(_) => 1,
+        }
+    }
+
+    fn message(&self) -> &str {
+        match self {
+            Self::InvalidEvent(message) => message,
+            Self::Operation(message) => message,
+        }
+    }
+}
+
+impl From<String> for HarnessFailure {
+    fn from(message: String) -> Self {
+        Self::Operation(message)
+    }
+}
+
+impl From<&str> for HarnessFailure {
+    fn from(message: &str) -> Self {
+        Self::Operation(message.into())
+    }
+}
+
+fn run_harness(args: Vec<String>) -> Result<(), HarnessFailure> {
     use sha2::{Digest, Sha256};
     let options = options(&args, &["--probe-dir"])?;
     let mut bytes = Vec::new();
@@ -205,16 +238,24 @@ fn run_harness(args: Vec<String>) -> Result<(), String> {
         .take(pet_core::MAX_EVENT_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| "无法读取Harness规范事件")?;
-    let event = pet_core::decode_event(&bytes)
-        .map_err(|_| "Harness事件不是受支持的完整统一协议，或超过64KiB")?;
+    let event = pet_core::decode_event(&bytes).map_err(|_| {
+        HarnessFailure::InvalidEvent("Harness事件不是受支持的完整统一协议，或超过64KiB")
+    })?;
     if event.identity.source != Source::Deepseek {
-        return Err("Harness入口拒绝其他来源的事件".into());
+        return Err(HarnessFailure::InvalidEvent(
+            "Harness入口拒绝其他来源的事件",
+        ));
     }
     let Some(directory) = options.get("--probe-dir").map(PathBuf::from) else {
         let paths = AppPaths::for_user().map_err(|error| error.to_string())?;
         return deliver(&event, &paths)
             .map(|_| ())
-            .map_err(|error| error.to_string());
+            .map_err(|error| match error {
+                pet_core::StorageError::InvalidEvent(_) => {
+                    HarnessFailure::InvalidEvent("规范化的Harness事件无法通过协议验证")
+                }
+                other => HarnessFailure::Operation(other.to_string()),
+            });
     };
     prepare_probe_directory(&directory)?;
     let canonical = serde_json::to_vec(&event).map_err(|_| "规范事件序列化失败")?;
@@ -233,7 +274,8 @@ fn run_harness(args: Vec<String>) -> Result<(), String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err("无法检查探测事件文件".into()),
     }
-    private_write(&path, &canonical)
+    private_write(&path, &canonical)?;
+    Ok(())
 }
 fn read_config(path: &Path) -> Result<Vec<u8>, String> {
     match fs::read(path) {

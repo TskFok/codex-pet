@@ -54,15 +54,18 @@ fn harness_probe_accepts_valid_v2_privately_and_deduplicates_exact_replays() {
 fn harness_rejects_foreign_source_bad_json_and_oversize_without_payload() {
     let mut foreign: serde_json::Value = serde_json::from_slice(&valid()).unwrap();
     foreign["identity"]["source"] = json!("codex");
+    let mut blank: serde_json::Value = serde_json::from_slice(&valid()).unwrap();
+    blank["sessionId"] = json!("  ");
     let root = tempfile::tempdir().unwrap();
     let args = ["--probe-dir", root.path().to_str().unwrap()];
     for bytes in [
         serde_json::to_vec(&foreign).unwrap(),
+        serde_json::to_vec(&blank).unwrap(),
         "{\"secret\":\"私密原文\"".as_bytes().to_vec(),
         vec![b'x'; 65537],
     ] {
         let result = run(&args, &bytes);
-        assert!(!result.status.success());
+        assert_eq!(result.status.code(), Some(2));
         assert!(result.stdout.is_empty());
         assert!(
             !String::from_utf8(result.stderr)
@@ -70,6 +73,16 @@ fn harness_rejects_foreign_source_bad_json_and_oversize_without_payload() {
                 .contains("私密原文")
         );
     }
+}
+
+#[test]
+fn harness_reports_a_storage_failure_separately_from_an_invalid_event() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("occupied");
+    std::fs::write(&file, b"file in place of directory").unwrap();
+    let result = run(&["--probe-dir", file.to_str().unwrap()], &valid());
+    assert_eq!(result.status.code(), Some(1));
+    assert!(result.stdout.is_empty());
 }
 
 #[test]
