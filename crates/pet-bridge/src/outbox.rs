@@ -132,7 +132,7 @@ impl Outbox {
         let mut slots = self.scan(&mut state)?;
         self.expire(now, &mut state, &mut slots);
         // 恢复上一进程在发布后、修剪前退出时可能遗留的超额项。
-        self.enforce_limits(&mut state, &mut slots);
+        self.prune_unverified_overflow(&mut state, &mut slots)?;
         let existing = slots.iter().position(|slot| slot.key() == key);
         let already_queued = if let Some(index) = existing {
             let slot = &slots[index];
@@ -162,7 +162,7 @@ impl Outbox {
                 size: bytes.len() as u64,
             });
         }
-        self.enforce_limits(&mut state, &mut slots);
+        self.prune_unverified_overflow(&mut state, &mut slots)?;
         self.commit_cleanup(&mut state)
     }
 
@@ -206,7 +206,7 @@ impl Outbox {
                 true
             }
         });
-        self.enforce_limits(&mut state, &mut slots);
+        self.prune_unverified_overflow(&mut state, &mut slots)?;
         self.commit_cleanup(&mut state)
     }
 
@@ -248,36 +248,39 @@ impl Outbox {
         for entry in fs::read_dir(&self.paths.outbox)? {
             let entry = entry?;
             let path = entry.path();
-            let name = entry
-                .file_name()
-                .into_string()
-                .map_err(|_| StorageError::UnsafePath(path.clone()))?;
-            match name.as_str() {
-                LOCK | STATE => continue,
-                QUARANTINE => {
+            let name = entry.file_name();
+            match name.to_str() {
+                Some(LOCK | STATE) => continue,
+                Some(QUARANTINE) => {
                     let metadata = entry.metadata()?;
                     if !metadata.is_dir() || is_link(&metadata) {
                         return Err(StorageError::UnsafePath(path));
                     }
                     continue;
                 }
+                Some(name) if name.starts_with(STAGING_PREFIX) => {
+                    regular_metadata(&path)?;
+                    fs::remove_file(&path)?;
+                    continue;
+                }
                 _ => {}
-            }
-            if name.starts_with(STAGING_PREFIX) {
-                regular_metadata(&path)?;
-                fs::remove_file(&path)?;
-                continue;
             }
             let metadata = entry.metadata()?;
             require_regular(&path, &metadata)?;
-            let size = metadata.len();
-            if size > MAX_EVENT_BYTES as u64 {
-                state.isolate(name, false);
+            // 无法序列化为清理计划的本地名称不属于待发送项。
+            let Ok(name) = name.into_string() else {
                 continue;
-            }
+            };
+            let size = metadata.len();
+            let retain_sample = size <= MAX_EVENT_BYTES as u64;
             match Slot::from_name(name, size) {
-                Ok(slot) => slots.push(slot),
-                Err(name) => state.isolate(name, true),
+                Ok(slot) if retain_sample => slots.push(slot),
+                Ok(slot) => state.isolate(slot.name, false),
+                Err(name) => {
+                    if cleanup_target(&name)?.is_some() {
+                        state.isolate(name, retain_sample);
+                    }
+                }
             }
         }
         slots.sort_unstable_by(|left, right| {
@@ -312,6 +315,29 @@ impl Outbox {
                 true
             }
         });
+    }
+
+    fn prune_unverified_overflow(
+        &self,
+        state: &mut DiskState,
+        slots: &mut Vec<Slot>,
+    ) -> Result<(), DeliveryError> {
+        if slots.len() <= MAX_PENDING
+            && slots.iter().map(|slot| slot.size).sum::<u64>() <= MAX_BYTES
+        {
+            return Ok(());
+        }
+        let mut valid = Vec::with_capacity(slots.len());
+        for slot in slots.drain(..) {
+            if self.read_event(&slot)?.is_some() {
+                valid.push(slot);
+            } else {
+                state.isolate(slot.name, true);
+            }
+        }
+        *slots = valid;
+        self.enforce_limits(state, slots);
+        Ok(())
     }
 
     fn enforce_limits(&self, state: &mut DiskState, slots: &mut Vec<Slot>) -> usize {
@@ -353,12 +379,14 @@ impl Outbox {
         let quarantine = self.paths.outbox.join(QUARANTINE);
         let mut sync_quarantine = false;
         for entry in &state.cleanup {
-            validate_cleanup_name(&entry.name)?;
+            let Some(name) = cleanup_target(&entry.name)? else {
+                continue;
+            };
             if entry.quarantine_index.is_some() && !sync_quarantine {
                 prepare_directory(&quarantine)?;
                 sync_quarantine = true;
             }
-            let path = self.paths.outbox.join(&entry.name);
+            let path = self.paths.outbox.join(name);
             match regular_metadata(&path) {
                 Ok(_) => {}
                 Err(StorageError::Io(error)) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -398,20 +426,24 @@ impl DiskState {
     }
 }
 
-fn validate_cleanup_name(name: &str) -> Result<(), DeliveryError> {
+fn cleanup_target(name: &str) -> Result<Option<&Path>, DeliveryError> {
     let path = Path::new(name);
-    let normalized = name.to_ascii_lowercase();
     let mut parts = path.components();
     if !matches!(parts.next(), Some(Component::Normal(part)) if part == path.as_os_str())
         || parts.next().is_some()
-        || name.contains(['\\', ':'])
-        || name.ends_with(['.', ' '])
-        || matches!(normalized.as_str(), LOCK | STATE | QUARANTINE)
-        || normalized.starts_with(STAGING_PREFIX)
+        || (cfg!(windows) && name.contains(['\\', ':']))
     {
         return Err(StorageError::UnsafePath(path.into()));
     }
-    Ok(())
+    // 管理文件及 Windows 会重解释的名称不加入清理计划。旧计划也不操作它们。
+    let normalized = name.to_ascii_lowercase();
+    if (cfg!(windows) && name.ends_with(['.', ' ']))
+        || matches!(normalized.as_str(), LOCK | STATE | QUARANTINE)
+        || normalized.starts_with(STAGING_PREFIX)
+    {
+        return Ok(None);
+    }
+    Ok(Some(path))
 }
 
 fn remove_slot(path: &Path) -> Result<(), DeliveryError> {

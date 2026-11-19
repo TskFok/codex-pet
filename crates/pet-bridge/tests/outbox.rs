@@ -1,5 +1,5 @@
 use pet_bridge::outbox::Outbox;
-use pet_core::{AppPaths, EventEnvelope, decode_event};
+use pet_core::{AppPaths, EventEnvelope, MAX_EVENT_BYTES, ProjectContext, decode_event};
 use serde_json::json;
 use std::fs;
 use std::process::{Command, Stdio};
@@ -34,6 +34,35 @@ fn event(id: &str) -> EventEnvelope {
 
 fn fixed(paths: &AppPaths, now: u64) -> Outbox {
     Outbox::with_clock(paths.clone(), move || now).unwrap()
+}
+
+fn padded_event(id: &str, size: usize) -> EventEnvelope {
+    let mut event = event(id);
+    event.project = Some(ProjectContext {
+        name: "project".into(),
+        directory: Some(String::new()),
+    });
+    let padding = size - serde_json::to_vec(&event).unwrap().len();
+    event.project.as_mut().unwrap().directory = Some("a".repeat(padding));
+    event
+}
+
+fn corrupt_payload(outbox: &Outbox, id: &str) {
+    let events = outbox.pending(NOW).unwrap();
+    let slot = events
+        .iter()
+        .find(|slot| slot.envelope.event_id == id)
+        .unwrap();
+    fs::write(&slot.path, vec![b'!'; MAX_EVENT_BYTES]).unwrap();
+}
+
+fn pending_ids(outbox: &Outbox) -> Vec<String> {
+    outbox
+        .pending(NOW)
+        .unwrap()
+        .into_iter()
+        .map(|slot| slot.envelope.event_id)
+        .collect()
 }
 
 #[test]
@@ -154,6 +183,99 @@ fn corruption_is_isolated_and_diagnostic_survives_restart() {
         .unwrap()
         .unwrap();
     assert_eq!(fs::read(quarantined.path()).unwrap(), b"partial json");
+}
+
+#[cfg(unix)]
+#[test]
+fn ordinary_file_with_punctuation_is_quarantined_without_blocking_the_queue() {
+    let (_dir, paths) = sandbox();
+    let outbox = fixed(&paths, NOW);
+    outbox.enqueue(&event("first")).unwrap();
+    let sample = paths.outbox.join("普通样例:备注.txt.");
+    fs::write(&sample, b"sample").unwrap();
+
+    assert_eq!(pending_ids(&outbox), ["first"]);
+    assert!(!sample.exists());
+    drop(outbox);
+
+    let outbox = fixed(&paths, NOW);
+    outbox.enqueue(&event("second")).unwrap();
+    assert_eq!(pending_ids(&outbox), ["first", "second"]);
+    assert_eq!(outbox.diagnostics().unwrap().corrupt_isolated, 1);
+}
+
+#[test]
+fn replay_skips_a_missing_previously_rejected_cleanup_item() {
+    let (_dir, paths) = sandbox();
+    let outbox = fixed(&paths, NOW);
+    outbox.enqueue(&event("first")).unwrap();
+    drop(outbox);
+    fs::write(
+        paths.outbox.join(".outbox-state.json"),
+        serde_json::to_vec(&json!({
+            "diagnostics": {"expiredDiscarded": 0, "overflowDiscarded": 0, "corruptIsolated": 1},
+            "cleanup": [{"name": ".OUTBOX-STAGE-orphan", "quarantine_index": 0}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let outbox = fixed(&paths, NOW);
+    assert_eq!(pending_ids(&outbox), ["first"]);
+    outbox.enqueue(&event("second")).unwrap();
+    assert_eq!(pending_ids(&outbox), ["first", "second"]);
+    assert_eq!(outbox.diagnostics().unwrap().corrupt_isolated, 1);
+}
+
+#[test]
+fn enqueue_quarantines_bad_payload_before_evicting_valid_events() {
+    let (_dir, paths) = sandbox();
+    let outbox = fixed(&paths, NOW);
+    // 160 个 64 KiB 的合法事件恰好占满 10 MiB。
+    let ids: Vec<_> = (0..160).map(|index| format!("event-{index}")).collect();
+    for id in &ids {
+        outbox.enqueue(&padded_event(id, MAX_EVENT_BYTES)).unwrap();
+    }
+    corrupt_payload(&outbox, "event-80");
+
+    outbox
+        .enqueue(&padded_event("latest", MAX_EVENT_BYTES))
+        .unwrap();
+    let expected: Vec<_> = ids
+        .into_iter()
+        .filter(|id| id != "event-80")
+        .chain(["latest".into()])
+        .collect();
+    assert_eq!(pending_ids(&outbox), expected);
+    let diagnostics = outbox.diagnostics().unwrap();
+    assert_eq!(diagnostics.corrupt_isolated, 1);
+    assert_eq!(diagnostics.overflow_discarded, 0);
+}
+
+#[test]
+fn acknowledge_quarantines_bad_payload_before_evicting_valid_events() {
+    let (_dir, paths) = sandbox();
+    let outbox = fixed(&paths, NOW);
+    outbox.enqueue(&event("ack-this")).unwrap();
+    let mut expected = Vec::new();
+    for index in 0..159 {
+        let id = format!("event-{index}");
+        outbox.enqueue(&padded_event(&id, MAX_EVENT_BYTES)).unwrap();
+        expected.push(id);
+    }
+    outbox
+        .enqueue(&padded_event("last-valid", MAX_EVENT_BYTES - 1_024))
+        .unwrap();
+    expected.push("last-valid".into());
+    outbox.enqueue(&event("corrupt-this")).unwrap();
+    // 模拟磁盘上的损坏文件增大。删除 ACK 对应文件后仍有表面上的配额压力。
+    corrupt_payload(&outbox, "corrupt-this");
+
+    outbox.acknowledge("ack-this").unwrap();
+    assert_eq!(pending_ids(&outbox), expected);
+    let diagnostics = outbox.diagnostics().unwrap();
+    assert_eq!(diagnostics.corrupt_isolated, 1);
+    assert_eq!(diagnostics.overflow_discarded, 0);
 }
 
 #[cfg(unix)]
