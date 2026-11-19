@@ -125,3 +125,20 @@ fn all_event_kinds_have_shared_valid_wire_fixtures() {
         );
     }
 }
+
+#[test]
+fn recovery_v3_round_trips_shared_fixture_and_enforces_its_version() {
+    let bytes = std::fs::read(fixture_path("protocol", "valid-source-recovery")).unwrap();
+    let decoded = decode_event(&bytes).unwrap();
+    assert_eq!(decoded.schema_version, RECOVERY_SCHEMA_VERSION);
+    let mut value = serde_json::to_value(decoded).unwrap();
+    assert_eq!(
+        value,
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()
+    );
+    value["schemaVersion"] = json!(2);
+    assert!(decode_event(&serde_json::to_vec(&value).unwrap()).is_err());
+    value["schemaVersion"] = json!(3);
+    value["kind"]["snapshotEventCount"] = json!(1);
+    assert!(decode_event(&serde_json::to_vec(&value).unwrap()).is_err());
+}

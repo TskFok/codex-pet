@@ -30,6 +30,22 @@ struct SessionEntry {
     external_unread: bool,
     // 导入的未读结束独立于当前回合及来源快照的 unread 值。
     external_unread_end: bool,
+    #[serde(default)]
+    observation: Option<ObservedGeneration>,
+    #[serde(default)]
+    uncertain_pending: HashSet<(Option<String>, String)>,
+    #[serde(default)]
+    timed_births: Vec<RecoveredQuestion>,
+    #[serde(default)]
+    audit_only: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ObservedGeneration {
+    proof: ObservationGeneration,
+    snapshot_event_count: Option<u64>,
+    timed_event_count: Option<u64>,
+    confirmed_ends: HashSet<String>,
 }
 
 impl SessionEntry {
@@ -57,7 +73,24 @@ impl SessionEntry {
             running_known: false,
             external_unread: false,
             external_unread_end: false,
+            observation: None,
+            uncertain_pending: HashSet::new(),
+            timed_births: Vec::new(),
+            audit_only: false,
         }
+    }
+
+    fn confirmed_pending(&self) -> bool {
+        self.projection
+            .pending
+            .iter()
+            .any(|request| self.pending_is_confirmed(request))
+    }
+
+    fn pending_is_confirmed(&self, request: &PendingRequest) -> bool {
+        !self
+            .uncertain_pending
+            .contains(&(request.turn_id.clone(), request.id.clone()))
     }
 
     fn comparable_sequence(&self, event: &EventEnvelope) -> Option<std::cmp::Ordering> {
@@ -100,6 +133,8 @@ pub struct SessionStore {
     resolved: HashSet<(SessionKey, Option<String>, String)>,
     // 明确回合的结束事实独立于当前投影和可见历史，裁剪历史不能使它复活。
     confirmed_turn_ends: HashSet<(SessionKey, String)>,
+    scoped_resolved: HashSet<(SessionKey, String, Option<String>, String)>,
+    notification_epochs: BTreeMap<String, String>,
     now_ms: u64,
 }
 
@@ -114,6 +149,10 @@ pub(crate) struct SessionCheckpoint {
     seen_events: HashSet<String>,
     resolved: HashSet<(SessionKey, Option<String>, String)>,
     confirmed_turn_ends: HashSet<(SessionKey, String)>,
+    #[serde(default)]
+    scoped_resolved: HashSet<(SessionKey, String, Option<String>, String)>,
+    #[serde(default)]
+    notification_epochs: BTreeMap<String, String>,
     now_ms: u64,
 }
 
@@ -139,10 +178,14 @@ impl SessionStore {
         self.now_ms = self
             .now_ms
             .max(event.received_at_ms.unwrap_or(event.occurred_at_ms));
+        if !self.accept_observation(event) {
+            return ApplyResult::default();
+        }
         let should_notify = match &event.kind {
             EventKind::SourceDisconnected => {
                 for entry in self.sessions.values_mut().filter(|entry| {
-                    entry.projection.key.source == event.identity.source
+                    entry.observation.is_none()
+                        && entry.projection.key.source == event.identity.source
                         && entry.projection.key.installation_id == event.identity.installation_id
                         && entry.instance_id == event.identity.instance_id
                 }) {
@@ -154,6 +197,19 @@ impl SessionStore {
             }
             EventKind::SourceSnapshot { sessions } => {
                 self.apply_source_snapshot(event, sessions);
+                false
+            }
+            EventKind::SourceRecovery {
+                snapshot_event_count,
+                running,
+                timed,
+            } => {
+                self.apply_recovery_snapshot(
+                    event,
+                    *snapshot_event_count,
+                    *running,
+                    timed.as_deref(),
+                );
                 false
             }
             _ => self.apply_session_event(event),
@@ -170,35 +226,225 @@ impl SessionStore {
         }
     }
 
+    fn accept_observation(&mut self, event: &EventEnvelope) -> bool {
+        let key = event.session_key();
+        let current = self
+            .sessions
+            .get(&key)
+            .and_then(|entry| entry.observation.as_ref());
+        let Some(proof) = &event.observation else {
+            return current.is_none();
+        };
+        if let Some(current) = current {
+            if current.proof.stream_id != proof.stream_id
+                || proof.generation < current.proof.generation
+            {
+                return false;
+            }
+            if proof.generation == current.proof.generation {
+                if *proof != current.proof {
+                    return false;
+                }
+                let below_snapshot = event
+                    .sequence
+                    .is_some_and(|seq| current.snapshot_event_count.is_some_and(|cut| seq < cut));
+                return !below_snapshot
+                    || !matches!(
+                        event.kind,
+                        EventKind::TurnStarted | EventKind::TurnEnded { .. }
+                    );
+            }
+            if !proof.ancestors.iter().any(|old| {
+                old.generation == current.proof.generation
+                    && old.epoch_id == current.proof.epoch_id
+                    && old.first_sequence == current.proof.recovered_event_count
+            }) {
+                return false;
+            }
+        }
+        let mut entry = SessionEntry::new(event);
+        if let Some(previous) = self.sessions.remove(&key) {
+            entry.audit_only = previous.audit_only;
+            entry.external_unread = previous.external_unread;
+            entry.external_unread_end = previous.external_unread_end;
+            entry.projection.pending = previous.projection.pending;
+            entry.timed_births = previous.timed_births;
+            entry.projection.pending.retain(|pending| {
+                pending.lifetime == RequestLifetime::UntilResolved
+                    && !entry.timed_births.iter().any(|timed| {
+                        timed.turn_id == pending.turn_id
+                            && timed.request_id == pending.id
+                            && timed.birth_sequence >= proof.recovered_event_count
+                    })
+            });
+            entry
+                .timed_births
+                .retain(|timed| timed.birth_sequence < proof.recovered_event_count);
+            entry.uncertain_pending.extend(
+                entry
+                    .projection
+                    .pending
+                    .iter()
+                    .map(|pending| (pending.turn_id.clone(), pending.id.clone())),
+            );
+        } else {
+            entry.audit_only = event.sequence.is_none()
+                && matches!(event.kind, EventKind::AttentionResolved { .. });
+        }
+        entry.observation = Some(ObservedGeneration {
+            proof: proof.clone(),
+            snapshot_event_count: None,
+            timed_event_count: None,
+            confirmed_ends: HashSet::new(),
+        });
+        self.sessions.insert(key, entry);
+        true
+    }
+
+    fn apply_recovery_snapshot(
+        &mut self,
+        event: &EventEnvelope,
+        cut: u64,
+        running: bool,
+        timed: Option<&[RecoveredQuestion]>,
+    ) {
+        let key = event.session_key();
+        let Some(mut entry) = self.sessions.remove(&key) else {
+            return;
+        };
+        entry.audit_only = false;
+        let generation = entry.observation.as_mut().expect("恢复快照已有来源证明");
+        if generation
+            .snapshot_event_count
+            .is_none_or(|previous| cut > previous)
+            && entry.sequence.is_none_or(|seq| seq < cut)
+        {
+            entry.projection.turn_id.clone_from(&event.turn_id);
+            entry.running_known = running;
+            entry.terminal = false;
+            entry.terminal_status = None;
+            entry.has_turn_fact = true;
+            entry.known_turns.insert(event.turn_id.clone());
+            entry.sequence = event.sequence;
+        }
+        generation.snapshot_event_count =
+            Some(generation.snapshot_event_count.unwrap_or(0).max(cut));
+        if let Some(questions) = timed
+            && generation
+                .timed_event_count
+                .is_none_or(|previous| cut > previous)
+        {
+            generation.timed_event_count = Some(cut);
+            entry.projection.pending.retain(|pending| {
+                !entry.timed_births.iter().any(|old| {
+                    old.birth_sequence < cut
+                        && old.turn_id == pending.turn_id
+                        && old.request_id == pending.id
+                        && !questions.contains(old)
+                })
+            });
+            entry.timed_births.retain(|old| old.birth_sequence >= cut);
+            for question in questions {
+                if self.is_resolved(
+                    &key,
+                    &question.turn_id,
+                    &question.request_id,
+                    event
+                        .observation
+                        .as_ref()
+                        .map(|proof| proof.epoch_id.as_str()),
+                ) {
+                    continue;
+                }
+                entry
+                    .uncertain_pending
+                    .remove(&(question.turn_id.clone(), question.request_id.clone()));
+                if !entry.projection.pending.iter().any(|pending| {
+                    pending.turn_id == question.turn_id && pending.id == question.request_id
+                }) {
+                    entry.projection.pending.push(PendingRequest {
+                        id: question.request_id.clone(),
+                        turn_id: question.turn_id.clone(),
+                        reason: AttentionReason::Answer,
+                        summary: None,
+                        lifetime: RequestLifetime::UntilResolved,
+                    });
+                }
+                entry.timed_births.push(question.clone());
+            }
+        }
+        restore_entry_status(&mut entry);
+        self.sessions.insert(key, entry);
+    }
+
+    fn is_resolved(
+        &self,
+        key: &SessionKey,
+        turn: &Option<String>,
+        request_id: &str,
+        epoch: Option<&str>,
+    ) -> bool {
+        if let Some(epoch) = epoch {
+            self.scoped_resolved.contains(&(
+                key.clone(),
+                epoch.into(),
+                turn.clone(),
+                request_id.into(),
+            ))
+        } else {
+            self.resolved
+                .contains(&(key.clone(), turn.clone(), request_id.into()))
+        }
+    }
+
     fn apply_session_event(&mut self, event: &EventEnvelope) -> bool {
         let key = event.session_key();
-        // tombstone 即使早于请求或属于旧回合也要保留，但绝不撤销其他回合的请求。
+        let epoch = event
+            .observation
+            .as_ref()
+            .map(|proof| proof.epoch_id.as_str());
+        let scope = event
+            .observation
+            .as_ref()
+            .and_then(|proof| proof.request_epoch(event.question_birth));
         if let EventKind::AttentionResolved { request_id } = &event.kind {
-            self.resolved
-                .insert((key.clone(), event.turn_id.clone(), request_id.clone()));
+            if let Some(epoch) = epoch {
+                self.scoped_resolved.insert((
+                    key.clone(),
+                    epoch.into(),
+                    event.turn_id.clone(),
+                    request_id.clone(),
+                ));
+            } else {
+                self.resolved
+                    .insert((key.clone(), event.turn_id.clone(), request_id.clone()));
+            }
         }
         let existing = self.sessions.remove(&key);
-        if existing.is_none()
+        if existing.as_ref().is_none_or(|entry| entry.audit_only)
             && event.identity.source == Source::Deepseek
             && event.sequence.is_none()
         {
-            match &event.kind {
-                EventKind::AttentionResolved { .. } => return false,
-                EventKind::AttentionRequested { request_id, .. }
-                    if self.resolved.contains(&(
-                        key.clone(),
-                        event.turn_id.clone(),
-                        request_id.clone(),
-                    )) =>
-                {
-                    return false;
+            let audit_only = match &event.kind {
+                EventKind::AttentionResolved { .. } => true,
+                EventKind::AttentionRequested { request_id, .. } => {
+                    self.is_resolved(&key, &event.turn_id, request_id, epoch)
                 }
-                _ => {}
+                _ => false,
+            };
+            if audit_only {
+                if let Some(entry) = existing {
+                    self.sessions.insert(key, entry);
+                }
+                return false;
             }
         }
         let awaiting_causal_order = existing.as_ref().is_some_and(|entry| {
-            entry.projection.status == SessionStatus::Unknown
-                || (!entry.running_known && entry.terminal_status.is_none() && entry.has_turn_fact)
+            (entry.observation.is_none() || entry.has_turn_fact)
+                && (entry.projection.status == SessionStatus::Unknown
+                    || (!entry.running_known
+                        && entry.terminal_status.is_none()
+                        && entry.has_turn_fact))
         });
         let mut entry = existing.unwrap_or_else(|| SessionEntry::new(event));
         let order = entry.comparable_sequence(event);
@@ -221,7 +467,7 @@ impl SessionStore {
                 EventKind::AttentionRequested { request_id: id, .. }
                     if id == request_id && pending.turn_id == event.turn_id)
             });
-            self.resolve_notifications(&key, &event.turn_id, Some(request_id));
+            self.resolve_notifications(&key, &event.turn_id, Some(request_id), scope);
             restore_entry_status(&mut entry);
             self.sessions.insert(key, entry);
             return false;
@@ -245,8 +491,12 @@ impl SessionStore {
             return notify;
         }
         if event.turn_id.as_ref().is_some_and(|turn| {
-            self.confirmed_turn_ends
-                .contains(&(key.clone(), turn.clone()))
+            if let Some(generation) = &entry.observation {
+                generation.confirmed_ends.contains(turn)
+            } else {
+                self.confirmed_turn_ends
+                    .contains(&(key.clone(), turn.clone()))
+            }
         }) && matches!(
             event.kind,
             EventKind::TurnStarted
@@ -262,12 +512,16 @@ impl SessionStore {
         if let (Some(turn), EventKind::TurnEnded { outcome }) = (&event.turn_id, &event.kind)
             && (different_turn || !order.is_some_and(|ordering| ordering.is_lt()))
         {
-            self.confirmed_turn_ends.insert((key.clone(), turn.clone()));
+            if let Some(generation) = &mut entry.observation {
+                generation.confirmed_ends.insert(turn.clone());
+            } else {
+                self.confirmed_turn_ends.insert((key.clone(), turn.clone()));
+            }
             entry.projection.pending.retain(|pending| {
                 pending.lifetime == RequestLifetime::UntilResolved
                     || pending.turn_id != event.turn_id
             });
-            self.resolve_notifications(&key, &event.turn_id, None);
+            self.resolve_notifications(&key, &event.turn_id, None, scope);
             self.push_notification(event, NotificationKind::TurnEnded { outcome: *outcome });
             end_fact_notify = true;
         }
@@ -297,7 +551,7 @@ impl SessionStore {
                 self.sessions.insert(key, entry);
                 return end_fact_notify;
             }
-            self.resolve_notifications(&key, &entry.projection.turn_id, None);
+            self.resolve_notifications(&key, &entry.projection.turn_id, None, scope);
             entry
                 .projection
                 .pending
@@ -331,11 +585,7 @@ impl SessionStore {
         let notify = match &event.kind {
             EventKind::TurnStarted => {
                 entry.running_known = true;
-                entry.projection.status = if entry.projection.pending.is_empty() {
-                    SessionStatus::Running
-                } else {
-                    SessionStatus::NeedsAttention
-                };
+                restore_entry_status(&mut entry);
                 false
             }
             EventKind::AttentionRequested {
@@ -353,14 +603,8 @@ impl SessionStore {
                 entry.projection.pending.retain(|pending| {
                     !(pending.id == *request_id && pending.turn_id == event.turn_id)
                 });
-                self.resolve_notifications(&key, &event.turn_id, Some(request_id));
-                entry.projection.status = if !entry.projection.pending.is_empty() {
-                    SessionStatus::NeedsAttention
-                } else if entry.running_known {
-                    SessionStatus::Running
-                } else {
-                    SessionStatus::Unknown
-                };
+                self.resolve_notifications(&key, &event.turn_id, Some(request_id), scope);
+                restore_entry_status(&mut entry);
                 false
             }
             EventKind::TurnEnded { outcome } => {
@@ -376,7 +620,7 @@ impl SessionStore {
                     .projection
                     .pending
                     .retain(|pending| pending.lifetime == RequestLifetime::UntilResolved);
-                self.resolve_notifications(&key, &event.turn_id, None);
+                self.resolve_notifications(&key, &event.turn_id, None, scope);
                 restore_entry_status(&mut entry);
                 if !end_fact_notify {
                     self.push_notification(
@@ -386,8 +630,11 @@ impl SessionStore {
                 }
                 true
             }
-            EventKind::SourceDisconnected | EventKind::SourceSnapshot { .. } => unreachable!(),
+            EventKind::SourceDisconnected
+            | EventKind::SourceSnapshot { .. }
+            | EventKind::SourceRecovery { .. } => unreachable!(),
         };
+        entry.audit_only = false;
         entry.has_turn_fact = true;
         entry.known_turns.insert(event.turn_id.clone());
         entry.observe_sequence(event);
@@ -423,17 +670,44 @@ impl SessionStore {
         lifetime: RequestLifetime,
     ) -> bool {
         let key = event.session_key();
-        if self
-            .resolved
-            .contains(&(key, event.turn_id.clone(), request_id.into()))
-            || entry
-                .projection
-                .pending
-                .iter()
-                .any(|pending| pending.id == request_id && pending.turn_id == event.turn_id)
-        {
+        let epoch = event
+            .observation
+            .as_ref()
+            .map(|proof| proof.epoch_id.as_str());
+        if self.is_resolved(&key, &event.turn_id, request_id, epoch) {
             return false;
         }
+        if let Some(birth_sequence) = event.question_birth {
+            let fact = RecoveredQuestion {
+                request_id: request_id.into(),
+                turn_id: event.turn_id.clone(),
+                birth_sequence,
+            };
+            let covered = entry
+                .observation
+                .as_ref()
+                .and_then(|state| state.timed_event_count)
+                .is_some_and(|cut| birth_sequence < cut);
+            if covered && !entry.timed_births.contains(&fact) {
+                return false;
+            }
+            if !entry.timed_births.contains(&fact) {
+                entry.timed_births.push(fact);
+            }
+        }
+        entry
+            .uncertain_pending
+            .remove(&(event.turn_id.clone(), request_id.into()));
+        if entry
+            .projection
+            .pending
+            .iter()
+            .any(|pending| pending.id == request_id && pending.turn_id == event.turn_id)
+        {
+            restore_entry_status(entry);
+            return false;
+        }
+        entry.audit_only = false;
         entry.projection.pending.push(PendingRequest {
             id: request_id.into(),
             turn_id: event.turn_id.clone(),
@@ -462,7 +736,8 @@ impl SessionStore {
         let source_key = event.session_key();
         let included: HashSet<_> = projections.iter().map(|p| p.key.clone()).collect();
         for entry in self.sessions.values_mut().filter(|entry| {
-            entry.projection.key.source == event.identity.source
+            entry.observation.is_none()
+                && entry.projection.key.source == event.identity.source
                 && entry.projection.key.installation_id == event.identity.installation_id
                 && entry.instance_id == event.identity.instance_id
                 && !included.contains(&entry.projection.key)
@@ -487,6 +762,9 @@ impl SessionStore {
                 continue;
             }
             if let Some(existing) = self.sessions.get_mut(&projection.key) {
+                if existing.observation.is_some() {
+                    continue;
+                }
                 let ordering = existing.comparable_sequence(event);
                 if (existing.projection.turn_id != projection.turn_id
                     && existing.known_turns.contains(&projection.turn_id))
@@ -604,11 +882,19 @@ impl SessionStore {
                 request.turn_id.clone(),
                 request.id.clone(),
             ));
-            self.resolve_notifications(&projection.key, &request.turn_id, Some(&request.id));
+            self.resolve_notifications(&projection.key, &request.turn_id, Some(&request.id), None);
         }
     }
 
     fn push_notification(&mut self, event: &EventEnvelope, kind: NotificationKind) {
+        if let Some(epoch) = event
+            .observation
+            .as_ref()
+            .and_then(|proof| proof.request_epoch(event.question_birth))
+        {
+            self.notification_epochs
+                .insert(event.event_id.clone(), epoch.into());
+        }
         self.notifications.push(NotificationRecord {
             id: event.event_id.clone(),
             key: event.session_key(),
@@ -626,12 +912,13 @@ impl SessionStore {
         key: &SessionKey,
         turn: &Option<String>,
         request: Option<&str>,
+        scope: Option<&str>,
     ) {
-        for note in self
-            .notifications
-            .iter_mut()
-            .filter(|note| note.key == *key && note.turn_id == *turn)
-        {
+        for note in self.notifications.iter_mut().filter(|note| {
+            note.key == *key
+                && note.turn_id == *turn
+                && self.notification_epochs.get(&note.id).map(String::as_str) == scope
+        }) {
             if let NotificationKind::Attention {
                 request_id,
                 resolved,
@@ -655,6 +942,11 @@ impl SessionStore {
         if self.notifications.len() > MAX_HISTORY {
             self.notifications
                 .drain(..self.notifications.len() - MAX_HISTORY);
+        }
+        if !self.notification_epochs.is_empty() {
+            let retained: HashSet<_> = self.notifications.iter().map(|note| &note.id).collect();
+            self.notification_epochs
+                .retain(|id, _| retained.contains(id));
         }
     }
 
@@ -697,6 +989,7 @@ impl SessionStore {
         let changed = !self.notifications.is_empty()
             || self.sessions.values().any(|entry| entry.projection.unread);
         self.notifications.clear();
+        self.notification_epochs.clear();
         for entry in self.sessions.values_mut() {
             entry.external_unread = false;
             entry.external_unread_end = false;
@@ -715,12 +1008,13 @@ impl SessionStore {
         let sessions: Vec<_> = self
             .sessions
             .values()
+            .filter(|entry| !entry.audit_only)
             .map(|entry| entry.projection.clone())
             .collect();
         let active = self
             .sessions
             .values()
-            .filter(|entry| priority(entry, &self.notifications) > 0)
+            .filter(|entry| !entry.audit_only && priority(entry, &self.notifications) > 0)
             .max_by(|a, b| {
                 priority(a, &self.notifications)
                     .cmp(&priority(b, &self.notifications))
@@ -810,7 +1104,7 @@ fn status_for_outcome(outcome: TurnOutcome) -> SessionStatus {
 
 fn priority(entry: &SessionEntry, notifications: &[NotificationRecord]) -> u8 {
     let projection = &entry.projection;
-    if !projection.pending.is_empty() {
+    if entry.confirmed_pending() {
         5
     } else if projection.status == SessionStatus::Failed {
         4
@@ -835,7 +1129,7 @@ fn priority(entry: &SessionEntry, notifications: &[NotificationRecord]) -> u8 {
 }
 
 fn restore_entry_status(entry: &mut SessionEntry) {
-    entry.projection.status = if !entry.projection.pending.is_empty() {
+    entry.projection.status = if entry.confirmed_pending() {
         SessionStatus::NeedsAttention
     } else if let Some(status) = entry.terminal_status {
         status
@@ -849,12 +1143,9 @@ fn restore_entry_status(entry: &mut SessionEntry) {
 fn mark_activity_unknown(entry: &mut SessionEntry) {
     entry.running_known = false;
     entry.terminal_status = None;
-    entry.projection.status = if entry
-        .projection
-        .pending
-        .iter()
-        .any(|pending| pending.lifetime == RequestLifetime::UntilResolved)
-    {
+    entry.projection.status = if entry.projection.pending.iter().any(|pending| {
+        pending.lifetime == RequestLifetime::UntilResolved && entry.pending_is_confirmed(pending)
+    }) {
         SessionStatus::NeedsAttention
     } else {
         SessionStatus::Unknown

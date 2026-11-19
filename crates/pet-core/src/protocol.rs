@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const SCHEMA_VERSION: u16 = 2;
+pub const RECOVERY_SCHEMA_VERSION: u16 = 3;
 pub const MAX_EVENT_BYTES: usize = 64 * 1024;
 pub const MAX_SUMMARY_CHARS: usize = 512;
 
@@ -17,6 +18,53 @@ pub struct SourceIdentity {
     pub source: Source,
     pub installation_id: String,
     pub instance_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ObservationGeneration {
+    pub version: u16,
+    pub stream_id: String,
+    pub epoch_id: String,
+    pub generation: u64,
+    pub recovered_event_count: u64,
+    pub ancestors: Vec<ObservationAncestor>,
+}
+
+impl ObservationGeneration {
+    pub(crate) fn request_epoch(&self, birth: Option<u64>) -> Option<&str> {
+        let Some(birth) = birth.filter(|birth| *birth < self.recovered_event_count) else {
+            return Some(&self.epoch_id);
+        };
+        self.ancestors
+            .iter()
+            .rev()
+            .find(|ancestor| birth >= ancestor.first_sequence)
+            .map(|ancestor| ancestor.epoch_id.as_str())
+    }
+
+    fn covers_birth(&self, birth: u64) -> bool {
+        self.ancestors
+            .first()
+            .is_none_or(|first| first.generation == 1 || birth >= first.first_sequence)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ObservationAncestor {
+    pub epoch_id: String,
+    pub generation: u64,
+    pub first_sequence: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecoveredQuestion {
+    pub request_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub birth_sequence: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -90,6 +138,12 @@ pub enum EventKind {
     SourceSnapshot {
         sessions: Vec<SessionProjection>,
     },
+    SourceRecovery {
+        snapshot_event_count: u64,
+        running: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timed: Option<Vec<RecoveredQuestion>>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -107,6 +161,10 @@ pub struct EventEnvelope {
     pub upstream_event_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequence: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation: Option<ObservationGeneration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question_birth: Option<u64>,
     pub occurred_at_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub received_at_ms: Option<u64>,
@@ -221,8 +279,17 @@ pub fn decode_event(bytes: &[u8]) -> Result<EventEnvelope, ProtocolError> {
     }
     let event: EventEnvelope =
         serde_json::from_slice(bytes).map_err(|error| ProtocolError(error.to_string()))?;
-    if event.schema_version != 1 && event.schema_version != SCHEMA_VERSION {
-        return invalid("不支持的事件协议版本");
+    match event.schema_version {
+        1 | SCHEMA_VERSION => {
+            if event.observation.is_some()
+                || event.question_birth.is_some()
+                || matches!(event.kind, EventKind::SourceRecovery { .. })
+            {
+                return invalid("旧版协议不支持来源代次");
+            }
+        }
+        RECOVERY_SCHEMA_VERSION => validate_recovery(&event)?,
+        _ => return invalid("不支持的事件协议版本"),
     }
     if event.schema_version == 1 {
         let has_until = match &event.kind {
@@ -301,6 +368,88 @@ pub fn decode_event(bytes: &[u8]) -> Result<EventEnvelope, ProtocolError> {
         _ => {}
     }
     Ok(event)
+}
+
+fn validate_recovery(event: &EventEnvelope) -> Result<(), ProtocolError> {
+    let Some(proof) = &event.observation else {
+        return invalid("恢复协议缺少来源证明");
+    };
+    let max_ancestors = proof.generation.saturating_sub(1).min(128);
+    if event.identity.source != Source::Deepseek
+        || proof.version != 1
+        || proof.epoch_id != event.identity.instance_id
+        || proof.generation == 0
+        || proof.ancestors.len() as u64 != max_ancestors
+    {
+        return invalid("来源代次证明不完整");
+    }
+    nonempty(&proof.stream_id)?;
+    let mut last_sequence = 0;
+    let mut epochs = std::collections::HashSet::from([&proof.epoch_id]);
+    for (index, ancestor) in proof.ancestors.iter().enumerate() {
+        nonempty(&ancestor.epoch_id)?;
+        if !epochs.insert(&ancestor.epoch_id)
+            || ancestor.generation != proof.generation - max_ancestors + index as u64
+            || ancestor.first_sequence < last_sequence
+            || ancestor.first_sequence > proof.recovered_event_count
+        {
+            return invalid("来源代次的前缀位置无效");
+        }
+        last_sequence = ancestor.first_sequence;
+    }
+    match &event.kind {
+        EventKind::SourceRecovery {
+            snapshot_event_count,
+            running,
+            timed,
+        } => {
+            if *snapshot_event_count < proof.recovered_event_count
+                || event.sequence != snapshot_event_count.checked_sub(1)
+                || *running != event.turn_id.is_some()
+                || event.question_birth.is_some()
+            {
+                return invalid("会话恢复快照的切点或回合无效");
+            }
+            if let Some(questions) = timed {
+                let mut identities = std::collections::HashSet::new();
+                for question in questions {
+                    nonempty(&question.request_id)?;
+                    optional_id(&question.turn_id)?;
+                    if question.birth_sequence >= *snapshot_event_count
+                        || !proof.covers_birth(question.birth_sequence)
+                        || !identities.insert((&question.turn_id, &question.request_id))
+                    {
+                        return invalid("定时问题的出生位置或请求标识无效");
+                    }
+                }
+            }
+        }
+        EventKind::SourceSnapshot { .. } | EventKind::SourceDisconnected => {
+            return invalid("恢复协议需要明确的单会话状态");
+        }
+        EventKind::AttentionRequested { lifetime, .. } => {
+            if event.question_birth.is_some() && *lifetime != RequestLifetime::UntilResolved {
+                return invalid("定时问题必须等待精确解除");
+            }
+        }
+        EventKind::AttentionResolved { .. } => {}
+        _ if event.question_birth.is_some() => return invalid("只有提问才携带出生位置"),
+        _ => {}
+    }
+    if event
+        .question_birth
+        .is_some_and(|birth| !proof.covers_birth(birth))
+    {
+        return invalid("来源证明未覆盖问题的出生位置");
+    }
+    if !matches!(event.kind, EventKind::SourceRecovery { .. })
+        && event
+            .sequence
+            .is_some_and(|seq| seq < proof.recovered_event_count)
+    {
+        return invalid("新代事件位于已恢复的前缀内");
+    }
+    Ok(())
 }
 
 fn invalid<T>(message: &str) -> Result<T, ProtocolError> {

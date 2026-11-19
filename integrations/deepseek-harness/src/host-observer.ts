@@ -6,6 +6,7 @@ import type {} from '@deepseek-ai/dsh-user-questions/types';
 import type { QuestionBirths } from './host-births.js';
 import type { HarnessObservation } from './events.js';
 import { hasDirectQuestions, observeDirectQuestions } from './host-direct.js';
+import { observationOf, recoverySnapshot, timedRequestId } from './host-recovery.js';
 
 /** 接收挑选后的字段；绝不接收提示词、问题内容、工具参数或答案。 */
 export type ObservationSink = (observation: HarnessObservation) => void | Promise<void>;
@@ -17,7 +18,7 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
     try { void Promise.resolve(sink(observation)).catch((_error: unknown) => { ctx.logger.warn('桌宠转发失败，请检查bridge路径；宿主处理继续'); }); }
     catch (_error) { ctx.logger.warn('桌宠转发失败，请检查bridge路径；宿主处理继续'); }
   };
-  const fields = (session: Session, turn: number|undefined) => ({ sessionId: session.id, sessionCreatedAt: session.header.createdAt, ...(turn===undefined?{}:{turn}),
+  const fields = (session: Session, turn: number|undefined) => ({ sessionId: session.id, sessionCreatedAt: session.header.createdAt, observation: observationOf(session), ...(turn===undefined?{}:{turn}),
     ...(session.header.origin === 'subagent' && session.header.parentSession !== undefined ? { parentSessionId: session.header.parentSession } : {}) });
   const turnOf = (session: Session): number|undefined => readTurn === undefined ? turns.get(session) : readTurn(session);
   ctx.on('session/event', (session, event) => {
@@ -26,7 +27,14 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
     if (event.type === 'turn/end' && turns.get(session)===event.data.turn) turns.delete(session);
     const base = { ...fields(session, turnOf(session)), seq: event.seq, time: event.time };
     const closed = births?.closed(session,event.seq);
-    if (closed !== undefined) publish({...base,turn:closed.turn??undefined,type:'question/resolved',requestId:closed.requestId});
+    if (closed !== undefined) {
+      const timed = base.observation !== undefined && closed.timed;
+      const requestId = timed ? timedRequestId(base.observation!, closed.callId, closed.seq) : closed.requestId;
+      if (requestId !== undefined) publish({
+        ...base, turn: closed.turn ?? undefined, type: 'question/resolved', requestId,
+        ...(timed ? { questionBirth: closed.seq } : {}),
+      });
+    }
     switch (event.type) {
       case 'turn/start': publish({ ...base, type: 'turn/start' }); break;
       case 'turn/end': {
@@ -38,15 +46,31 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
       default: break; // SessionEventMap允许其他插件扩展；不转发原始数据。
     }
   }, { global: true });
+  const publishRecovery = (session: Session): void => {
+    try {
+      const proof = observationOf(session);
+      if (proof === undefined || births === undefined) return;
+      publish({ ...fields(session, undefined), ...recoverySnapshot(ctx, session, proof, births), time: session.header.createdAt });
+    } catch (_error) {
+      ctx.logger.warn('桌宠无法读取会话恢复范围，原会话继续');
+    }
+  };
+  ctx.on('session/created', publishRecovery, { global: true });
+  for (const session of ctx.sessions.list()) publishRecovery(session);
   ctx.on('approval/request', (_request, next) => next(), { prepend: true, global: true });
   ctx.on('user-questions/request', async (request, next) => {
     if (request.wait === undefined && hasDirectQuestions(ctx.get('userQuestions'))) return next();
     const session = request.agent === undefined ? undefined : ctx.sessions.get(request.agent.id);
     if (session === undefined) return next();
-    const requestId = `question:${request.wait?.callId ?? randomUUID()}`;
-    const observationId = randomUUID();
-    const birth = request.wait === undefined ? undefined : births?.birth(session,request.wait.callId);
+    const callId = request.wait?.callId;
+    const birth = callId === undefined ? undefined : births?.birth(session, callId);
+    const proof = observationOf(session);
+    const timed = proof !== undefined && birth?.timed === true && callId !== undefined;
+    const requestId = timed ? timedRequestId(proof, callId, birth.seq) : `question:${callId ?? randomUUID()}`;
+    if (requestId === undefined) return next();
+    const observationId = timed ? `timed:${birth.seq}` : randomUUID();
     const base = { ...fields(session, birth === undefined ? turnOf(session) : birth.turn ?? undefined), requestId, observationId,
+      ...(timed ? { questionBirth: birth.seq } : {}),
       lifetime:'until_resolved' as const,
       reason: request.questions.some(question=>question.intent?.kind==='approval')?'approval' as const:'answer' as const };
     let resolved = false;

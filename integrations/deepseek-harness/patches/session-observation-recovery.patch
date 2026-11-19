@@ -1,0 +1,447 @@
+diff --git a/packages/core/agent-loop/src/index.ts b/packages/core/agent-loop/src/index.ts
+index 22b3192588..f3afb0b442 100644
+--- a/packages/core/agent-loop/src/index.ts
++++ b/packages/core/agent-loop/src/index.ts
+@@ -799,0 +800,9 @@ export class AgentLoop extends Service implements AgentFactory {
++          const observationRecovery = await (async () => {
++            try {
++              return await handle.prepareObservationRecovery?.()
++            } catch (_error: unknown) {
++              this.runtime.ctx.logger.warn('Session observation recovery unavailable; normal resume continues')
++              return undefined
++            }
++          })()
++          fused.throwIfAborted()
+@@ -806,0 +816 @@ export class AgentLoop extends Service implements AgentFactory {
++            observationRecovery,
+diff --git a/packages/core/agent-loop/tests/resume.spec.ts b/packages/core/agent-loop/tests/resume.spec.ts
+index db984c2bbc..936bcb2d0f 100644
+--- a/packages/core/agent-loop/tests/resume.spec.ts
++++ b/packages/core/agent-loop/tests/resume.spec.ts
+@@ -11 +11 @@ import SessionStore, { SessionLogOffset, SessionSeq, Session, SessionId, TOOL_NO
+-import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import type { SessionEvent, SessionObservationRecovery } from '@deepseek-ai/dsh-session'
+@@ -527,0 +528,2 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume',
++    const observations: (SessionObservationRecovery | undefined)[] = []
++    ctx2.on('session/created', (session) => { observations.push(session.observationRecovery) })
+@@ -528,0 +531,2 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume',
++    expect(observations).toEqual([handle.agent.session.observationRecovery])
++    expect(observations[0]).toMatchObject({ version: 1, generation: 1, recoveredEventCount: 1 })
+diff --git a/packages/core/session/src/index.ts b/packages/core/session/src/index.ts
+index e9baee1b82..b564099f93 100644
+--- a/packages/core/session/src/index.ts
++++ b/packages/core/session/src/index.ts
+@@ -18 +18 @@ import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
+-import type { CreateSessionOptions, EpochHeader, PluginRecord, PluginRecordMap, PluginRecordType, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SessionId, SessionSeedEventState, SurfaceIntent, SurfaceEventType } from './types.ts'
++import type { CreateSessionOptions, EpochHeader, PluginRecord, PluginRecordMap, PluginRecordType, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SessionId, SessionObservationRecovery, SessionSeedEventState, SurfaceIntent, SurfaceEventType } from './types.ts'
+@@ -607,0 +608 @@ export class Session {
++   * @param observationRecovery - durable write-owner evidence, when available.
+@@ -617,0 +619 @@ export class Session {
++    observationRecovery?: SessionObservationRecovery,
+@@ -625,0 +628 @@ export class Session {
++      observationRecovery,
+@@ -635,0 +639,2 @@ export class Session {
++    /** Durable observation evidence from the write owner of the restored Session, when supported. */
++    readonly observationRecovery?: SessionObservationRecovery,
+@@ -1178,0 +1184 @@ export class SessionStore extends Service {
++            options.observationRecovery,
+diff --git a/packages/core/session/src/types.ts b/packages/core/session/src/types.ts
+index 7787dd9bd0..c3761d3db1 100644
+--- a/packages/core/session/src/types.ts
++++ b/packages/core/session/src/types.ts
+@@ -166,0 +167,32 @@ export interface CreateSessionOptions {
++/** Identity of one persisted observation chain or write epoch. */
++export type SessionObservationToken = Branded<'SessionObservationToken'>
++
++/**
++ * Brand an observation token admitted by the persistence owner.
++ * @param value The persisted opaque token.
++ * @returns The branded token.
++ */
++export function SessionObservationToken(value: string): SessionObservationToken {
++  return brandString<SessionObservationToken>(value)
++}
++
++/** One older writer whose retained events may supply a request's birth identity. */
++export interface SessionObservationAncestor {
++  readonly epochId: SessionObservationToken
++  readonly generation: number
++  /** First event position attributed to that writer. */
++  readonly firstSequence: number
++}
++
++/** Immutable evidence published durably by the backend before the resumed Session is announced. */
++export interface SessionObservationRecovery {
++  readonly version: 1
++  readonly streamId: SessionObservationToken
++  readonly epochId: SessionObservationToken
++  readonly generation: number
++  /** Exact retained durable prefix, measured before new writer events and synthetic closers. */
++  readonly recoveredEventCount: number
++  /** Recent preceding owners in order. A missing older owner leaves earlier facts unproven. */
++  readonly ancestors: readonly SessionObservationAncestor[]
++}
++
+@@ -185,0 +218,2 @@ export interface RestoredSessionOptions {
++  /** Optional durable evidence supplied by the write handle that recovered this seed. */
++  readonly observationRecovery?: SessionObservationRecovery | undefined
+diff --git a/packages/interaction/user-questions/src/index.ts b/packages/interaction/user-questions/src/index.ts
+index 77811a046b..8ef6321458 100644
+--- a/packages/interaction/user-questions/src/index.ts
++++ b/packages/interaction/user-questions/src/index.ts
+@@ -182,0 +183 @@ export class UserQuestionService extends TypertRemoteService {
++        observationRecovery: agent.session.observationRecovery,
+diff --git a/packages/interaction/user-questions/src/types.ts b/packages/interaction/user-questions/src/types.ts
+index d3fd945e7c..2c073784b5 100644
+--- a/packages/interaction/user-questions/src/types.ts
++++ b/packages/interaction/user-questions/src/types.ts
+@@ -4 +4 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
+-import type { SessionId } from '@deepseek-ai/dsh-session/types'
++import type { SessionId, SessionObservationRecovery } from '@deepseek-ai/dsh-session/types'
+@@ -153,0 +154,2 @@ export interface DirectQuestion {
++  /** Observation writer at the original ask, if the Session has durable recovery evidence. */
++  readonly observationRecovery?: SessionObservationRecovery | undefined
+diff --git a/packages/session/session-persistence-jsonl/README.i18n.yaml b/packages/session/session-persistence-jsonl/README.i18n.yaml
+index d8f2314ebd..7ecb3cbdff 100644
+--- a/packages/session/session-persistence-jsonl/README.i18n.yaml
++++ b/packages/session/session-persistence-jsonl/README.i18n.yaml
+@@ -30,2 +30,2 @@
+-  en: 96498792672f6d50
+-  zh: d767a9c69dced889
++  en: 91c874f3982c784d
++  zh: 8b2ebb43e0a26421
+diff --git a/packages/session/session-persistence-jsonl/README.md b/packages/session/session-persistence-jsonl/README.md
+index 2de63df367..b527131ab2 100644
+--- a/packages/session/session-persistence-jsonl/README.md
++++ b/packages/session/session-persistence-jsonl/README.md
+@@ -78,0 +79,2 @@ A session is materialized lazily: `create(header)` writes nothing and returns th
++When the Agent owner prepares an existing Session for live resume, its JSONL write handle publishes a durable version-1 observation receipt in its writer-owned directory. The live Session exposes the receipt through `observationRecovery` after normal resume preparation. The receipt identifies the writer epoch, its exact durable recovered prefix, and up to 128 earlier owners. Observer reloads leave the writer epoch unchanged. The receipt is separate from the session format. An absent or unverified receipt provides no observation continuity; a receipt failure leaves ordinary session reads and writes available.
++
+diff --git a/packages/session/session-persistence-jsonl/README.zh.md b/packages/session/session-persistence-jsonl/README.zh.md
+index e5494de7d6..e186f42a74 100644
+--- a/packages/session/session-persistence-jsonl/README.zh.md
++++ b/packages/session/session-persistence-jsonl/README.zh.md
+@@ -78,0 +79,2 @@ kind: "package-reference"
++Agent 所有者准备恢复现有会话时，其 JSONL 写句柄会在持有写锁的目录内持久发布版本 1 的观察凭证。会话完成常规恢复准备后，通过 `observationRecovery` 公开写代次、精确的耐久恢复前缀，以及最近至多 128 个旧写所有者。观察器重载沿用原写代次。凭证独立于会话格式。凭证缺失或未经验证时，观察连续性未知，原会话读写可继续。
++
+diff --git a/packages/session/session-persistence-jsonl/src/index.ts b/packages/session/session-persistence-jsonl/src/index.ts
+index f8351fa9ee..44429a6d68 100644
+--- a/packages/session/session-persistence-jsonl/src/index.ts
++++ b/packages/session/session-persistence-jsonl/src/index.ts
+@@ -36,0 +37 @@ import { SessionWriteLease } from './lease.ts'
++import { publishObservationRecovery } from './observation-recovery.ts'
+@@ -38 +39 @@ import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset }
+-import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
++import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType, SessionObservationRecovery } from '@deepseek-ai/dsh-session'
+@@ -444,0 +446 @@ class JsonlSessionPersistence extends SessionPersistence {
++        prepareObservationRecovery: () => this.recoverObservation(stored),
+@@ -1372,0 +1375,29 @@ class JsonlSessionPersistence extends SessionPersistence {
++  private async recoverObservation(stored: CurrentStoredLog): Promise<SessionObservationRecovery | undefined> {
++    try {
++      const log = this.locate(stored.meta).path
++      const handle = await open(log, 'r+')
++      try {
++        await handle.sync()
++      } finally {
++        await handle.close()
++      }
++      const cut = stored.events.length - stored.recoveredTail.length
++      return await publishObservationRecovery(log, stored.events, cut, async (path, content) => {
++        const temporary = await this.writeSyncedTempFile(path, content)
++        try {
++          if (process.platform === 'win32') {
++            await publishNewFileWin32(temporary, path)
++          } else {
++            await link(temporary, path)
++            await this.syncDirPosix(dirname(path))
++          }
++        } finally {
++          await rm(temporary, { force: true }).catch((_error: unknown) => { /* A staging copy has no authority. */ })
++        }
++      })
++    } catch (_error: unknown) {
++      this.ctx.logger.warn('Session observation recovery unavailable; session write ownership continues')
++      return undefined
++    }
++  }
++
+diff --git a/packages/session/session-persistence-jsonl/src/observation-recovery.ts b/packages/session/session-persistence-jsonl/src/observation-recovery.ts
+new file mode 100644
+index 0000000000..a00a4bc56f
+--- /dev/null
++++ b/packages/session/session-persistence-jsonl/src/observation-recovery.ts
+@@ -0,0 +1,116 @@
++/** Observation receipts owned by the JSONL writer lease. */
++import { createHash, randomUUID } from 'node:crypto'
++import { lstat, readFile, readdir } from 'node:fs/promises'
++import { dirname, join } from 'node:path'
++import { SessionObservationToken, type SessionEvent, type SessionObservationAncestor, type SessionObservationRecovery } from '@deepseek-ai/dsh-session'
++
++const RECEIPT_PREFIX = '.observation-v1-'
++const ANCESTOR_LIMIT = 128
++const RECEIPT_BYTES = 32 * 1024
++const TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
++
++interface Receipt extends SessionObservationRecovery {
++  readonly prefixSha256: string
++}
++
++function record(value: unknown): value is Record<string, unknown> {
++  return typeof value === 'object' && value !== null && !Array.isArray(value)
++}
++
++function offset(value: unknown): value is number {
++  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
++}
++
++function token(value: unknown): value is string {
++  return typeof value === 'string' && TOKEN.test(value)
++}
++
++async function readPrevious(directory: string): Promise<Receipt | undefined> {
++  const names = await readdir(directory)
++  const indexes = names
++    .map(name => name.match(/^\.observation-v1-([1-9][0-9]*)\.json$/)?.[1])
++    .filter(value => value !== undefined)
++    .map(value => Number(value))
++  if (indexes.length === 0) return undefined
++  const generation = indexes.reduce((latest, value) => Math.max(latest, value), 0)
++  if (!offset(generation) || generation !== indexes.length) throw new Error('Incomplete observation receipt chain')
++  const path = join(directory, `${RECEIPT_PREFIX}${generation}.json`)
++  const info = await lstat(path)
++  if (!info.isFile() || info.size > RECEIPT_BYTES) throw new Error('Invalid observation receipt file')
++  const data: unknown = JSON.parse(await readFile(path, 'utf8'))
++  if (!record(data) || data.version !== 1 || data.generation !== generation
++    || !token(data.streamId) || !token(data.epochId) || !offset(data.recoveredEventCount)
++    || !Array.isArray(data.ancestors) || data.ancestors.length !== Math.min(generation - 1, ANCESTOR_LIMIT)
++    || typeof data.prefixSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(data.prefixSha256)) {
++    throw new Error('Invalid observation receipt')
++  }
++  const ancestors: SessionObservationAncestor[] = []
++  let priorSequence = 0
++  for (const [index, ancestor] of data.ancestors.entries()) {
++    const expected = generation - data.ancestors.length + index
++    if (!record(ancestor) || !token(ancestor.epochId) || ancestor.generation !== expected
++      || !offset(ancestor.firstSequence) || ancestor.firstSequence < priorSequence
++      || ancestor.firstSequence > data.recoveredEventCount) {
++      throw new Error('Invalid writer ancestry')
++    }
++    priorSequence = ancestor.firstSequence
++    ancestors.push(Object.freeze({
++      epochId: SessionObservationToken(ancestor.epochId), generation: expected, firstSequence: priorSequence,
++    }))
++  }
++  return {
++    version: 1, generation, ancestors,
++    streamId: SessionObservationToken(data.streamId),
++    epochId: SessionObservationToken(data.epochId),
++    recoveredEventCount: data.recoveredEventCount, prefixSha256: data.prefixSha256,
++  }
++}
++
++function digest(events: readonly SessionEvent[], count: number): string {
++  const hash = createHash('sha256')
++  for (let index = 0; index < count; index++) hash.update(JSON.stringify(events[index]) + '\n')
++  return hash.digest('hex')
++}
++
++/**
++ * Publish an observation receipt while holding the session's write lease.
++ * @param logPath Canonical artifact containing the verified durable prefix.
++ * @param events Physically recovered and logically validated events.
++ * @param recoveredEventCount Durable cut excluding uncommitted recovered frame data.
++ * @param publish Publishes a new named file without replacement and syncs its directory entry.
++ * @returns The write epoch after its receipt reaches durable storage.
++ */
++export async function publishObservationRecovery(
++  logPath: string,
++  events: readonly SessionEvent[],
++  recoveredEventCount: number,
++  publish: (path: string, content: string) => Promise<void>,
++): Promise<SessionObservationRecovery> {
++  const directory = dirname(logPath)
++  const previous = await readPrevious(directory)
++  if (previous !== undefined && (
++    previous.recoveredEventCount > recoveredEventCount
++    || previous.prefixSha256 !== digest(events, previous.recoveredEventCount)
++  )) {
++    throw new Error('The last certified observation prefix is unavailable')
++  }
++  const generation = (previous?.generation ?? 0) + 1
++  if (!offset(generation)) throw new Error('Observation generation exhausted')
++  const ancestors = previous === undefined ? [] : [
++    ...previous.ancestors,
++    Object.freeze({
++      epochId: previous.epochId,
++      generation: previous.generation,
++      firstSequence: previous.recoveredEventCount,
++    }),
++  ].slice(-ANCESTOR_LIMIT)
++  const recovery = Object.freeze({
++    version: 1 as const,
++    streamId: previous?.streamId ?? SessionObservationToken(randomUUID()),
++    epochId: SessionObservationToken(randomUUID()),
++    generation, recoveredEventCount, ancestors: Object.freeze(ancestors),
++  })
++  const receipt: Receipt = { ...recovery, prefixSha256: digest(events, recoveredEventCount) }
++  await publish(join(directory, `${RECEIPT_PREFIX}${generation}.json`), JSON.stringify(receipt) + '\n')
++  return recovery
++}
+diff --git a/packages/session/session-persistence-jsonl/src/storage.ts b/packages/session/session-persistence-jsonl/src/storage.ts
+index 197dcbc270..a5775eda51 100644
+--- a/packages/session/session-persistence-jsonl/src/storage.ts
++++ b/packages/session/session-persistence-jsonl/src/storage.ts
+@@ -14 +14 @@ import { errorChain } from '@deepseek-ai/dsh-llm'
+-import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
++import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset, SessionObservationRecovery } from '@deepseek-ai/dsh-session'
+@@ -76,0 +77 @@ export interface StorageHandleState {
++  prepareObservationRecovery?: (() => Promise<SessionObservationRecovery | undefined>) | undefined
+@@ -94,0 +96 @@ export class JsonlSessionHandle implements SessionHandle {
++  private observationTask: Promise<SessionObservationRecovery | undefined> | undefined
+@@ -110,0 +113,18 @@ export class JsonlSessionHandle implements SessionHandle {
++  /**
++   * Publish the restored prefix before this write handle appends new events.
++   * @returns This handoff's immutable proof, when certified.
++   */
++  prepareObservationRecovery(): Promise<SessionObservationRecovery | undefined> {
++    return this.observationTask ??= this.sealObservation()
++  }
++
++  private async sealObservation(): Promise<SessionObservationRecovery | undefined> {
++    let proof: SessionObservationRecovery | undefined
++    await this.run('prepare observation recovery', async () => {
++      const prepare = this.state.prepareObservationRecovery
++      this.state.prepareObservationRecovery = undefined
++      if (prepare !== undefined) proof = await prepare()
++    })
++    return proof
++  }
++
+@@ -341,0 +362 @@ export class JsonlSessionHandle implements SessionHandle {
++    this.state.prepareObservationRecovery = undefined
+diff --git a/packages/session/session-persistence-jsonl/tests/fixtures/recovery-tail-writer.mjs b/packages/session/session-persistence-jsonl/tests/fixtures/recovery-tail-writer.mjs
+new file mode 100644
+index 0000000000..23d56431e7
+--- /dev/null
++++ b/packages/session/session-persistence-jsonl/tests/fixtures/recovery-tail-writer.mjs
+@@ -0,0 +1,27 @@
++/** Built persistence process fixture. The test kills it with an observed, buffered tail. */
++import { writeSync } from 'node:fs'
++import { Context } from '@deepseek-ai/cordis'
++import SessionStore from '@deepseek-ai/dsh-session'
++import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
++
++const [root, id] = process.argv.slice(2)
++const ctx = new Context()
++await ctx.plugin(SessionStore)
++await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
++const handle = await ctx.sessionPersistence.open(id, 'write')
++const seed = await handle.read()
++const generation = await handle.prepareObservationRecovery?.()
++const session = ctx.sessions.prepare(id, {
++  meta: handle.header, seed: seed.events, inheritedEventCount: handle.inheritedEventCount,
++  eventState: seed.eventState, observationRecovery: generation,
++})
++const suffix = session.snapshotEvents(seed.events.length)
++await handle.append(suffix)
++ctx.sessions.enter(session)
++ctx.sessions.announce(session)
++const seen = []
++ctx.on('session/event', (owner, event) => { if (session === owner) seen.push(event) })
++session.append('turn/start', { turn: 2 })
++session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
++writeSync(1, JSON.stringify({ generation, seedCount: session.firstLiveSeq, seen }) + '\n')
++process.kill(process.pid, 'SIGKILL')
+diff --git a/packages/session/session-persistence-jsonl/tests/observation-recovery.e2e.ts b/packages/session/session-persistence-jsonl/tests/observation-recovery.e2e.ts
+new file mode 100644
+index 0000000000..1e7e615047
+--- /dev/null
++++ b/packages/session/session-persistence-jsonl/tests/observation-recovery.e2e.ts
+@@ -0,0 +1,73 @@
++/** A real abrupt process exit leaves an observed tail outside the next writer's durable prefix. */
++import { spawnSync } from 'node:child_process'
++import { mkdtemp, rm, writeFile } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { dirname, join } from 'node:path'
++import { fileURLToPath } from 'node:url'
++import { expect, it, onTestFinished } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import { SESSION_FORMAT_VERSION, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
++import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
++
++const WRITER = fileURLToPath(new URL('./fixtures/recovery-tail-writer.mjs', import.meta.url))
++
++it.skipIf(process.platform === 'win32')('proves the durable prefix and advances the writer generation after SIGKILL', { timeout: 25_000 }, async () => {
++  const root = await mkdtemp(join(tmpdir(), 'dsh-observation-recovery-'))
++  const ctx = new Context()
++  onTestFinished(async () => {
++    await ctx.fiber.dispose()
++    await rm(root, { recursive: true, force: true })
++  })
++  await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
++  const id = SessionId('recovery-test')
++  const writer = await ctx.sessionPersistence.create({
++    version: SESSION_FORMAT_VERSION, id, createdAt: 100, isSeeded: false,
++  })
++  await writer.append([{ seq: SessionSeq(0), type: 'turn/start', time: 1, data: { turn: 1 } }, {
++    seq: SessionSeq(1), type: 'turn/end', time: 2, data: { turn: 1, reason: { kind: 'completed' } },
++  }, { seq: SessionSeq(2), type: 'session/end-seed', time: 3, data: {} }])
++  await writer.close()
++
++  const crash = spawnSync(process.execPath, [WRITER, root, id], { encoding: 'utf8', timeout: 15_000 })
++  expect(crash.signal, crash.stderr).toBe('SIGKILL')
++  const observed = JSON.parse(crash.stdout)
++  expect(observed.seen).toMatchObject([
++    { type: 'turn/start', seq: 3, data: { turn: 2 } },
++    { type: 'turn/end', seq: 4, data: { turn: 2 } },
++  ])
++
++  const recovered = await ctx.sessionPersistence.open(id, 'write')
++  const prefix = await recovered.read()
++  const second = await recovered.prepareObservationRecovery?.()
++  expect(prefix.events.map(event => event.seq)).toEqual([0, 1, 2])
++  await recovered.append([{ seq: SessionSeq(3), type: 'turn/start', time: 4, data: { turn: 2 } }])
++  expect((await recovered.read()).events.at(-1)).toMatchObject({
++    type: 'turn/start', seq: 3, data: { turn: 2 },
++  })
++  expect(observed.generation).toMatchObject({ version: 1, generation: 1, recoveredEventCount: 3 })
++  expect(second).toMatchObject({
++    version: 1, streamId: observed.generation.streamId, generation: 2, recoveredEventCount: 3,
++  })
++  await recovered.close()
++
++  const grown = await ctx.sessionPersistence.open(id, 'write')
++  expect(await grown.prepareObservationRecovery?.()).toMatchObject({
++    version: 1, generation: 3, recoveredEventCount: 4,
++    ancestors: [
++      { epochId: observed.generation.epochId, generation: 1, firstSequence: 3 },
++      { epochId: second?.epochId, generation: 2, firstSequence: 3 },
++    ],
++  })
++  await grown.close()
++
++  const location = (await ctx.sessionPersistence.stat(id))?.location
++  if (location?.kind !== 'jsonl') throw new Error('Expected the public JSONL artifact location')
++  await writeFile(join(dirname(location.path), '.observation-v1-3.json'), '{invalid}')
++  const uncertain = await ctx.sessionPersistence.open(id, 'write')
++  expect(await uncertain.prepareObservationRecovery?.()).toBeUndefined()
++  await uncertain.append([{
++    seq: SessionSeq(4), type: 'turn/end', time: 5, data: { turn: 2, reason: { kind: 'completed' } },
++  }])
++  expect((await uncertain.read()).events.map(event => event.seq)).toEqual([0, 1, 2, 3, 4])
++  await uncertain.close()
++})
+diff --git a/packages/session/session-persistence/src/handle.ts b/packages/session/session-persistence/src/handle.ts
+index b6a194c87d..889e677a2f 100644
+--- a/packages/session/session-persistence/src/handle.ts
++++ b/packages/session/session-persistence/src/handle.ts
+@@ -7 +7 @@
+-import type { SessionEvent, SessionHeader, SessionId, SessionLogOffset, SessionSeedEventState } from '@deepseek-ai/dsh-session'
++import type { SessionEvent, SessionHeader, SessionId, SessionLogOffset, SessionObservationRecovery, SessionSeedEventState } from '@deepseek-ai/dsh-session'
+@@ -71,0 +72,6 @@ export interface SessionHandle extends AsyncDisposable {
++  /**
++   * Publish durable observation evidence before announcing a restored live Session.
++   * Call on the owning write handle before appending. Backends may omit the method.
++   * @returns This write handoff's proof, or undefined when observation is unavailable.
++   */
++  prepareObservationRecovery?(): Promise<SessionObservationRecovery | undefined>

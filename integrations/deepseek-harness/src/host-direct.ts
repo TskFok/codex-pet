@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { ObservationSink } from './host-observer.js';
 import type { HarnessObservation } from './events.js';
 import { InvalidHarnessEventError } from './host-forwarder.js';
+import { observationOf } from './host-recovery.js';
 
 interface DirectQuestion {
   readonly id: string;
@@ -55,6 +56,7 @@ function observation(request: DirectQuestion, settledAt?: number): HarnessObserv
   return {
     sessionId: request.sessionId,
     sessionCreatedAt: request.sessionCreatedAt,
+    observation: observationOf(request),
     ...(request.birthTurn === null ? {} : { turn: request.birthTurn }),
     type: settledAt === undefined ? 'question/requested' : 'question/resolved',
     requestId: `question:${request.id}`,

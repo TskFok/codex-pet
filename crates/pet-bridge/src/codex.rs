@@ -67,6 +67,8 @@ pub fn normalize_codex(
         turn_id: Some(required(input, "turn_id")?.into()),
         upstream_event_id: None,
         sequence: None,
+        observation: None,
+        question_birth: None,
         occurred_at_ms: now_ms,
         received_at_ms: None,
         summary: None,
