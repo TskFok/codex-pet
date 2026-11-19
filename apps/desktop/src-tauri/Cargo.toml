@@ -15,6 +15,15 @@ tauri-build = { version = "=2.7.4", features = [] }
 tauri = { version = "=2.12.4", features = [] }
 serde.workspace = true
 serde_json.workspace = true
+pet-core = { path = "../../../crates/pet-core" }
+pet-bridge = { path = "../../../crates/pet-bridge" }
+axum = { version = "=0.8.8", default-features = false, features = ["http1", "json", "tokio"] }
+notify = "=8.2.0"
+subtle = "=2.6.1"
+tokio = { version = "1.54.1", features = ["rt", "net", "sync", "time", "macros"] }
+
+[dev-dependencies]
+tempfile = "3.26.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSEvent", "NSWindow", "NSView", "NSResponder", "NSColor", "NSBezierPath", "NSGraphics"] }

@@ -1,3 +1,6 @@
+#[cfg(windows)]
+mod support;
+
 use pet_bridge::hook_install::{apply_hook_patch, plan_hook_install, plan_hook_remove};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -143,7 +146,9 @@ fn windows_encoded_hook_preserves_native_stdin_stdout_and_quoted_path() {
         "11111111-1111-4111-8111-111111111111",
     )
     .unwrap();
-    let mut child = Command::new(std::env::var("COMSPEC").unwrap_or("cmd.exe".into()))
+    let mut shell = Command::new(std::env::var("COMSPEC").unwrap_or("cmd.exe".into()));
+    let paths = support::isolate_user_paths(&mut shell, dir.path());
+    let mut child = shell
         .arg("/C")
         .raw_arg(format!("\"{command}\""))
         .stdin(Stdio::piped())
@@ -155,8 +160,16 @@ fn windows_encoded_hook_preserves_native_stdin_stdout_and_quoted_path() {
     child.stdin.take().unwrap().write_all(&input).unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success());
-    assert_eq!(output.stdout, b"{}\n");
-    assert!(String::from_utf8_lossy(&output.stderr).contains("投递尚未接入"));
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim_end(), "{}");
+    assert!(
+        output.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let outbox = pet_bridge::outbox::Outbox::new(paths).unwrap();
+    let events = outbox.pending(pet_core::paths::wall_clock_ms()).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].envelope.session_id, "test-session");
 }
 #[test]
 fn binary_upgrade_changes_path_without_changing_installation_identity() {

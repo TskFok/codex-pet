@@ -9,11 +9,11 @@
 | 普通请求旧语义、持续请求 | Rust回归覆盖旧水位/None周期/终态保护、跨回合保留、快照/墓碑/并发、Unknown和已证终态恢复 | 已通过 |
 | 官方临时profile | 正常startup URL换cookie，匿名401→认证200，公开inventory显示生产Host Fiber active，真实Client启动批次200/工厂字节命中 | 已通过；没有运行浏览器apply或原生跳转 |
 | waterfall | next恰好一次，答案/异常对象不变，失败转发不影响宿主 | 已通过 |
-| 私有probe | v2、64KiB、拒绝其它来源/原文、私有权限、精确重放幂等；无probe明确未配置 | 已通过 |
+| 私有探测 | v2、64 KiB 上限、拒绝其他来源、私有权限、精确重放幂等、与正常投递目录隔离 | 已通过 |
 | 父子关系 | 仅读真实subagent header；普通fork不猜父关系 | SDK/消费者通过；实际agent委派未验 |
 | 冷启动早到/未就绪/热隐藏/Windows argv | 主进程队列＋公开引用导航；不存在目标不改变选择 | 单元通过；实际原生会话定位未验 |
 | 观察源恢复 | 有原生callId的timed正常持久恢复通过；无原生callId的direct/idle question在观察插件卸载后重载未形成公开权威恢复；未flush崩溃可能复用seq | Task6阻断，不用空快照猜解除 |
-| 正常通知投递 | 当前为脱敏probe；outbox归Task5，网络/broker归Task6 | 尚未接线，不宣称Delivered |
+| 正常通知投递 | 脱敏统一事件经原生 bridge 耐久入队，由真实 macOS 桌宠正常收件和重启补发 | 本机通过，Windows 原生和宿主崩溃的权威状态恢复仍待验 |
 
 安装使用可审阅的新目录配置bundle，UUID一次生成并持久在patch，升级显式复用；固定注册表依赖与正式 dsh.bundle 格式，无本机绝对代码依赖。方法和撤销说明见[接入README](../../../integrations/deepseek-harness/README.md)。
 

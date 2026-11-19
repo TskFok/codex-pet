@@ -57,8 +57,8 @@ impl From<ProtocolError> for StorageError {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IngestAck {
     pub event_id: String,
     pub duplicate: bool,

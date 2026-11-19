@@ -33,9 +33,9 @@
   },
   "delivery": {
     "probe": "verified_private_real_bridge",
-    "durableOutbox": "task5_pending",
-    "brokerNetwork": "task6_pending",
-    "noProbe": "explicit_failure_not_delivered"
+    "durableOutbox": "verified_native_bridge",
+    "brokerNetwork": "verified_macos_local_transport",
+    "noProbe": "production_durable_delivery"
   },
   "navigation": {
     "requiresDesktopPatch": true,
@@ -52,7 +52,7 @@
   "releaseBlockers": [
     "macOS/Windows三真实会话与原生精确跳转未验",
     "未flush崩溃尾回退与direct/idle question观察器重载权威恢复待Task6",
-    "outbox/broker尚未接线"
+    "Windows 本机通知投递与真实系统睡眠恢复未验"
   ],
   "hostPatchedCommit": "2809f54899deb4477517be5437521cd51b7c4a5e"
 }

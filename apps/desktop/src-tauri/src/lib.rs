@@ -1,15 +1,111 @@
+pub mod broker;
 pub mod platform;
 mod windows;
 
+use broker::{BrokerHandle, BrokerView};
+use pet_core::{AppPaths, PetSnapshot};
 use serde::Serialize;
 use std::{
     fs,
     io::Write,
-    sync::{Mutex, OnceLock},
+    sync::{Mutex, OnceLock, RwLock},
 };
+use tauri::{Emitter, Manager};
+use tokio::sync::{Notify, broadcast};
 
 #[derive(Default)]
 struct DiagnosticState(Mutex<()>);
+
+#[derive(Default)]
+struct NotificationRuntime {
+    connection: RwLock<NotificationConnection>,
+    exit: Notify,
+}
+
+#[derive(Default)]
+enum NotificationConnection {
+    #[default]
+    Starting,
+    Ready(BrokerView),
+    Unavailable,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+enum NotificationService {
+    Starting,
+    Online,
+    Unavailable { message: &'static str },
+}
+
+impl NotificationRuntime {
+    fn status(&self) -> NotificationService {
+        match &*self.connection.read().unwrap() {
+            NotificationConnection::Starting => NotificationService::Starting,
+            NotificationConnection::Ready(view) => match view.fault() {
+                Some(message) => NotificationService::Unavailable { message },
+                None => NotificationService::Online,
+            },
+            NotificationConnection::Unavailable => NotificationService::Unavailable {
+                message: "无法启动本机通知服务",
+            },
+        }
+    }
+}
+
+#[tauri::command]
+fn pet_snapshot(state: tauri::State<'_, NotificationRuntime>) -> Option<PetSnapshot> {
+    match &*state.connection.read().unwrap() {
+        NotificationConnection::Ready(view) => Some(view.snapshot()),
+        _ => None,
+    }
+}
+
+fn start_notifications(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<NotificationRuntime>();
+        let started = tauri::async_runtime::spawn_blocking(|| {
+            AppPaths::for_user().and_then(BrokerHandle::start)
+        })
+        .await;
+        let broker = match started {
+            Ok(Ok(broker)) => broker,
+            Ok(Err(error)) => {
+                eprintln!("桌宠通知：无法启动本机通知服务，{error}");
+                *state.connection.write().unwrap() = NotificationConnection::Unavailable;
+                return;
+            }
+            Err(error) => {
+                eprintln!("桌宠通知：通知启动任务中断，{error}");
+                *state.connection.write().unwrap() = NotificationConnection::Unavailable;
+                return;
+            }
+        };
+        let mut updates = broker.subscribe();
+        *state.connection.write().unwrap() = NotificationConnection::Ready(broker.view());
+        let initial = broker.snapshot();
+        let mut last_revision = initial.revision;
+        let _ = app.emit_to("pet", "pet:snapshot", initial);
+        loop {
+            let snapshot = tokio::select! {
+                _ = state.exit.notified() => break,
+                update = updates.recv() => match update {
+                    Ok(snapshot) => snapshot,
+                    Err(broadcast::error::RecvError::Lagged(_)) => broker.snapshot(),
+                    Err(broadcast::error::RecvError::Closed) => break,
+                },
+            };
+            if snapshot.revision > last_revision {
+                last_revision = snapshot.revision;
+                let _ = app.emit_to("pet", "pet:snapshot", snapshot);
+            }
+        }
+        // 回收日志线程可能需要完成正在进行的落盘，交给后台线程。
+        tauri::async_runtime::spawn_blocking(move || drop(broker))
+            .await
+            .ok();
+    });
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,12 +122,16 @@ struct RuntimeInfo {
     position: tauri::PhysicalPosition<i32>,
     size: tauri::PhysicalSize<u32>,
     phase: String,
+    notification_service: NotificationService,
     #[cfg(target_os = "macos")]
     input_route: Option<serde_json::Value>,
 }
 
 #[tauri::command]
-fn runtime_info(window: tauri::WebviewWindow) -> Result<RuntimeInfo, String> {
+fn runtime_info(
+    window: tauri::WebviewWindow,
+    notifications: tauri::State<'_, NotificationRuntime>,
+) -> Result<RuntimeInfo, String> {
     Ok(RuntimeInfo {
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
@@ -48,6 +148,7 @@ fn runtime_info(window: tauri::WebviewWindow) -> Result<RuntimeInfo, String> {
         #[cfg(target_os = "macos")]
         input_route: platform::route_report(&window),
         phase: std::env::var("PET_VALIDATION_PHASE").unwrap_or_else(|_| "animation".into()),
+        notification_service: notifications.status(),
     })
 }
 
@@ -119,10 +220,12 @@ pub fn run() {
     });
     let app = builder
         .manage(DiagnosticState::default())
+        .manage(NotificationRuntime::default())
         .invoke_handler(tauri::generate_handler![
             runtime_info,
             record_diagnostic,
-            pointer_input
+            pointer_input,
+            pet_snapshot
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -131,16 +234,16 @@ pub fn run() {
             if std::env::var("PET_VALIDATION_PHASE").as_deref() == Ok("hidden") {
                 platform::set_pet_visible(app.handle(), false)?;
             }
+            start_notifications(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("桌宠窗口启动失败");
-    app.run(|_, event| {
-        #[cfg(target_os = "macos")]
+    app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            app.state::<NotificationRuntime>().exit.notify_one();
+            #[cfg(target_os = "macos")]
             platform::shutdown_input();
         }
-        #[cfg(not(target_os = "macos"))]
-        let _ = event;
     });
 }

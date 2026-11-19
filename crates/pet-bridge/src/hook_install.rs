@@ -67,14 +67,22 @@ fn shell_quote(value: &str) -> String {
 }
 
 /// 0.145.0 Windows command runner 使用 COMSPEC /C；编码脚本不含 shell 元字符。
-/// 真正的二进制路径只在 PowerShell 字面字符串中解释，stdin/stdout 直接继承。
+/// 保留原生输入，使用管道等待无控制台进程并转发 stdout。
 pub fn windows_command(bridge: &str, installation_id: &str) -> Result<String, InstallError> {
+    encode_windows_command(bridge, installation_id, " | ForEach-Object { $_ }")
+}
+
+fn encode_windows_command(
+    bridge: &str,
+    installation_id: &str,
+    pipe: &str,
+) -> Result<String, InstallError> {
     uuid::Uuid::parse_str(installation_id).map_err(|_| "安装 ID 必须为 UUID")?;
     if bridge.contains(['\0', '\r', '\n']) {
         return Err("桥接路径包含控制字符".into());
     }
     let script = format!(
-        "$ErrorActionPreference='Stop'; & '{}' codex --installation-id '{}'; exit $LASTEXITCODE",
+        "$ErrorActionPreference='Stop'; & '{}' codex --installation-id '{}'{pipe}; exit $LASTEXITCODE",
         bridge.replace('\'', "''"),
         installation_id
     );
@@ -85,9 +93,18 @@ pub fn windows_command(bridge: &str, installation_id: &str) -> Result<String, In
     ))
 }
 
-fn group(bridge: &str, installation_id: &str) -> Result<Value, InstallError> {
+fn group(
+    bridge: &str,
+    installation_id: &str,
+    waits_for_bridge: bool,
+) -> Result<Value, InstallError> {
+    let command_windows = if waits_for_bridge {
+        windows_command(bridge, installation_id)?
+    } else {
+        encode_windows_command(bridge, installation_id, "")?
+    };
     Ok(
-        json!({"hooks":[{"type":"command","command":format!("{} codex --installation-id {}",shell_quote(bridge),installation_id),"commandWindows":windows_command(bridge,installation_id)?,"timeout":1,"statusMessage":MARKER}]}),
+        json!({"hooks":[{"type":"command","command":format!("{} codex --installation-id {}",shell_quote(bridge),installation_id),"commandWindows":command_windows,"timeout":1,"statusMessage":MARKER}]}),
     )
 }
 
@@ -130,7 +147,8 @@ pub fn plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, In
                         .replace("'\"'\"'", "'");
                     if !Path::new(&previous_bridge).is_absolute()
                         || quoted != shell_quote(&previous_bridge)
-                        || *old != group(&previous_bridge, id)?
+                        || (*old != group(&previous_bridge, id, true)?
+                            && *old != group(&previous_bridge, id, false)?)
                         || installation_id
                             .as_ref()
                             .is_some_and(|previous| previous != id)
@@ -144,7 +162,7 @@ pub fn plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, In
         }
     }
     let id = installation_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let owned = group(bridge, &id)?;
+    let owned = group(bridge, &id, true)?;
     let mut owned_entry_ids = Vec::new();
     for (event, groups) in hooks.iter_mut() {
         groups

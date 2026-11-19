@@ -1,8 +1,11 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use pet_bridge::{
     codex::{MAX_HOOK_BYTES, hook_session_id, normalize_codex},
+    delivery::deliver,
     hook_install::{HookPatch, apply_hook_patch, plan_hook_install, plan_hook_remove},
 };
-use pet_core::{Source, SourceIdentity};
+use pet_core::{AppPaths, Source, SourceIdentity};
 use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
@@ -179,8 +182,11 @@ fn run_hook(args: Vec<String>) -> Result<(), String> {
             let bytes = serde_json::to_vec(&event).map_err(|_| "事件序列化失败")?;
             private_write(&directory.join(format!("{}.json", event.event_id)), &bytes)?;
         }
-    } else {
-        return Err("通知投递尚未接入；当前仅支持显式 --probe-dir 探测".into());
+    } else if !events.is_empty() {
+        let paths = AppPaths::for_user().map_err(|error| error.to_string())?;
+        for event in events {
+            deliver(&event, &paths).map_err(|error| error.to_string())?;
+        }
     }
     if input
         .get("hook_event_name")
@@ -204,10 +210,12 @@ fn run_harness(args: Vec<String>) -> Result<(), String> {
     if event.identity.source != Source::Deepseek {
         return Err("Harness入口拒绝其他来源的事件".into());
     }
-    let directory = options
-        .get("--probe-dir")
-        .map(PathBuf::from)
-        .ok_or("通知投递尚未接入；当前仅支持显式 --probe-dir 探测")?;
+    let Some(directory) = options.get("--probe-dir").map(PathBuf::from) else {
+        let paths = AppPaths::for_user().map_err(|error| error.to_string())?;
+        return deliver(&event, &paths)
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+    };
     prepare_probe_directory(&directory)?;
     let canonical = serde_json::to_vec(&event).map_err(|_| "规范事件序列化失败")?;
     let name = format!("{:x}.json", Sha256::digest(event.event_id.as_bytes()));
@@ -240,7 +248,7 @@ fn read_patch(path: &str) -> Result<HookPatch, String> {
 }
 fn run_install(args: &[String]) -> Result<(), String> {
     if args.first().map(String::as_str) != Some("hooks") {
-        return Err("用法：pet-bridge codex [--probe-dir 路径]；或 pet-bridge hooks plan-install|plan-remove|apply --config 路径 …".into());
+        return Err("用法：pet-bridge codex --installation-id ID（探测可用 --probe-dir 路径）；或 pet-bridge hooks plan-install|plan-remove|apply --config 路径 …".into());
     }
     let action = args.get(1).map(String::as_str).ok_or("缺少安装操作")?;
     let allowed = match action {

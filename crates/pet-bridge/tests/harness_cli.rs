@@ -1,10 +1,16 @@
+mod support;
+
 use serde_json::json;
 use std::{
     io::Write,
     process::{Command, Stdio},
 };
 fn run(args: &[&str], bytes: &[u8]) -> std::process::Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_pet-bridge"))
+    run_at(Command::new(env!("CARGO_BIN_EXE_pet-bridge")), args, bytes)
+}
+
+fn run_at(mut command: Command, args: &[&str], bytes: &[u8]) -> std::process::Output {
+    let mut child = command
         .arg("harness")
         .args(args)
         .stdin(Stdio::piped())
@@ -45,7 +51,7 @@ fn harness_probe_accepts_valid_v2_privately_and_deduplicates_exact_replays() {
     }
 }
 #[test]
-fn harness_rejects_foreign_source_bad_json_oversize_and_unconfigured_delivery_without_payload() {
+fn harness_rejects_foreign_source_bad_json_and_oversize_without_payload() {
     let mut foreign: serde_json::Value = serde_json::from_slice(&valid()).unwrap();
     foreign["identity"]["source"] = json!("codex");
     let root = tempfile::tempdir().unwrap();
@@ -64,11 +70,27 @@ fn harness_rejects_foreign_source_bad_json_oversize_and_unconfigured_delivery_wi
                 .contains("私密原文")
         );
     }
-    let result = run(&[], &valid());
-    assert!(!result.status.success());
+}
+
+#[test]
+fn harness_queues_without_probe_and_explicit_probe_stays_isolated() {
+    let root = tempfile::tempdir().unwrap();
+    let (command, paths) = support::isolated_bridge(root.path());
+    let probe = root.path().join("probe");
+    let result = run_at(command, &["--probe-dir", probe.to_str().unwrap()], &valid());
+    assert!(result.status.success());
+    assert!(!paths.root.exists());
+
+    let (command, _) = support::isolated_bridge(root.path());
+    let result = run_at(command, &[], &valid());
     assert!(
-        String::from_utf8(result.stderr)
-            .unwrap()
-            .contains("投递尚未接入")
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
     );
+    assert!(result.stdout.is_empty());
+    let outbox = pet_bridge::outbox::Outbox::new(paths).unwrap();
+    let queued = outbox.pending(pet_core::paths::wall_clock_ms()).unwrap();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].envelope.event_id, "safe/event:identity");
 }

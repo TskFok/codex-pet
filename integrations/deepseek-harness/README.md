@@ -1,6 +1,6 @@
 # DeepSeek Harness 桌宠接入
 
-本包实现 Harness 审批、持续提问、精确解除和真实子会话元数据观察；正式 Host profile 加载、Client 工厂交付及真实 SDK→原生 bridge→Rust SessionStore 已验证。原生桌面三会话、冷热/隐藏精确定位和 Windows 尚未验收；正常桌宠投递等待后续 outbox/broker 接线。当前可记录脱敏 probe，不宣称 Delivered。
+本包实现 Harness 审批、持续提问、精确解除和真实子会话元数据观察；正式 Host profile 加载、Client 工厂交付及真实 SDK→原生 bridge→Rust SessionStore 已验证。原生桌面三会话、冷热/隐藏精确定位和 Windows 尚未验收；正常配置通过原生 bridge 先耐久入队，桌宠关闭或通信中断时保留待发送项，桌宠启动后补发。原生 bridge 的成功退出表示接受事件，包括离线入队。
 
 兼容 Harness `0.2.2-rc.1`，源码基线为 `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`，已验证补丁提交为 `2809f54899deb4477517be5437521cd51b7c4a5e`；完整版本记录见 [compatibility.json](compatibility.json)。SDK/Cordis 采用锁定注册表版本及官方 peerDependencies 共享实例规则，无本机源码依赖。生产事件协议为 v2；接收端保留旧 v1 Turn 默认读取，拒绝 v1 携带 until_resolved。
 
@@ -15,9 +15,10 @@ Host 观察公开 `session/event` 的真实 turn/审批 seq。真正建立的 `u
 ```sh
 node integrations/deepseek-harness/create-install.mjs \
   --output '/绝对路径/桌宠安装包' \
-  --bridge '/绝对路径/pet-bridge' \
-  --probe-dir '/绝对路径/私有探测目录'
+  --bridge '/绝对路径/pet-bridge'
 ```
+
+需要脱敏探测时，显式加 `--probe-dir "/绝对路径/私有探测目录"`。探测模式只写该目录，日常配置省略该选项。
 
 首次生成一次 UUID 并写入安装包 `cordis.patch.json`；命令不安装插件、不写宿主 profile。新包保留固定注册表依赖，复制实际 dist，代码不指向本机源码/link。重复输出目录明确拒绝，避免覆盖已有 ID 或用户改动。升级在新目录生成，显式增加 `--installation-id '原配置UUID'`；保留原 ID，不重新生成一个安装身份。Windows bridge 指向原生 `pet-bridge.exe`。
 

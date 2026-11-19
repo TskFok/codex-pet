@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import type {EventEnvelope} from './events.js';
 
-/** 仅负责有界串行调用原生转发器；可靠outbox与broker由后续统一传输层承担。 */
+/** 有界串行调用原生转发器，由转发器负责耐久入队和本机投递。 */
 export class HarnessForwarder {
   private tail:Promise<void>=Promise.resolve();
   private count=0;

@@ -9,6 +9,7 @@ use pet_core::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashSet,
     fs::{self, File, OpenOptions},
     io::{self, Read},
     path::{Component, Path, PathBuf},
@@ -192,14 +193,24 @@ impl Outbox {
     }
 
     pub fn acknowledge(&self, event_id: &str) -> Result<(), DeliveryError> {
+        self.acknowledge_many([event_id])
+    }
+
+    pub fn acknowledge_many<'a>(
+        &self,
+        event_ids: impl IntoIterator<Item = &'a str>,
+    ) -> Result<(), DeliveryError> {
+        let keys: HashSet<_> = event_ids.into_iter().map(event_key).collect();
+        if keys.is_empty() {
+            return Ok(());
+        }
         let _lock = self.lock()?;
         let mut state = self.load_state()?;
         let mut slots = self.scan(&mut state)?;
         let now = (self.clock)();
-        let key = event_key(event_id);
         self.expire(now, &mut state, &mut slots);
         slots.retain(|slot| {
-            if slot.key() == key {
+            if keys.contains(slot.key()) {
                 state.discard(slot.name.clone());
                 false
             } else {

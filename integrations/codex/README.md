@@ -1,6 +1,6 @@
 # Codex 桌宠 Hook 接入
 
-首版按用户确认的分级范围提供生命周期提醒。**当前适配器不支持 Codex 精确审批、提问等待及其回答/拒绝/取消/撤回解除同步**，不会生成猜测的请求事件；Harness 的完整待处理目标与通用请求协议保留。正常投递由任务 6 接入，目前提供转换、显式安装/撤销及脱敏 probe-dir。能力证据见 [compatibility.json](compatibility.json) 和[验证记录](../../docs/validation/desktop-pet/codex.md)。
+首版按用户确认的分级范围提供生命周期提醒。**当前适配器不支持 Codex 精确审批、提问等待及其回答/拒绝/取消/撤回解除同步**，不会生成猜测的请求事件；Harness 的完整待处理目标与通用请求协议保留。已接入本机队列和桌宠入口，保留显式安装、撤销及脱敏探测。能力证据见 [compatibility.json](compatibility.json) 和[验证记录](../../docs/validation/desktop-pet/codex.md)。
 
 | 能力 | 当前实现和证据等级 |
 | --- | --- |
@@ -49,7 +49,7 @@ PET_BRIDGE="$PWD/target/debug/pet-bridge"
 
 ## 正常信任与脱敏探测
 
-不会默认读取或更改真实用户 Hook/安全设置。非托管 Hook 必须由用户在来源正常界面审阅/信任（CLI `/hooks`，桌面 Hooks 设置或提示）；安装器不写信任状态，不返回批准/拒绝。Hook stdout 固定 `{}`，错误只 stderr，不含原始 JSON。正常投递未接入时明确诊断。
+不会默认读取或更改真实用户 Hook/安全设置。非托管 Hook 必须由用户在来源正常界面审阅/信任（CLI `/hooks`，桌面 Hooks 设置或提示）；安装器不写信任状态，不返回批准/拒绝。Hook stdout 固定 `{}`。正常调用先耐久入队，尝试在 200 ms 内取得桌宠落盘确认。桌宠关闭或响应中断期间保留待发送项，启动和定时回扫会补发。磁盘失败只在 stderr 输出诊断，日志不含原始 JSON。
 
 ```sh
 printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"test-session","turn_id":"test-turn","prompt":"仅测试"}' |
@@ -73,4 +73,6 @@ probe 目录仅当前用户访问，保存 `.installation-id` 与 UUID 事件文
 
 ## Windows
 
-`commandWindows` 使用 `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand`，UTF16LE 脚本以转义单引号路径和独立参数调用 bridge。没有修改 ExecutionPolicy、提权或禁用安全设置。锁定 0.145.0 源码证明外层为 COMSPEC/cmd /C；中文/空格/shell 元字符不作为外层结构解释。Windows 原生 stdin/stdout、编码、启动时间、1秒上限及当前桌面版本 shell 均未验，原生测试不能由 macOS 结果或交叉构建代替。
+`commandWindows` 使用 `powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand`。UTF16LE 脚本以转义单引号路径和独立参数调用无控制台 bridge，并通过管道等待进程退出和转发 stdout。升级时用安装器生成并显式应用新计划，使旧配置使用新命令并保留安装 ID。没有修改 ExecutionPolicy、提权或禁用安全设置。锁定 0.145.0 源码证明外层为 COMSPEC/cmd /C；中文/空格/shell 元字符不作为外层结构解释。Windows 原生 stdin/stdout、编码、启动时间、1秒上限及当前桌面版本 shell 均未验，原生测试不能由 macOS 结果或交叉构建代替。
+
+在 Windows PowerShell 手动运行无控制台安装器时，在该命令末尾加 `| Write-Output` 等待进程并读取安装计划输出。

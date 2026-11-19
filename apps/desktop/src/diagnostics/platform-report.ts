@@ -13,6 +13,9 @@ export interface RuntimeInfo {
   focused: boolean;
   scaleFactor: number;
   phase: string;
+  notificationService:
+    | { state: 'starting' | 'online' }
+    | { state: 'unavailable'; message: string };
 }
 
 export const runtimeInfo = (): Promise<RuntimeInfo> => invoke('runtime_info');

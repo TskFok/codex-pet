@@ -1,3 +1,5 @@
+mod support;
+
 use serde_json::{Value, json};
 use std::{
     io::Write,
@@ -5,7 +7,11 @@ use std::{
 };
 
 fn hook(args: &[&str], bytes: &[u8]) -> std::process::Output {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_pet-bridge"))
+    hook_at(Command::new(env!("CARGO_BIN_EXE_pet-bridge")), args, bytes)
+}
+
+fn hook_at(mut command: Command, args: &[&str], bytes: &[u8]) -> std::process::Output {
+    let mut child = command
         .arg("codex")
         .args(args)
         .stdin(Stdio::piped())
@@ -78,19 +84,36 @@ fn probe_write_failure_still_declines_to_decide() {
     assert_eq!(std::fs::read(target).unwrap(), b"occupied");
 }
 #[test]
-fn no_probe_has_explicit_not_delivered_diagnostic() {
-    let result = hook(
-        &["--installation-id", "11111111-1111-4111-8111-111111111111"],
-        &input(),
-    );
+fn codex_queues_offline_and_keeps_the_hook_stdout_on_disk_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let (command, paths) = support::isolated_bridge(root.path());
+    let args = ["--installation-id", "11111111-1111-4111-8111-111111111111"];
+    let result = hook_at(command, &args, &input());
     assert!(result.status.success());
     assert_eq!(result.stdout, b"{}\n");
     assert!(
-        String::from_utf8(result.stderr)
-            .unwrap()
-            .contains("投递尚未接入")
+        result.stderr.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
     );
+    let outbox = pet_bridge::outbox::Outbox::new(paths.clone()).unwrap();
+    let queued = outbox.pending(pet_core::paths::wall_clock_ms()).unwrap();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].envelope.session_id, "test-session");
+    assert_eq!(queued[0].envelope.summary, None);
+
+    let blocked = tempfile::tempdir().unwrap();
+    let (command, blocked_paths) = support::isolated_bridge(blocked.path());
+    std::fs::create_dir_all(blocked_paths.root.parent().unwrap()).unwrap();
+    std::fs::write(&blocked_paths.root, b"occupied").unwrap();
+    let result = hook_at(command, &args, &input());
+    assert!(result.status.success());
+    assert_eq!(result.stdout, b"{}\n");
+    assert!(!result.stderr.is_empty());
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("不可保存"));
+    assert!(!blocked_paths.outbox.exists());
 }
+
 #[test]
 fn install_plan_requires_explicit_apply_and_remove_uses_manifest() {
     let dir = tempfile::tempdir().unwrap();
