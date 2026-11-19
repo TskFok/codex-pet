@@ -9,9 +9,13 @@ use std::{
     fs,
     io::Write,
     sync::{Mutex, OnceLock, RwLock},
+    time::Duration,
 };
 use tauri::{Emitter, Manager};
 use tokio::sync::{Notify, broadcast};
+
+const INITIAL_START_RETRY: Duration = Duration::from_secs(2);
+const MAX_START_RETRY: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 struct DiagnosticState(Mutex<()>);
@@ -51,6 +55,37 @@ impl NotificationRuntime {
             },
         }
     }
+
+    async fn wait_for_broker(&self, paths: AppPaths) -> Option<BrokerHandle> {
+        let mut retry_delay = INITIAL_START_RETRY;
+        let mut last_failure = None;
+        loop {
+            let started = tokio::select! {
+                biased;
+                _ = self.exit.notified() => return None,
+                result = async {
+                    let paths = paths.clone();
+                    tokio::task::spawn_blocking(move || BrokerHandle::start(paths)).await
+                } => result,
+            };
+            let failure = match started {
+                Ok(Ok(broker)) => return Some(broker),
+                Ok(Err(error)) => format!("无法启动本机通知服务，{error}"),
+                Err(error) => format!("通知启动任务中断，{error}"),
+            };
+            *self.connection.write().unwrap() = NotificationConnection::Unavailable;
+            if last_failure.as_ref() != Some(&failure) {
+                eprintln!("桌宠通知：{failure}，将在后台重试");
+                last_failure = Some(failure);
+            }
+            tokio::select! {
+                biased;
+                _ = self.exit.notified() => return None,
+                _ = tokio::time::sleep(retry_delay) => {}
+            }
+            retry_delay = (retry_delay * 2).min(MAX_START_RETRY);
+        }
+    }
 }
 
 #[tauri::command]
@@ -64,22 +99,16 @@ fn pet_snapshot(state: tauri::State<'_, NotificationRuntime>) -> Option<PetSnaps
 fn start_notifications(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let state = app.state::<NotificationRuntime>();
-        let started = tauri::async_runtime::spawn_blocking(|| {
-            AppPaths::for_user().and_then(BrokerHandle::start)
-        })
-        .await;
-        let broker = match started {
-            Ok(Ok(broker)) => broker,
-            Ok(Err(error)) => {
-                eprintln!("桌宠通知：无法启动本机通知服务，{error}");
-                *state.connection.write().unwrap() = NotificationConnection::Unavailable;
-                return;
-            }
+        let paths = match AppPaths::for_user() {
+            Ok(paths) => paths,
             Err(error) => {
-                eprintln!("桌宠通知：通知启动任务中断，{error}");
+                eprintln!("桌宠通知：无法定位本机应用数据目录，{error}");
                 *state.connection.write().unwrap() = NotificationConnection::Unavailable;
                 return;
             }
+        };
+        let Some(broker) = state.wait_for_broker(paths).await else {
+            return;
         };
         let mut updates = broker.subscribe();
         *state.connection.write().unwrap() = NotificationConnection::Ready(broker.view());
@@ -246,4 +275,45 @@ pub fn run() {
             platform::shutdown_input();
         }
     });
+}
+
+#[cfg(test)]
+mod notification_runtime_tests {
+    use super::*;
+    use pet_core::{JournalStore, StorageError};
+
+    #[tokio::test]
+    async fn exit_interrupts_startup_backoff_without_taking_the_writer_lock() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&temporary.path().canonicalize().unwrap().join("app"));
+        let _writer = JournalStore::open(paths.clone()).unwrap();
+        let runtime = NotificationRuntime::default();
+        let starting = runtime.wait_for_broker(paths.clone());
+        tokio::pin!(starting);
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::select! {
+                _ = &mut starting => panic!("持锁期间服务启动流程应继续等待"),
+                _ = async {
+                    while !matches!(runtime.status(), NotificationService::Unavailable { .. }) {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                } => {}
+            }
+        })
+        .await
+        .expect("未观察到写锁故障");
+
+        runtime.exit.notify_one();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(300), starting)
+                .await
+                .expect("退出信号应打断启动退避")
+                .is_none()
+        );
+        assert!(matches!(
+            JournalStore::open(paths),
+            Err(StorageError::WriterBusy)
+        ));
+    }
 }

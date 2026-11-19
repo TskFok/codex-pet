@@ -16,7 +16,7 @@ use pet_core::{
     decode_event, paths::wall_clock_ms,
 };
 use std::{
-    fs,
+    fs, io,
     net::{Ipv4Addr, TcpListener},
     sync::{
         Arc, RwLock,
@@ -47,25 +47,78 @@ pub(crate) struct BrokerView(Arc<Shared>);
 
 struct Shared {
     latest: RwLock<PetSnapshot>,
-    fault: RwLock<Option<&'static str>>,
+    faults: RwLock<Vec<FaultStage>>,
     updates: broadcast::Sender<PetSnapshot>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FaultStage {
+    Listener,
+    OutboxScan,
+    JournalAppend,
+    OutboxConfirm,
+    JournalCompact,
+}
+
+impl FaultStage {
+    fn message(self) -> &'static str {
+        match self {
+            Self::Listener => "本机入口已停止",
+            Self::OutboxScan => "无法扫描待发送区",
+            Self::JournalAppend => "事件日志写入失败",
+            Self::OutboxConfirm => "待发送区确认失败",
+            Self::JournalCompact => "事件日志压缩失败",
+        }
+    }
+}
+
 impl BrokerView {
+    fn new() -> Self {
+        Self(Arc::new(Shared {
+            latest: RwLock::new(PetSnapshot::default()),
+            faults: RwLock::new(Vec::new()),
+            updates: broadcast::channel(32).0,
+        }))
+    }
+
     pub(crate) fn snapshot(&self) -> PetSnapshot {
         self.0.latest.read().unwrap().clone()
     }
 
     pub(crate) fn fault(&self) -> Option<&'static str> {
-        *self.0.fault.read().unwrap()
+        self.0
+            .faults
+            .read()
+            .unwrap()
+            .first()
+            .copied()
+            .map(FaultStage::message)
     }
 
-    fn set_fault(&self, message: &'static str, error: &BrokerError) {
-        let mut fault = self.0.fault.write().unwrap();
-        if *fault != Some(message) {
-            eprintln!("桌宠通知：{message}，{error}");
+    fn set_fault(&self, stage: FaultStage, error: &BrokerError) {
+        let mut faults = self.0.faults.write().unwrap();
+        if !faults.contains(&stage) {
+            faults.push(stage);
+            drop(faults);
+            eprintln!("桌宠通知：{}，{error}", stage.message());
         }
-        *fault = Some(message);
+    }
+
+    fn track<T>(
+        &self,
+        stage: FaultStage,
+        result: Result<T, BrokerError>,
+    ) -> Result<T, BrokerError> {
+        match &result {
+            Ok(_) => self
+                .0
+                .faults
+                .write()
+                .unwrap()
+                .retain(|fault| *fault != stage),
+            Err(error) => self.set_fault(stage, error),
+        }
+        result
     }
 
     fn publish(&self, snapshot: PetSnapshot) {
@@ -95,12 +148,9 @@ impl BrokerHandle {
                 None
             }
         };
-        writer.drain(None)?;
-        let view = BrokerView(Arc::new(Shared {
-            latest: RwLock::new(writer.journal.snapshot()),
-            fault: RwLock::new(None),
-            updates: broadcast::channel(32).0,
-        }));
+        let view = BrokerView::new();
+        writer.drain(None, &view)?;
+        *view.0.latest.write().unwrap() = writer.journal.snapshot();
 
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         listener.set_nonblocking(true)?;
@@ -146,12 +196,12 @@ impl BrokerHandle {
                 .spawn(move || {
                     runtime.block_on(async {
                         tokio::select! {
-                            result = async { axum::serve(listener, app).await } => {
-                                if let Err(error) = result {
-                                    view.set_fault("本机入口已停止", &error.into());
-                                }
-                            }
+                            biased;
                             _ = shutdown => {}
+                            result = async { axum::serve(listener, app).await } => {
+                                let error = result.err().unwrap_or_else(|| io::Error::other("监听任务意外结束"));
+                                view.set_fault(FaultStage::Listener, &error.into());
+                            }
                         }
                     });
                 })?,
@@ -218,10 +268,7 @@ impl Writer {
                 next_scan = Instant::now() + SCAN_INTERVAL;
             }
             if now >= next_compact {
-                match self.journal.compact(wall_clock_ms()) {
-                    Ok(()) => view.publish(self.journal.snapshot()),
-                    Err(error) => view.set_fault("事件日志压缩失败", &error),
-                }
+                self.compact(&view);
                 next_compact = Instant::now() + COMPACT_INTERVAL;
             }
             let deadline = next_scan.min(next_compact);
@@ -241,32 +288,47 @@ impl Writer {
         }
     }
 
+    fn compact(&mut self, view: &BrokerView) {
+        let result = self.journal.compact(wall_clock_ms());
+        if view.track(FaultStage::JournalCompact, result).is_ok() {
+            view.publish(self.journal.snapshot());
+        }
+    }
+
     fn process(
         &mut self,
         incoming: Option<EventEnvelope>,
         view: &BrokerView,
     ) -> Result<Option<IngestAck>, StorageError> {
-        let result = self.drain(incoming);
-        match &result {
-            Ok(_) => {
-                *view.0.fault.write().unwrap() = None;
-                view.publish(self.journal.snapshot());
-            }
-            Err(error) => view.set_fault("收件尚未完成", error),
+        let ack = self.drain(incoming, view)?;
+        view.publish(self.journal.snapshot());
+        Ok(ack)
+    }
+
+    fn append(
+        &mut self,
+        event: EventEnvelope,
+        view: &BrokerView,
+    ) -> Result<IngestAck, StorageError> {
+        let result = self.journal.ingest(event);
+        // 重复确认来自去重记录，不会重新执行失败的日志写入。
+        if result.as_ref().is_ok_and(|ack| ack.duplicate) {
+            return result;
         }
-        result
+        view.track(FaultStage::JournalAppend, result)
     }
 
     fn drain(
         &mut self,
         incoming: Option<EventEnvelope>,
+        view: &BrokerView,
     ) -> Result<Option<IngestAck>, StorageError> {
-        let pending = self.outbox.pending(wall_clock_ms())?;
+        let pending = view.track(FaultStage::OutboxScan, self.outbox.pending(wall_clock_ms()))?;
         let mut confirmed = Vec::with_capacity(pending.len());
         let mut response = None;
         // HTTP 到达时同时接收先入队的事件，避免抢在来源前一条离线事件之前。
         for queued in pending {
-            let ack = self.journal.ingest(queued.envelope)?;
+            let ack = self.append(queued.envelope, view)?;
             if incoming
                 .as_ref()
                 .is_some_and(|event| event.event_id == ack.event_id)
@@ -277,12 +339,16 @@ impl Writer {
                 confirmed.push(ack.event_id);
             }
         }
-        self.outbox
-            .acknowledge_many(confirmed.iter().map(String::as_str))?;
+        if !confirmed.is_empty() {
+            let result = self
+                .outbox
+                .acknowledge_many(confirmed.iter().map(String::as_str));
+            view.track(FaultStage::OutboxConfirm, result)?;
+        }
         if let Some(event) = incoming
             && response.is_none()
         {
-            response = Some(self.journal.ingest(event)?);
+            response = Some(self.append(event, view)?);
         }
         Ok(response)
     }
@@ -347,4 +413,115 @@ async fn ingest(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Json(ack))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn writer() -> (tempfile::TempDir, AppPaths, Writer, BrokerView) {
+        let root = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&root.path().canonicalize().unwrap().join("app"));
+        let mut journal = JournalStore::open(paths.clone()).unwrap();
+        journal.recover(wall_clock_ms()).unwrap();
+        let view = BrokerView::new();
+        let writer = Writer {
+            journal,
+            outbox: Outbox::new(paths.clone()).unwrap(),
+        };
+        (root, paths, writer, view)
+    }
+
+    fn event(id: &str) -> EventEnvelope {
+        let mut event = decode_event(br#"{"schemaVersion":2,"eventId":"fixture","identity":{"source":"deepseek","installationId":"fixture-install","instanceId":"fixture-instance"},"sessionId":"fixture-session","turnId":"fixture-turn","occurredAtMs":100,"kind":{"type":"turn_started"}}"#).unwrap();
+        event.event_id = id.into();
+        event.occurred_at_ms = wall_clock_ms();
+        event
+    }
+
+    fn block_journal(paths: &AppPaths) {
+        fs::rename(&paths.journal, paths.root.join("working-journal")).unwrap();
+        fs::create_dir(&paths.journal).unwrap();
+    }
+
+    fn restore_journal(paths: &AppPaths) {
+        fs::remove_dir(&paths.journal).unwrap();
+        fs::rename(paths.root.join("working-journal"), &paths.journal).unwrap();
+    }
+
+    #[test]
+    fn empty_scan_and_duplicate_ack_leave_append_fault_until_append_succeeds() {
+        let (_root, paths, mut writer, view) = writer();
+        writer.process(Some(event("known")), &view).unwrap();
+
+        block_journal(&paths);
+        assert!(writer.process(Some(event("new")), &view).is_err());
+        let failed = view.fault().expect("追加失败应该报告故障");
+        writer.process(None, &view).unwrap();
+        assert_eq!(view.fault(), Some(failed), "空回扫未执行日志追加");
+
+        assert!(
+            writer
+                .process(Some(event("known")), &view)
+                .unwrap()
+                .unwrap()
+                .duplicate
+        );
+        assert_eq!(view.fault(), Some(failed), "重复确认未执行日志追加");
+
+        restore_journal(&paths);
+        assert!(
+            !writer
+                .process(Some(event("new")), &view)
+                .unwrap()
+                .unwrap()
+                .duplicate
+        );
+        assert_eq!(view.fault(), None);
+    }
+
+    #[test]
+    fn compaction_and_append_only_clear_their_own_faults() {
+        let (_root, paths, mut writer, view) = writer();
+        block_journal(&paths);
+        writer.compact(&view);
+        assert_eq!(view.fault(), Some("事件日志压缩失败"));
+        writer.process(None, &view).unwrap();
+        assert_eq!(
+            view.fault(),
+            Some("事件日志压缩失败"),
+            "空回扫未执行日志压缩"
+        );
+
+        assert!(writer.process(Some(event("new")), &view).is_err());
+        restore_journal(&paths);
+        writer.compact(&view);
+        assert!(view.fault().is_some(), "压缩成功后仍有追加故障");
+        assert_ne!(view.fault(), Some("事件日志压缩失败"));
+
+        // 记录第二次压缩失败，验证接下来的成功追加也不隐藏它。
+        block_journal(&paths);
+        writer.compact(&view);
+        restore_journal(&paths);
+        writer.process(Some(event("new")), &view).unwrap();
+        assert_eq!(view.fault(), Some("事件日志压缩失败"), "写入成功未执行压缩");
+        writer.compact(&view);
+        assert_eq!(view.fault(), None);
+    }
+
+    #[test]
+    fn file_processing_keeps_listener_failure_visible() {
+        let (_root, _paths, mut writer, view) = writer();
+        let stopped = "本机入口已停止";
+        view.set_fault(
+            FaultStage::Listener,
+            &io::Error::other("测试监听线程退出").into(),
+        );
+        writer.process(None, &view).unwrap();
+        writer.outbox.enqueue(&event("queued")).unwrap();
+        writer.process(None, &view).unwrap();
+        writer.compact(&view);
+        assert_eq!(view.snapshot().sessions.len(), 1);
+        assert_eq!(view.fault(), Some(stopped));
+    }
 }

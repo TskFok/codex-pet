@@ -20,7 +20,7 @@ export function apply(ctx:Context,config:PluginConfig):void{
     observeHost(ctx,async observation=>{
       for(const event of toPetEvents(observation,harnessIdentity(observation,validated.installationId)))await forwarder.send(event);
     },births.turn,births);
-    ctx.logger.info(validated.probeDir===undefined?'桌宠Host观察器已就绪；通知投递尚未配置':'桌宠Host观察器已就绪；当前只记录本地探测事件');
+    ctx.logger.info(validated.probeDir===undefined?'桌宠 Host 观察器已就绪，通知使用本机投递':'桌宠Host观察器已就绪；当前只记录本地探测事件');
     return async()=>{await forwarder.dispose();};
   },'desktop-pet:host-observation');
 }
