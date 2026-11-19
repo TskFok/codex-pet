@@ -2,7 +2,7 @@ pub mod broker;
 pub mod platform;
 mod windows;
 
-use broker::{BrokerHandle, BrokerView};
+use broker::{BrokerHandle, BrokerStartup, BrokerView};
 use pet_core::{AppPaths, PetSnapshot};
 use serde::Serialize;
 use std::{
@@ -57,6 +57,7 @@ impl NotificationRuntime {
     }
 
     async fn wait_for_broker(&self, paths: AppPaths) -> Option<BrokerHandle> {
+        let mut startup = BrokerStartup::new(paths);
         let mut retry_delay = INITIAL_START_RETRY;
         let mut last_failure = None;
         loop {
@@ -64,14 +65,24 @@ impl NotificationRuntime {
                 biased;
                 _ = self.exit.notified() => return None,
                 result = async {
-                    let paths = paths.clone();
-                    tokio::task::spawn_blocking(move || BrokerHandle::start(paths)).await
+                    tokio::task::spawn_blocking(move || {
+                        let result = startup.attempt();
+                        (startup, result)
+                    }).await
                 } => result,
             };
-            let failure = match started {
-                Ok(Ok(broker)) => return Some(broker),
-                Ok(Err(error)) => format!("无法启动本机通知服务，{error}"),
-                Err(error) => format!("通知启动任务中断，{error}"),
+            let (pending, result) = match started {
+                Ok(result) => result,
+                Err(error) => {
+                    *self.connection.write().unwrap() = NotificationConnection::Unavailable;
+                    eprintln!("桌宠通知：通知启动任务中断，{error}");
+                    return None;
+                }
+            };
+            startup = pending;
+            let failure = match result {
+                Ok(broker) => return Some(broker),
+                Err(error) => format!("无法启动本机通知服务，{error}"),
             };
             *self.connection.write().unwrap() = NotificationConnection::Unavailable;
             if last_failure.as_ref() != Some(&failure) {
@@ -281,6 +292,62 @@ pub fn run() {
 mod notification_runtime_tests {
     use super::*;
     use pet_core::{JournalStore, StorageError};
+
+    #[tokio::test]
+    async fn discovery_retry_keeps_the_buffered_running_state_and_one_restart() {
+        use pet_bridge::outbox::Outbox;
+        use pet_core::{SessionStatus, decode_event, paths::wall_clock_ms};
+
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&temporary.path().canonicalize().unwrap().join("app"));
+        let outbox = Outbox::new(paths.clone()).unwrap();
+        let mut event = decode_event(br#"{"schemaVersion":2,"eventId":"queued-start","identity":{"source":"deepseek","installationId":"fixture-install","instanceId":"fixture-instance"},"sessionId":"fixture-session","turnId":"fixture-turn","occurredAtMs":100,"kind":{"type":"turn_started"}}"#).unwrap();
+        event.occurred_at_ms = wall_clock_ms();
+        outbox.enqueue(&event).unwrap();
+        fs::create_dir(&paths.discovery).unwrap();
+
+        let runtime = NotificationRuntime::default();
+        let starting = runtime.wait_for_broker(paths.clone());
+        tokio::pin!(starting);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::select! {
+                _ = &mut starting => panic!("发现路径不可写时应保持等待"),
+                _ = async {
+                    while !matches!(runtime.status(), NotificationService::Unavailable { .. }) {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                } => {}
+            }
+        })
+        .await
+        .expect("未观察到发现文件发布失败");
+
+        let journal = fs::read_to_string(&paths.journal).unwrap();
+        assert!(journal.contains("queued-start"), "发现文件失败前已落盘");
+        assert!(
+            outbox.pending(wall_clock_ms()).unwrap().is_empty(),
+            "已按原事务完成文件确认"
+        );
+        let kept_writer_lock = matches!(
+            JournalStore::open(paths.clone()),
+            Err(StorageError::WriterBusy)
+        );
+        fs::remove_dir(&paths.discovery).unwrap();
+
+        let broker = tokio::time::timeout(Duration::from_secs(6), starting)
+            .await
+            .expect("同一次启动应在发现路径恢复后重试")
+            .expect("启动重试应返回服务");
+        let snapshot = broker.snapshot();
+        assert_eq!(
+            snapshot.sessions[0].status,
+            SessionStatus::Running,
+            "首份快照应保留已补发的开始事实"
+        );
+        assert!(kept_writer_lock, "启动后段失败期间仍由原日志写入器持锁");
+        let journal = fs::read_to_string(&paths.journal).unwrap();
+        assert_eq!(journal.matches(r#""restarted":true"#).count(), 1);
+    }
 
     #[tokio::test]
     async fn exit_interrupts_startup_backoff_without_taking_the_writer_lock() {
