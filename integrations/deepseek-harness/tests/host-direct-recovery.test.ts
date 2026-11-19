@@ -1,7 +1,7 @@
 import type { Context as HostContext } from '@deepseek-ai/cordis';
 import type { AskUserQuestionAnswer, AskUserQuestionRequestEvent } from '@deepseek-ai/dsh-user-questions/types';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -34,6 +34,8 @@ it.skipIf(host === undefined)('已构建的原问题服务跨插件重载恢复 
       JSON.parse(await readFile(join(path, file), 'utf8'))));
   }
   try {
+    await mkdir(join(directory, 'first'), { mode: 0o700 });
+    await mkdir(join(directory, 'resumed'), { mode: 0o700 });
     await context.plugin(Sessions);
     await context.plugin(Projections);
     await context.plugin(Agents);
@@ -53,15 +55,18 @@ it.skipIf(host === undefined)('已构建的原问题服务跨插件重载恢复 
     const directWork = service.ask({ agent, questions: [{ id: 'direct', question: '私密原问题' }] });
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } });
     const idleWork = service.ask({ agent, questions: [{ id: 'idle', question: '私密空闲问题' }] });
+    await expect.poll(async () => (await probe('first')).length, { timeout: 5_000 }).toBe(4);
     await first.dispose();
 
     const originalError = new questions.UserQuestionError('cancelled', 'ASK_CANCELLED');
     cancelled.reject(originalError);
     await expect(idleWork).rejects.toBe(originalError);
     const resumed = await context.plugin(plugin, { ...properties, probeDir: join(directory, 'resumed') });
+    await expect.poll(async () => (await probe('resumed')).length, { timeout: 5_000 }).toBe(2);
     const originalAnswer = { answers: [{ id: 'direct', selected: ['私密原回答'] }] };
     waiting.resolve(originalAnswer);
     await expect(directWork).resolves.toBe(originalAnswer);
+    await expect.poll(async () => (await probe('resumed')).length, { timeout: 5_000 }).toBe(3);
     await resumed.dispose();
 
     const firstEvents = await probe('first');

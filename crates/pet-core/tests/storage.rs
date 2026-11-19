@@ -425,3 +425,49 @@ fn rejects_symlinks_without_touching_the_target() {
     assert!(JournalStore::open(paths).is_err());
     assert_eq!(fs::read(destination).unwrap(), b"outside");
 }
+
+#[test]
+fn audit_settlement_keeps_persisted_tombstone_without_creating_a_session() {
+    let (_directory, paths) = sandbox();
+    let from_harness = |mut event: EventEnvelope| {
+        event.identity.source = pet_core::Source::Deepseek;
+        event
+    };
+    let settlement = from_harness(event(
+        "audit-settlement",
+        None,
+        None,
+        json!({
+            "type":"attention_resolved", "requestId":"original-question"
+        }),
+    ));
+    {
+        let mut store = open(&paths, NOW);
+        assert!(!store.ingest(settlement.clone()).unwrap().duplicate);
+        assert!(store.snapshot().sessions.is_empty());
+        store.compact(NOW).unwrap();
+    }
+    let mut store = open(&paths, NOW);
+    assert!(store.recover(NOW).unwrap().sessions.is_empty());
+    let late_request = from_harness(event(
+        "late-request",
+        None,
+        None,
+        json!({
+            "type":"attention_requested", "requestId":"original-question",
+            "reason":"answer", "lifetime":"until_resolved"
+        }),
+    ));
+    assert!(!store.ingest(late_request).unwrap().duplicate);
+    assert!(store.snapshot().sessions.is_empty());
+    assert!(store.snapshot().notifications.is_empty());
+    store
+        .ingest(from_harness(happened(
+            "real-turn",
+            "1",
+            Some(1),
+            json!({"type":"turn_started"}),
+        )))
+        .unwrap();
+    assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Running);
+}

@@ -17,10 +17,11 @@ export function apply(ctx:Context,config:PluginConfig):void{
     const births=await installQuestionBirths(ctx);
     if(ctx.fiber.uid===null)return ()=>{};
     const forwarder=new HarnessForwarder(validated.bridgePath,validated.probeDir);
-    await observeHost(ctx,async observation=>{
+    const observer=observeHost(ctx,async observation=>{
       for(const event of toPetEvents(observation,harnessIdentity(observation,validated.installationId)))await forwarder.send(event);
     },births.turn,births);
+    await observer.ready;
     ctx.logger.info(validated.probeDir===undefined?'桌宠 Host 观察器已就绪，通知使用本机投递':'桌宠Host观察器已就绪；当前只记录本地探测事件');
-    return async()=>{await forwarder.dispose();};
+    return async()=>{await observer.dispose();await forwarder.dispose();};
   },'desktop-pet:host-observation');
 }

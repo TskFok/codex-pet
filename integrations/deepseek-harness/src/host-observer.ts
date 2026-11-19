@@ -11,7 +11,7 @@ import { hasDirectQuestions, observeDirectQuestions } from './host-direct.js';
 export type ObservationSink = (observation: HarnessObservation) => void | Promise<void>;
 
 /** 透明观察正式Host事件；只使用日志真实seq，不为waterfall编造序号。 */
-export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (session: Session) => number|undefined, births?: QuestionBirths): void | Promise<void> {
+export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (session: Session) => number|undefined, births?: QuestionBirths) {
   const turns = new WeakMap<Session, number>();
   const publish = (observation: HarnessObservation): void => {
     try { void Promise.resolve(sink(observation)).catch((_error: unknown) => { ctx.logger.warn('桌宠转发失败，请检查bridge路径；宿主处理继续'); }); }
@@ -71,5 +71,5 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
       throw error;
     } finally { request.signal?.removeEventListener('abort', abort); }
   }, { prepend: true, global: true });
-  return observeDirectQuestions(ctx, publish);
+  return observeDirectQuestions(ctx, sink);
 }

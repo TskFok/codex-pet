@@ -178,6 +178,24 @@ impl SessionStore {
                 .insert((key.clone(), event.turn_id.clone(), request_id.clone()));
         }
         let existing = self.sessions.remove(&key);
+        if existing.is_none()
+            && event.identity.source == Source::Deepseek
+            && event.sequence.is_none()
+        {
+            match &event.kind {
+                EventKind::AttentionResolved { .. } => return false,
+                EventKind::AttentionRequested { request_id, .. }
+                    if self.resolved.contains(&(
+                        key.clone(),
+                        event.turn_id.clone(),
+                        request_id.clone(),
+                    )) =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+        }
         let awaiting_causal_order = existing.as_ref().is_some_and(|entry| {
             entry.projection.status == SessionStatus::Unknown
                 || (!entry.running_known && entry.terminal_status.is_none() && entry.has_turn_fact)
