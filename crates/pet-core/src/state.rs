@@ -1,5 +1,6 @@
 //! 可重放的状态归约器。时间戳仅用于展示和历史保留，不作为回合因果依据。
 use crate::protocol::*;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
 const MAX_HISTORY: usize = 1_000;
@@ -13,6 +14,7 @@ pub struct ApplyResult {
     pub should_notify: bool,
 }
 
+#[derive(Serialize, Deserialize)]
 struct SessionEntry {
     projection: SessionProjection,
     instance_id: String,
@@ -93,21 +95,46 @@ pub struct SessionStore {
     revision: u64,
     sessions: BTreeMap<SessionKey, SessionEntry>,
     notifications: Vec<NotificationRecord>,
-    // 去重独立于可见历史；持久化及 24 小时以上的裁剪由存储层负责。
+    // 直接使用归约器时在内存去重，日志使用本地接收时间索引。
     seen_events: HashSet<String>,
     resolved: HashSet<(SessionKey, Option<String>, String)>,
     // 明确回合的结束事实独立于当前投影和可见历史，裁剪历史不能使它复活。
-    // Task5 持久化必须保留此集合（或完整重放可恢复它的原始事件），不能只存公开快照。
+    confirmed_turn_ends: HashSet<(SessionKey, String)>,
+    now_ms: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "SessionStore")]
+pub(crate) struct SessionCheckpoint {
+    revision: u64,
+    #[serde(with = "session_entries")]
+    sessions: BTreeMap<SessionKey, SessionEntry>,
+    notifications: Vec<NotificationRecord>,
+    #[serde(skip)]
+    seen_events: HashSet<String>,
+    resolved: HashSet<(SessionKey, Option<String>, String)>,
     confirmed_turn_ends: HashSet<(SessionKey, String)>,
     now_ms: u64,
 }
 
 impl SessionStore {
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub(crate) fn time(&self) -> u64 {
+        self.now_ms
+    }
+
     /// 调用者必须先在跨进程入口通过 `decode_event` 验证。
     pub fn apply(&mut self, event: &EventEnvelope) -> ApplyResult {
         if !self.seen_events.insert(event.event_id.clone()) {
             return ApplyResult::default();
         }
+        self.apply_event(event)
+    }
+
+    pub(crate) fn apply_event(&mut self, event: &EventEnvelope) -> ApplyResult {
         let before = self.snapshot();
         self.now_ms = self
             .now_ms
@@ -700,27 +727,57 @@ impl SessionStore {
         for event in events {
             store.apply(event);
         }
-        let before = store.snapshot();
-        for entry in store.sessions.values_mut() {
-            if entry.projection.status == SessionStatus::Running
-                || (!entry.terminal
-                    && entry.running_known
-                    && entry
-                        .projection
-                        .pending
-                        .iter()
-                        .any(|pending| pending.lifetime == RequestLifetime::UntilResolved))
+        store.advance_time(now_ms, true);
+        store
+    }
+
+    pub(crate) fn advance_time(&mut self, now_ms: u64, restarted: bool) {
+        let before = self.snapshot();
+        if restarted {
+            for entry in self
+                .sessions
+                .values_mut()
+                .filter(|entry| entry.running_known)
             {
-                mark_activity_unknown(entry);
+                entry.running_known = false;
+                restore_entry_status(entry);
             }
         }
-        store.now_ms = store.now_ms.max(now_ms);
-        store.prune_history();
-        store.refresh_unread();
-        if before != store.snapshot() {
-            store.revision += 1;
+        self.now_ms = self.now_ms.max(now_ms);
+        self.prune_history();
+        self.refresh_unread();
+        if before != self.snapshot() {
+            self.revision += 1;
         }
-        store
+    }
+}
+
+// JSON 对象的字段名无法表示 SessionKey，按有序会话数组写入完整内部记录。
+mod session_entries {
+    use super::*;
+    use serde::{Deserializer, Serializer, de::Error};
+
+    pub(super) fn serialize<S: Serializer>(
+        entries: &BTreeMap<SessionKey, SessionEntry>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(entries.values())
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<BTreeMap<SessionKey, SessionEntry>, D::Error> {
+        let entries = Vec::<SessionEntry>::deserialize(deserializer)?;
+        let mut sessions = BTreeMap::new();
+        for entry in entries {
+            if sessions
+                .insert(entry.projection.key.clone(), entry)
+                .is_some()
+            {
+                return Err(D::Error::custom("检查点包含重复会话"));
+            }
+        }
+        Ok(sessions)
     }
 }
 
