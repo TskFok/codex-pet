@@ -129,11 +129,13 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** `apply(ctx: Context, config: PluginConfig): void`；`toPetEvents(observation: HarnessObservation, identity: SourceIdentity): EventEnvelope[]`；`PluginConfig { bridgePath: string; installationId: string; probeDir?: string }`。HarnessObservation 为本任务定义的宿主事件联合类型，包含会话ID、父会话ID、原始请求turn、真实seq、请求生命周期及挑选后的状态字段。`openHarnessSession(sessionId: string): Promise<{ status: 'requested' | 'unavailable'; reason?: string }>` 不把仅唤起应用作为精确打开。
 
-- [ ] **1. 写失败测试。** `approval_decided_clears_only_matching_request`、`question_listener_always_delegates`、`cancelled_question_resolves_attention`、`parent_child_ids_remain_distinct`及timed超时后跨回合保留/late reply精确解除、无seq请求先于turn/start到达，对 `next` 调用一次、保留返回值与异常分别断言；转发器失败时原宿主流程仍继续。
-- [ ] **2. 运行并确认失败。** `pnpm --filter @codex-pet/deepseek-integration test -- events open-session`。
-- [ ] **3. 实现并锁定跳转路径。** 订阅公开事件，不修改agent-loop；提问观察不领取请求。安装身份显式持久化；日志流实例/真实seq仅声明已证明的正常持久前缀，崩溃回退交Task6源代次处理。允许本任务最小扩展pet-core请求生命周期/协议2与harness桥接probe，精确匹配跨回合持续请求，所有消费者/旧版默认兼容同步。先验证 Host/Client 公开扩展点能否定向调用 `uiWorkspace.openSession`，注意远程事件有显式白名单。若不足，维护最小 `dsh://session/<encoded-id>` 补丁：宿主新增 `apps/desktop/src/session-deep-link.ts` 和对应测试，修改 `main.ts`、`ipc.ts`、`preload-app.ts`，Client 插件接受目标会话；覆盖冷启动排队、热启动和 Windows second-instance。补丁保存在本仓库，在 Harness 现有分支验证；修改前读取其 AGENTS.md，使用受支持的 dsh profile 启动方式。
+- [x] **1. 写失败测试。** `approval_decided_clears_only_matching_request`、`question_listener_always_delegates`、`cancelled_question_resolves_attention`、`parent_child_ids_remain_distinct`及timed超时后跨回合保留/late reply精确解除、无seq请求先于turn/start到达，对 `next` 调用一次、保留返回值与异常分别断言；转发器失败时原宿主流程仍继续。
+- [x] **2. 运行并确认失败。** `pnpm --filter @codex-pet/deepseek-integration test -- events open-session`。
+- [x] **3. 实现并锁定跳转路径。** 订阅公开事件，不修改agent-loop；提问观察不领取请求。安装身份显式持久化；日志流实例/真实seq仅声明已证明的正常持久前缀，崩溃回退交Task6源代次处理。允许本任务最小扩展pet-core请求生命周期/协议2与harness桥接probe，精确匹配跨回合持续请求，所有消费者/旧版默认兼容同步。先验证 Host/Client 公开扩展点能否定向调用 `uiWorkspace.openSession`，注意远程事件有显式白名单。若不足，维护最小 `dsh://session/<encoded-id>` 补丁：宿主新增 `apps/desktop/src/session-deep-link.ts` 和对应测试，修改 `main.ts`、`ipc.ts`、`preload-app.ts`，Client 插件接受目标会话；覆盖冷启动排队、热启动和 Windows second-instance。补丁保存在本仓库，在 Harness 现有分支验证；修改前读取其 AGENTS.md，使用受支持的 dsh profile 启动方式。
 - [ ] **4. 验证。** 上述单测通过；两平台真实 Harness 至少 3 个会话，原应用回答、审批撤回后请求解除；点击目标链接在隐藏、已启动、冷启动状态准确打开会话。插件路径或所需补丁、兼容版本及安装方法必须写入报告，不能只留下候选路径。运行宿主补丁相关定向测试与其要求的检查，不默认跑全仓测试。
 - [ ] **5. 提交并过检查点 A。** `git commit -m "添加 Harness 通知插件与会话跳转接入"`。将分级来源结论、已有实测和Windows缺项写入报告；未验项保持阻断最终发行，可继续任务5的独立实现。
+
+代码和安装交付已通过独立审阅，主仓修复提交 `f9d9af3`，宿主 `2809f54899`。受支持临时 profile 已验证 Host 激活与 Client 工厂交付，真实导航及双平台验收见 [Harness 验证记录](../../validation/desktop-pet/harness.md)，检查点 A 仍待补。
 
 ### Task 5:日志、去重与有界待发送区
 
@@ -141,11 +143,13 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** `JournalStore::open(paths: AppPaths) -> Result<Self, StorageError>`、`ingest(&mut self, event: EventEnvelope) -> Result<IngestAck, StorageError>`、`recover(&mut self, now_ms: u64) -> Result<PetSnapshot, StorageError>`、`compact(&mut self, now_ms: u64) -> Result<(), StorageError>`、`mark_read(&mut self, key: &SessionKey) -> Result<PetSnapshot, StorageError>`、`clear_history(&mut self) -> Result<PetSnapshot, StorageError>`；`IngestAck { event_id: String, duplicate: bool, revision: u64 }`。`Outbox::enqueue(&self, event: &EventEnvelope) -> Result<(), DeliveryError>`、`pending(&self, now_ms: u64) -> Result<Vec<QueuedEvent>, DeliveryError>`、`acknowledge(&self, event_id: &str) -> Result<(), DeliveryError>`；QueuedEvent 包含 envelope、queued_at_ms 与文件路径，保留期依据本地入队时间。
 
-- [ ] **1. 写失败测试。** `acknowledged_event_survives_restart`、`partial_tail_preserves_prior_records`、`compaction_keeps_dedup_for_24_hours`；写入 1,001 条历史后重试早期事件仍 `duplicate == true`。`read_and_clear_survive_restart` 断言已读/清空标记持久化，尚未解决的 pending 保留，revision 不倒退。outbox 用注入时钟测试 2,001 条、10 MiB、24 小时淘汰顺序、并发写入和溢出数量；损坏文件隔离并保留诊断。
-- [ ] **2. 运行并确认失败。** `cargo test -p pet-core --test storage`、`cargo test -p pet-bridge --test outbox`。
-- [ ] **3. 实现。** 单写入者管理 journal，持久化成功后返回 ACK；原子写临时文件并替换，跨进程锁保护 outbox 配额/清理，拒绝符号链接和目录逃逸。日志记录区分事件、已读和清空操作，快照保留完整状态、revision、活动请求与必要的因果标记；裁剪可见历史不能丢掉这些信息。清空只清可见历史，不移除活动请求、宠物或去重索引。压缩和恢复保留独立去重信息；明确磁盘写入失败时不确认收件，已提交记录与视图按 revision 一致恢复。
-- [ ] **4. 验证。** 重跑以上测试；用临时目录模拟截断、响应前崩溃与权限拒绝，重启后检查历史、去重和 pending，所有操作不得触碰真实用户数据目录。
-- [ ] **5. 提交。** `git commit -m "添加可靠事件存储与离线待发送区"`。
+- [x] **1. 写失败测试。** `acknowledged_event_survives_restart`、`partial_tail_preserves_prior_records`、`compaction_keeps_dedup_for_24_hours`；写入 1,001 条历史后重试早期事件仍 `duplicate == true`。`read_and_clear_survive_restart` 断言已读/清空标记持久化，尚未解决的 pending 保留，revision 不倒退。outbox 用注入时钟测试 2,001 条、10 MiB、24 小时淘汰顺序、并发写入和溢出数量；损坏文件隔离并保留诊断。
+- [x] **2. 运行并确认失败。** `cargo test -p pet-core --test storage`、`cargo test -p pet-bridge --test outbox`。
+- [x] **3. 实现。** 单写入者管理 journal，持久化成功后返回 ACK；原子写临时文件并替换，跨进程锁保护 outbox 配额/清理，拒绝符号链接和目录逃逸。日志记录区分事件、已读和清空操作，快照保留完整状态、revision、活动请求与必要的因果标记；裁剪可见历史不能丢掉这些信息。清空只清可见历史，不移除活动请求、宠物或去重索引。压缩和恢复保留独立去重信息；明确磁盘写入失败时不确认收件，已提交记录与视图按 revision 一致恢复。
+- [x] **4. 验证。** 重跑以上测试；用临时目录模拟截断、响应前崩溃与权限拒绝，重启后检查历史、去重和 pending，所有操作不得触碰真实用户数据目录。
+- [x] **5. 提交。** `git commit -m "添加可靠事件存储与离线待发送区"`。
+
+主仓本地实现与审阅修复至 `ea17b8d`。macOS 故障测试及 Windows x64 交叉检查通过，Windows 原生耐久和实际断电留待平台验收。
 
 ### Task 6:本地入口、可靠转发与恢复归并
 
@@ -158,6 +162,8 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 - [ ] **3. 实现。** 随机 loopback 端口和用户目录私有发现文件，验证 token 与来源；bridge 先 enqueue，再最多尝试 200 ms 网络投递，收到持久化 ACK 后删除。应用启动/休眠恢复扫描、notify 文件监测共同触发补发；启动先归并整批状态再通知，去重贯穿 HTTP 与文件扫描。probe-dir 仅作为显式诊断模式保留。
 - [ ] **4. 验证。** 重跑测试；实际关闭桌宠、产生提醒、重启，验证历史和当前状态正确，原任务不中断。Windows 转发器无控制台闪烁；磁盘完全不可写时输出诊断并正常退出宿主 Hook，不声称已留存。
 - [ ] **5. 提交。** `git commit -m "接通桌宠本地通知入口与断线恢复"`。
+
+先交付本机投递和离线恢复，再实现 Harness 来源自身的权威恢复。现有公开接口能观察连续会话，以及用原始调用 ID 恢复正常持久化的定时请求。普通直接提问的观察器重载和未同步会话尾部的崩溃回退，需要宿主补充请求身份、作用域、完整恢复边界及日志代次。恢复前须识别源代次与每个会话的水位，确切区分仍待处理和已解除的请求，避免旧代回合结束或请求解除记录影响新代。用只读旁观者接口接入，保持原任务与原应用提问流程。两部分分别审阅，真实来源恢复进入最终发行验收。
 
 ### Task 7:旧宠物导入和独立动画包格式
 

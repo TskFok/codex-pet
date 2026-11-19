@@ -66,3 +66,9 @@
 - Host/Client会话入口基础与waterfall已TDD推进，宿主29项定向和完整build通过；doc-sync有一个CLI help SIGKILL未报全绿。主入口待身份裁定的加载smoke明确RED。
 - 准许installationId显式持久配置与有证据的正常日志流实例，崩溃尾回退留Task6；新增最小harness规范事件probe入口，正常网络留Task6。
 - Harness timed问题会跨回合继续等待，批准RequestLifetime Turn/UntilResolved及生产协议2（兼容旧v1普通语义），精确解除/默认行为/快照和消费者同步；完整Harness目标未缩减。原代理继续原工作区，不重做已过宿主build。
+
+## 2026-11-19：Harness 接入复审和文件存储
+
+- Harness 通知、离线安装包和桌面会话入口已有本地提交。状态机三项修复复审通过，真实原生跳转与 Windows 验收继续待补。
+- 日志、独立去重和待发送区实现提交 `d852478`，隔离及配额修复提交 `ea17b8d`。独立审阅通过。Rust 工作区 118 项在修复前通过，修复后针对性队列 13 项、Clippy 和 Windows x64 交叉检查通过。
+- 进入本机通知投递与离线归并。Harness 仍需补观察器重载时的直接请求事实，以及未同步日志回退后的来源代次恢复。
