@@ -132,7 +132,7 @@ index 0000000000..d882279fcf
 +  }
 +}
 diff --git a/packages/interaction/user-questions/src/index.ts b/packages/interaction/user-questions/src/index.ts
-index 2804b9ca30..5b5e9f8877 100644
+index 2804b9ca30..77811a046b 100644
 --- a/packages/interaction/user-questions/src/index.ts
 +++ b/packages/interaction/user-questions/src/index.ts
 @@ -20,0 +21 @@ import { TimedQuestionWait } from './timed-wait.ts'
@@ -143,17 +143,19 @@ index 2804b9ca30..5b5e9f8877 100644
 @@ -35 +36 @@ export type {
 -  UserQuestionState,
 +  UserQuestionState, DirectQuestion, DirectQuestionChange, DirectQuestionId, DirectQuestionObservation, DirectQuestionOutcome,
-@@ -80,0 +82,3 @@ export class UserQuestionService extends TypertRemoteService {
+@@ -80,0 +82,5 @@ export class UserQuestionService extends TypertRemoteService {
 +
 +  /** Host-only direct-question observation API version. */
-+  readonly directQuestionObservationVersion = 1 as const
-@@ -81,0 +86,3 @@ export class UserQuestionService extends TypertRemoteService {
++  get directQuestionObservationVersion(): 1 {
++    return 1
++  }
+@@ -81,0 +88,3 @@ export class UserQuestionService extends TypertRemoteService {
 +  private readonly directQuestions = new DirectQuestionObserver(() => {
 +    this.ctx.logger.warn('Direct question observation failed; resubscribe to recover available question state')
 +  })
-@@ -91,0 +99 @@ export class UserQuestionService extends TypertRemoteService {
+@@ -91,0 +101 @@ export class UserQuestionService extends TypertRemoteService {
 +      this.directQuestions.dispose()
-@@ -155,0 +164,26 @@ export class UserQuestionService extends TypertRemoteService {
+@@ -155,0 +166,26 @@ export class UserQuestionService extends TypertRemoteService {
 +  /**
 +   * Observe agent-scoped asks without a tool wait. Mount at the Host only.
 +   * @param listener Receives changes strictly after the returned snapshot cursor, in source order.
@@ -180,15 +182,15 @@ index 2804b9ca30..5b5e9f8877 100644
 +    }
 +  }
 +
-@@ -343,0 +378 @@ export class UserQuestionService extends TypertRemoteService {
+@@ -343,0 +380 @@ export class UserQuestionService extends TypertRemoteService {
 +    const direct = agent === undefined || request.wait !== undefined ? undefined : this.startDirectQuestion(agent, request)
-@@ -345 +380 @@ export class UserQuestionService extends TypertRemoteService {
+@@ -345 +382 @@ export class UserQuestionService extends TypertRemoteService {
 -      return await (agent === undefined
 +      const answer = await (agent === undefined
-@@ -352,0 +388,2 @@ export class UserQuestionService extends TypertRemoteService {
+@@ -352,0 +390,2 @@ export class UserQuestionService extends TypertRemoteService {
 +      if (direct !== undefined) this.directQuestions.settle(direct, 'answered')
 +      return answer
-@@ -355,3 +392,7 @@ export class UserQuestionService extends TypertRemoteService {
+@@ -355,3 +394,7 @@ export class UserQuestionService extends TypertRemoteService {
 -      if (restored instanceof UserQuestionError) throw restored
 -      if (request.signal?.aborted) {
 -        throw abortedQuestion(error)
@@ -199,7 +201,7 @@ index 2804b9ca30..5b5e9f8877 100644
 +        const cancelled = failure instanceof UserQuestionError
 +          && (failure.code === 'ASK_ABORTED' || failure.code === 'ASK_CANCELLED')
 +        this.directQuestions.settle(direct, cancelled ? 'cancelled' : 'failed')
-@@ -359 +400 @@ export class UserQuestionService extends TypertRemoteService {
+@@ -359 +402 @@ export class UserQuestionService extends TypertRemoteService {
 -      throw restored
 +      throw failure
 diff --git a/packages/interaction/user-questions/src/types.ts b/packages/interaction/user-questions/src/types.ts
