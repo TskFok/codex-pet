@@ -1,0 +1,335 @@
+diff --git a/packages/interaction/user-questions/README.i18n.yaml b/packages/interaction/user-questions/README.i18n.yaml
+index a2cd820789..0f4eb1d67d 100644
+--- a/packages/interaction/user-questions/README.i18n.yaml
++++ b/packages/interaction/user-questions/README.i18n.yaml
+@@ -18,2 +18,2 @@
+-  en: a9a852f48c387045
+-  zh: f418e1120c66dc07
++  en: 7f97a16fb75f5c3f
++  zh: 62308b60d02a9426
+diff --git a/packages/interaction/user-questions/README.md b/packages/interaction/user-questions/README.md
+index e2f02cf977..01c4d15dae 100644
+--- a/packages/interaction/user-questions/README.md
++++ b/packages/interaction/user-questions/README.md
+@@ -34,0 +35,2 @@ When a request carries an agent, `ask()` authenticates its exact identity throug
++Host plugins can use `observeDirectQuestions()` to read agent-scoped requests without a tool wait. The service retains each request’s identity and birth turn, including idle requests, across observer reloads. The snapshot covers all active requests and the settlements after its declared audit floor in this service lifetime. The observer receives later changes in cursor order. Request and answer content stays in the answerer path.
++
+diff --git a/packages/interaction/user-questions/README.zh.md b/packages/interaction/user-questions/README.zh.md
+index c0172d43e5..9fe9383baa 100644
+--- a/packages/interaction/user-questions/README.zh.md
++++ b/packages/interaction/user-questions/README.zh.md
+@@ -36,0 +37,2 @@ kind: "package-reference"
++宿主插件可以用 `observeDirectQuestions()` 查看不带工具等待参数的 Agent 请求。服务在观察器重载后保留原请求身份和出生回合，也支持空闲时发起的请求。快照覆盖本次服务生命周期内的全部活动请求和审计下界之后的结束事实。后续变化按游标顺序交给观察器。问题和答案正文由原回答链处理。
++
+diff --git a/packages/interaction/user-questions/package.json b/packages/interaction/user-questions/package.json
+index 0dbaa98470..77e7fa84e5 100644
+--- a/packages/interaction/user-questions/package.json
++++ b/packages/interaction/user-questions/package.json
+@@ -68,0 +69 @@
++    "@deepseek-ai/dsh-brand": "workspace:*",
+diff --git a/packages/interaction/user-questions/src/direct-observation.ts b/packages/interaction/user-questions/src/direct-observation.ts
+new file mode 100644
+index 0000000000..d882279fcf
+--- /dev/null
++++ b/packages/interaction/user-questions/src/direct-observation.ts
+@@ -0,0 +1,98 @@
++/** Host-only, service-lifetime observation of asks without a tool wait. */
++import { randomUUID } from 'node:crypto'
++import { brandString } from '@deepseek-ai/dsh-brand'
++import type { DirectQuestion, DirectQuestionChange, DirectQuestionId, DirectQuestionObservation, DirectQuestionOutcome } from './types.ts'
++
++type Listener = (change: DirectQuestionChange) => void | Promise<void>
++type Settled = Extract<DirectQuestionChange, { kind: 'settled' }>
++
++const SETTLEMENT_LIMIT = 1_024
++
++/** Records the original ask's lifecycle independently of answerer and observer lifetimes. */
++export class DirectQuestionObserver {
++  private readonly ownerId = randomUUID()
++  private readonly active = new Map<DirectQuestionId, DirectQuestion>()
++  private readonly settled = new Map<number, Settled>()
++  private readonly listeners = new Map<Listener, number>()
++  private readonly changes: DirectQuestionChange[] = []
++  private cursor = 0
++  private settledAfter = 0
++  private closed = false
++
++  constructor(private readonly reportFailure: () => void) {}
++
++  /**
++   * Capture state and subscribe at the same cursor.
++   * @param listener Receives future changes in cursor order.
++   * @returns A snapshot and an idempotent unsubscribe operation.
++   */
++  observe(listener: Listener): DirectQuestionObservation {
++    const subscription: Listener = change => listener(change)
++    const snapshot = {
++      version: 1 as const,
++      ownerId: this.ownerId,
++      cursor: this.cursor,
++      settledAfter: this.settledAfter,
++      active: [...this.active.values()],
++      settled: [...this.settled.values()],
++    }
++    if (!this.closed) this.listeners.set(subscription, snapshot.cursor)
++    return { snapshot, dispose: () => { this.listeners.delete(subscription) } }
++  }
++
++  /**
++   * Register an ask immediately before answerer dispatch.
++   * @param owner Session identity and birth information.
++   * @returns The new immutable identity, or undefined if the observation owner was disposed.
++   */
++  start(owner: Omit<DirectQuestion, 'id' | 'startedAt'>): DirectQuestion | undefined {
++    if (this.closed) return undefined
++    const request = Object.freeze({ ...owner, id: brandString<DirectQuestionId>(randomUUID()), startedAt: Date.now() })
++    this.active.set(request.id, request)
++    this.publish(Object.freeze({ kind: 'started', request, cursor: ++this.cursor }))
++    return request
++  }
++
++  /**
++   * Record the final result of the original ask.
++   * @param request The identity captured at entry.
++   * @param outcome The original ask's terminal result.
++   */
++  settle(request: DirectQuestion, outcome: DirectQuestionOutcome): void {
++    if (!this.active.delete(request.id)) return
++    const change = Object.freeze({ kind: 'settled' as const, request, outcome, cursor: ++this.cursor, settledAt: Date.now() })
++    this.settled.set(change.cursor, change)
++    if (this.settled.size > SETTLEMENT_LIMIT) {
++      const oldest = this.settled.keys().next().value
++      if (oldest !== undefined) {
++        this.settled.delete(oldest)
++        this.settledAfter = oldest
++      }
++    }
++    this.publish(change)
++  }
++
++  /** Discard this service's in-memory observation scope. */
++  dispose(): void {
++    this.closed = true
++    this.listeners.clear()
++    this.active.clear()
++    this.settled.clear()
++  }
++
++  private publish(change: DirectQuestionChange): void {
++    this.changes.push(change)
++    if (this.changes.length > 1) return
++    for (const next of this.changes) {
++      for (const [listener, cut] of this.listeners) {
++        if (next.cursor <= cut) continue
++        try {
++          void Promise.resolve(listener(next)).catch((_error: unknown) => { this.reportFailure() })
++        } catch (_error: unknown) {
++          this.reportFailure()
++        }
++      }
++    }
++    this.changes.length = 0
++  }
++}
+diff --git a/packages/interaction/user-questions/src/index.ts b/packages/interaction/user-questions/src/index.ts
+index 2804b9ca30..5b5e9f8877 100644
+--- a/packages/interaction/user-questions/src/index.ts
++++ b/packages/interaction/user-questions/src/index.ts
+@@ -20,0 +21 @@ import { TimedQuestionWait } from './timed-wait.ts'
++import { DirectQuestionObserver } from './direct-observation.ts'
+@@ -29 +30 @@ import type {
+-  AskUserQuestionAnswer, AskUserQuestionRequestEvent, PendingUserQuestion,
++  AskUserQuestionAnswer, AskUserQuestionRequestEvent, DirectQuestion, DirectQuestionChange, DirectQuestionObservation, PendingUserQuestion,
+@@ -35 +36 @@ export type {
+-  UserQuestionState,
++  UserQuestionState, DirectQuestion, DirectQuestionChange, DirectQuestionId, DirectQuestionObservation, DirectQuestionOutcome,
+@@ -80,0 +82,3 @@ export class UserQuestionService extends TypertRemoteService {
++
++  /** Host-only direct-question observation API version. */
++  readonly directQuestionObservationVersion = 1 as const
+@@ -81,0 +86,3 @@ export class UserQuestionService extends TypertRemoteService {
++  private readonly directQuestions = new DirectQuestionObserver(() => {
++    this.ctx.logger.warn('Direct question observation failed; resubscribe to recover available question state')
++  })
+@@ -91,0 +99 @@ export class UserQuestionService extends TypertRemoteService {
++      this.directQuestions.dispose()
+@@ -155,0 +164,26 @@ export class UserQuestionService extends TypertRemoteService {
++  /**
++   * Observe agent-scoped asks without a tool wait. Mount at the Host only.
++   * @param listener Receives changes strictly after the returned snapshot cursor, in source order.
++   * @returns Active and recent settled requests plus an idempotent disposer. Active requests and the latest
++   * 1,024 settlements are retained for this service lifetime. Listener failures are logged independently.
++   */
++  observeDirectQuestions(listener: (change: DirectQuestionChange) => void | Promise<void>): DirectQuestionObservation {
++    return this.directQuestions.observe(listener)
++  }
++
++  private startDirectQuestion(agent: Agent, request: AskUserQuestionRequest): DirectQuestion | undefined {
++    try {
++      const turn = this.ctx.get('agents')?.turnBoundaryOf(agent.session)
++      if (turn === undefined) return undefined
++      return this.directQuestions.start({
++        sessionId: agent.id,
++        sessionCreatedAt: agent.session.header.createdAt,
++        birthTurn: turn.openTurnStartSeq === null ? null : turn.lastTurn,
++        reason: request.questions.some(question => question.intent?.kind === 'approval') ? 'approval' : 'answer',
++      })
++    } catch (_error: unknown) {
++      this.ctx.logger.warn('Direct question observation unavailable; the original ask will continue')
++      return undefined
++    }
++  }
++
+@@ -343,0 +378 @@ export class UserQuestionService extends TypertRemoteService {
++    const direct = agent === undefined || request.wait !== undefined ? undefined : this.startDirectQuestion(agent, request)
+@@ -345 +380 @@ export class UserQuestionService extends TypertRemoteService {
+-      return await (agent === undefined
++      const answer = await (agent === undefined
+@@ -352,0 +388,2 @@ export class UserQuestionService extends TypertRemoteService {
++      if (direct !== undefined) this.directQuestions.settle(direct, 'answered')
++      return answer
+@@ -355,3 +392,7 @@ export class UserQuestionService extends TypertRemoteService {
+-      if (restored instanceof UserQuestionError) throw restored
+-      if (request.signal?.aborted) {
+-        throw abortedQuestion(error)
++      const failure = restored instanceof UserQuestionError || !request.signal?.aborted
++        ? restored
++        : abortedQuestion(error)
++      if (direct !== undefined) {
++        const cancelled = failure instanceof UserQuestionError
++          && (failure.code === 'ASK_ABORTED' || failure.code === 'ASK_CANCELLED')
++        this.directQuestions.settle(direct, cancelled ? 'cancelled' : 'failed')
+@@ -359 +400 @@ export class UserQuestionService extends TypertRemoteService {
+-      throw restored
++      throw failure
+diff --git a/packages/interaction/user-questions/src/types.ts b/packages/interaction/user-questions/src/types.ts
+index 25340a3009..d3fd945e7c 100644
+--- a/packages/interaction/user-questions/src/types.ts
++++ b/packages/interaction/user-questions/src/types.ts
+@@ -2,0 +3,2 @@
++import type { Branded } from '@deepseek-ai/dsh-brand'
++import type { SessionId } from '@deepseek-ai/dsh-session/types'
+@@ -6 +7,0 @@ import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
+-import type {} from '@deepseek-ai/dsh-session/types'
+@@ -144,0 +146,39 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
++/** Identity created by the original Host service for a direct question. */
++export type DirectQuestionId = Branded<'DirectQuestionId'>
++
++/** Session attribution retained for the life of a direct question. */
++export interface DirectQuestion {
++  readonly id: DirectQuestionId
++  readonly sessionId: SessionId
++  readonly sessionCreatedAt: number
++  readonly birthTurn: number | null
++  readonly reason: 'answer' | 'approval'
++  readonly startedAt: number
++}
++
++/** Final result of the original direct ask operation. */
++export type DirectQuestionOutcome = 'answered' | 'cancelled' | 'failed'
++
++/** Immutable direct-question change at the owning service's cursor. */
++export type DirectQuestionChange =
++  | { readonly kind: 'started'; readonly cursor: number; readonly request: DirectQuestion }
++  | { readonly kind: 'settled'; readonly cursor: number; readonly request: DirectQuestion; readonly outcome: DirectQuestionOutcome; readonly settledAt: number }
++
++/** Atomic startup state of a direct-question observer. */
++export interface DirectQuestionObservation {
++  readonly snapshot: {
++    readonly version: 1
++    /** UUID of the running question service. Cursors cannot be compared between owners. */
++    readonly ownerId: string
++    /** Last applied direct-question change in this snapshot. */
++    readonly cursor: number
++    /** Every settled change after this cursor through cursor is present. */
++    readonly settledAfter: number
++    /** All open, agent-scoped asks without a tool wait. */
++    readonly active: readonly DirectQuestion[]
++    readonly settled: readonly Extract<DirectQuestionChange, { kind: 'settled' }>[]
++  }
++  /** Stop receiving changes. Safe to call repeatedly and independent of the original ask. */
++  readonly dispose: () => void
++}
++
+diff --git a/packages/interaction/user-questions/tests/direct-observation.spec.ts b/packages/interaction/user-questions/tests/direct-observation.spec.ts
+new file mode 100644
+index 0000000000..48a9a68d10
+--- /dev/null
++++ b/packages/interaction/user-questions/tests/direct-observation.spec.ts
+@@ -0,0 +1,60 @@
++import { expect, it, onTestFinished } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
++import UserQuestionService, {
++  UserQuestionError,
++  type AskUserQuestionAnswer,
++  type DirectQuestionChange,
++} from '@deepseek-ai/dsh-user-questions'
++import { Session, SessionId } from '@deepseek-ai/dsh-session'
++import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
++
++it('recovers live and settled direct requests through a replacement observer', async () => {
++  const ctx = new Context()
++  await ctx.plugin(SessionProjectionRegistry)
++  await ctx.plugin(AgentRegistry)
++  await ctx.plugin(UserQuestionService)
++  onTestFinished(async () => { await ctx.fiber.dispose() })
++  const id = SessionId('direct-observation')
++  const session = Session.create(id)
++  const agent = { id, session } as Agent
++  ctx.agents.enter(agent)
++  const answer = { answers: [{ id: 'active', selected: ['accepted'] }] }
++  const cancelled = new UserQuestionError('cancelled', 'ASK_CANCELLED')
++  const active = Promise.withResolvers<AskUserQuestionAnswer>()
++  const removed = Promise.withResolvers<AskUserQuestionAnswer>()
++  ctx.on('user-questions/request', request =>
++    request.questions[0]?.id === 'active' ? active.promise : removed.promise)
++
++  const firstChanges: DirectQuestionChange[] = []
++  const first = ctx.userQuestions.observeDirectQuestions((change) => { firstChanges.push(change) })
++  session.append('turn/start', { turn: 1 })
++  const waiting = ctx.userQuestions.ask({ agent, questions: [{ id: 'active', question: 'Private question' }] })
++  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
++  const cancelling = ctx.userQuestions.ask({ agent, questions: [{ id: 'idle', question: 'Private question' }] })
++  expect(firstChanges.map(change => [change.kind, change.request.birthTurn])).toEqual([
++    ['started', 1], ['started', null],
++  ])
++  first.dispose()
++
++  removed.reject(cancelled)
++  await expect(cancelling).rejects.toBe(cancelled)
++  const laterChanges: DirectQuestionChange[] = []
++  const later = ctx.userQuestions.observeDirectQuestions((change) => {
++    laterChanges.push(change)
++    throw new Error('observer unavailable')
++  })
++  expect(later.snapshot).toMatchObject({
++    version: 1, cursor: 3, settledAfter: 0,
++    active: [firstChanges[0]?.request],
++    settled: [{ kind: 'settled', cursor: 3, request: firstChanges[1]?.request, outcome: 'cancelled' }],
++  })
++  expect(JSON.stringify(later.snapshot)).not.toContain('Private question')
++  active.resolve(answer)
++  await expect(waiting).resolves.toBe(answer)
++  expect(firstChanges).toHaveLength(2)
++  expect(laterChanges).toMatchObject([
++    { kind: 'settled', cursor: 4, request: firstChanges[0]?.request, outcome: 'answered' },
++  ])
++  later.dispose()
++})
+diff --git a/packages/interaction/user-questions/tsconfig.json b/packages/interaction/user-questions/tsconfig.json
+index 4e5ba45e06..d108e5c978 100644
+--- a/packages/interaction/user-questions/tsconfig.json
++++ b/packages/interaction/user-questions/tsconfig.json
+@@ -10,0 +11,3 @@
++    {
++      "path": "../../util/brand"
++    },
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index e6ccbecbec..4e8f6047ec 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -12856,0 +12857,3 @@ importers:
++      '@deepseek-ai/dsh-brand':
++        specifier: workspace:*
++        version: link:../../util/brand

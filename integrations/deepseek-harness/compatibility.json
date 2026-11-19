@@ -23,8 +23,17 @@
     "unflushedCrashRollback": "task6_unresolved"
   },
   "recovery": {
-    "directOrIdleQuestionObserverReload": "task6_public_active_request_or_audit_needed",
-    "emptyPendingIsNotResolution": true
+    "directOrIdleQuestionObserverReload": "verified_patched_host_same_question_service",
+    "emptyPendingIsNotResolution": true,
+    "directObservationApi": {
+      "version": 1,
+      "patch": "patches/direct-question-observation.patch",
+      "baseCommit": "2809f54899deb4477517be5437521cd51b7c4a5e",
+      "testedCommit": "bcd0e2e5df94c06a1e96d23f117db8e9e0151100",
+      "unpatchedHost": "continuous_observer_only",
+      "scope": "agent_scoped_asks_without_tool_wait_same_service_lifetime",
+      "settlementLimit": 1024
+    }
   },
   "loading": {
     "officialTemporaryProfileHostFiber": "active_verified",
@@ -51,7 +60,7 @@
   },
   "releaseBlockers": [
     "macOS/Windows三真实会话与原生精确跳转未验",
-    "未flush崩溃尾回退与direct/idle question观察器重载权威恢复待Task6",
+    "未 flush 崩溃尾回退与来源代次恢复待 Task6",
     "Windows 本机通知投递与真实系统睡眠恢复未验"
   ],
   "hostPatchedCommit": "2809f54899deb4477517be5437521cd51b7c4a5e"

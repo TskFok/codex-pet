@@ -5,12 +5,13 @@ import type {} from '@deepseek-ai/dsh-user-approval/types';
 import type {} from '@deepseek-ai/dsh-user-questions/types';
 import type { QuestionBirths } from './host-births.js';
 import type { HarnessObservation } from './events.js';
+import { hasDirectQuestions, observeDirectQuestions } from './host-direct.js';
 
 /** 接收挑选后的字段；绝不接收提示词、问题内容、工具参数或答案。 */
 export type ObservationSink = (observation: HarnessObservation) => void | Promise<void>;
 
 /** 透明观察正式Host事件；只使用日志真实seq，不为waterfall编造序号。 */
-export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (session: Session) => number|undefined, births?: QuestionBirths): void {
+export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (session: Session) => number|undefined, births?: QuestionBirths): void | Promise<void> {
   const turns = new WeakMap<Session, number>();
   const publish = (observation: HarnessObservation): void => {
     try { void Promise.resolve(sink(observation)).catch((_error: unknown) => { ctx.logger.warn('桌宠转发失败，请检查bridge路径；宿主处理继续'); }); }
@@ -39,6 +40,7 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
   }, { global: true });
   ctx.on('approval/request', (_request, next) => next(), { prepend: true, global: true });
   ctx.on('user-questions/request', async (request, next) => {
+    if (request.wait === undefined && hasDirectQuestions(ctx.get('userQuestions'))) return next();
     const session = request.agent === undefined ? undefined : ctx.sessions.get(request.agent.id);
     if (session === undefined) return next();
     const requestId = `question:${request.wait?.callId ?? randomUUID()}`;
@@ -69,4 +71,5 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
       throw error;
     } finally { request.signal?.removeEventListener('abort', abort); }
   }, { prepend: true, global: true });
+  return observeDirectQuestions(ctx, publish);
 }

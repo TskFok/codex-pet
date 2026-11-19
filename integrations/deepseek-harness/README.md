@@ -4,9 +4,11 @@
 
 兼容 Harness `0.2.2-rc.1`，源码基线为 `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`，已验证补丁提交为 `2809f54899deb4477517be5437521cd51b7c4a5e`；完整版本记录见 [compatibility.json](compatibility.json)。SDK/Cordis 采用锁定注册表版本及官方 peerDependencies 共享实例规则，无本机源码依赖。生产事件协议为 v2；接收端保留旧 v1 Turn 默认读取，拒绝 v1 携带 until_resolved。
 
-Host 观察公开 `session/event` 的真实 turn/审批 seq。真正建立的 `user-questions/request` 始终恰好一次 next，返回原答案并原样传播异常；不领取、批准、回答或取消宿主任务。所有可路由提问用 UntilResolved，出生回合在捕获时固定，无活动回合则省略。timed 超时不解除，晚到回复通过正式 SessionProjection 还原原始 callId/birth turn。投影只保留未 settle 调用及最后解除，生产代码不扫描弃用日志 API。父关系只取 `origin=subagent` 的真实 header.parentSession，不把普通 fork 猜成子任务。问题内容、答案、工具参数、工具名和提示词均不进入通知。
+Host 观察公开 `session/event` 的真实 turn/审批 seq。旧宿主及工具定时请求继续观察 `user-questions/request`，恰好调用一次 next，返回原答案并原样传播异常。所有可路由提问用 UntilResolved，出生回合在捕获时固定，无活动回合则省略。timed 超时不解除，晚到回复通过正式 SessionProjection 还原原始 callId/birth turn。投影只保留未 settle 调用及最后解除，生产代码不扫描弃用日志 API。父关系只取 `origin=subagent` 的真实 header.parentSession，不把普通 fork 猜成子任务。问题内容、答案、工具参数、工具名和提示词均不进入通知。
 
-安装 ID 显式持久在配置中；instanceId 为 `session-log:<sessionId>:<header.createdAt>`，表示同一逻辑日志，不表示进程存活。createdAt 不排序，waterfall 不编造 seq。正常保存/恢复及插件重载的日志前缀可比较；未 flush 崩溃尾回退、direct/idle 问题在观察插件卸载后重载的恢复仍待 Task6 的源代次/公开权威恢复，不能用空 pending 或普通快照推断已解除。
+安装 ID 显式持久在配置中；instanceId 为 `session-log:<sessionId>:<header.createdAt>`，表示同一逻辑日志，不表示进程存活。createdAt 不排序，waterfall 不编造 seq。正常保存/恢复及插件重载的日志前缀可比较。未 flush 崩溃导致的尾部回退与源代次尚待验证。
+
+有 [直接提问观察补丁](patches/direct-question-observation.patch) 的宿主公开接口版本为 1。补丁基于已验证的桌面跳转补丁提交。应用前核对 compatibility.json 的准确基线和目标文件状态，先执行 `git apply --unidiff-zero --check 补丁路径`，通过后去掉 `--check` 应用并按宿主文档构建。桌宠重载后恢复同一服务内带 Agent 且无工具等待的活动提问，通过明确的结束事件精确移除已回答、取消或失败的请求。服务保留最近 1,024 个结束事实，超出覆盖范围时保留待核实项。原发布版提供连续观察；补丁能力由宿主公开方法协商。
 
 ## 生成并安装配置包
 

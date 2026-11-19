@@ -81,3 +81,63 @@ fn normalized_harness_actual_sdk_bridge_and_reload_are_consumable() {
         )));
     }
 }
+
+#[test]
+#[ignore = "由宿主重载集成测试提供真实事件"]
+fn reloaded_direct_ask_matches_persisted_attention() {
+    let path = std::env::var("PET_HARNESS_DIRECT_EVENTS").expect("需要真桥接事件样本");
+    let [before, after]: [Vec<serde_json::Value>; 2] =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let decode = |value| decode_event(&serde_json::to_vec(&value).unwrap()).unwrap();
+    let mut before: Vec<EventEnvelope> = before.into_iter().map(decode).collect();
+    before.sort_by_key(|event| event.sequence.is_none());
+    let after: Vec<EventEnvelope> = after.into_iter().map(decode).collect();
+    let now = after
+        .iter()
+        .map(|event| event.occurred_at_ms)
+        .max()
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let paths = AppPaths::under(&directory.path().canonicalize().unwrap().join("app"));
+    {
+        let mut journal = JournalStore::open_with_clock(paths.clone(), move || now).unwrap();
+        for event in before {
+            assert!(!journal.ingest(event).unwrap().duplicate);
+        }
+        assert_eq!(journal.snapshot().sessions[0].pending.len(), 2);
+    }
+    let mut journal = JournalStore::open_with_clock(paths, move || now).unwrap();
+    let replay = after
+        .iter()
+        .find(|event| matches!(event.kind, EventKind::AttentionRequested { .. }))
+        .unwrap();
+    assert!(journal.ingest(replay.clone()).unwrap().duplicate);
+    assert_eq!(journal.snapshot().sessions[0].pending.len(), 2);
+    let idle_cancelled = after.iter().find(|event| event.turn_id.is_none()).unwrap();
+    assert!(!journal.ingest(idle_cancelled.clone()).unwrap().duplicate);
+    let snapshot = journal.snapshot();
+    let [waiting] = snapshot.sessions[0].pending.as_slice() else {
+        panic!("只保留原来仍在等待的回合问题");
+    };
+    assert_eq!(waiting.turn_id.as_deref(), Some("1"));
+    let completed = after
+        .iter()
+        .find(|event| {
+            matches!(event.kind, EventKind::AttentionResolved { .. }) && event.turn_id.is_some()
+        })
+        .unwrap();
+    assert!(!journal.ingest(completed.clone()).unwrap().duplicate);
+    let snapshot = journal.snapshot();
+    assert!(snapshot.sessions[0].pending.is_empty());
+    assert_eq!(
+        snapshot
+            .notifications
+            .iter()
+            .filter(|note| matches!(
+                note.kind,
+                NotificationKind::Attention { resolved: true, .. }
+            ))
+            .count(),
+        2
+    );
+}

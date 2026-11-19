@@ -17,7 +17,7 @@ export function apply(ctx:Context,config:PluginConfig):void{
     const births=await installQuestionBirths(ctx);
     if(ctx.fiber.uid===null)return ()=>{};
     const forwarder=new HarnessForwarder(validated.bridgePath,validated.probeDir);
-    observeHost(ctx,async observation=>{
+    await observeHost(ctx,async observation=>{
       for(const event of toPetEvents(observation,harnessIdentity(observation,validated.installationId)))await forwarder.send(event);
     },births.turn,births);
     ctx.logger.info(validated.probeDir===undefined?'桌宠 Host 观察器已就绪，通知使用本机投递':'桌宠Host观察器已就绪；当前只记录本地探测事件');
