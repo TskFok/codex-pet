@@ -60,19 +60,20 @@ impl ObservationGeneration {
     }
 
     pub(crate) fn covers_birth(&self, birth: u64) -> bool {
-        let first = self.ancestors.first();
         if self.version == 1 {
-            return first
+            return self
+                .ancestors
+                .first()
                 .is_none_or(|first| first.generation == 1 || birth >= first.first_sequence);
         }
-        let legacy_end = first.map_or(self.recovered_event_count, |first| {
-            if first.generation == 1 {
-                first.first_sequence
-            } else {
-                0
-            }
-        });
-        birth < legacy_end || self.request_epoch(Some(birth)).is_some()
+        self.covers_legacy_birth(birth) || self.request_epoch(Some(birth)).is_some()
+    }
+
+    pub(crate) fn covers_legacy_birth(&self, birth: u64) -> bool {
+        match self.ancestors.first() {
+            None => birth < self.recovered_event_count,
+            Some(first) => first.generation == 1 && birth < first.first_sequence,
+        }
     }
 }
 

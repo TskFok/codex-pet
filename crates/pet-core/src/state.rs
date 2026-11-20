@@ -358,17 +358,21 @@ impl SessionStore {
             entry.projection.pending = previous.projection.pending;
             entry.timed_births = previous.timed_births;
             entry.direct_questions = previous.direct_questions;
+            // v1 只报告耐久切点，其后仍可能有从撕裂帧读回的记录。
+            let rolled_back = |timed: &RecoveredQuestion| {
+                proof
+                    .first_live_sequence
+                    .is_some_and(|first_live| timed.birth_sequence >= first_live)
+            };
             entry.projection.pending.retain(|pending| {
                 pending.lifetime == RequestLifetime::UntilResolved
                     && !entry.timed_births.iter().any(|timed| {
                         timed.turn_id == pending.turn_id
                             && timed.request_id == pending.id
-                            && timed.birth_sequence >= proof.live_start()
+                            && rolled_back(timed)
                     })
             });
-            entry
-                .timed_births
-                .retain(|timed| timed.birth_sequence < proof.live_start());
+            entry.timed_births.retain(|timed| !rolled_back(timed));
             entry.uncertain_pending.extend(
                 entry
                     .projection
@@ -445,18 +449,25 @@ impl SessionStore {
                 .is_none_or(|previous| cut > previous)
         {
             generation.timed_event_count = Some(cut);
+            let proof = &generation.proof;
+            let uncertain = &entry.uncertain_pending;
+            // v1 的列表缺席无法解除继承且未核实的题，首次有证写入前的旧前缀除外。
+            let covered = |old: &RecoveredQuestion| {
+                old.birth_sequence < cut
+                    && proof.covers_birth(old.birth_sequence)
+                    && (proof.first_live_sequence.is_some()
+                        || proof.covers_legacy_birth(old.birth_sequence)
+                        || !uncertain.contains(&(old.turn_id.clone(), old.request_id.clone())))
+            };
             entry.projection.pending.retain(|pending| {
                 !entry.timed_births.iter().any(|old| {
-                    old.birth_sequence < cut
-                        && generation.proof.covers_birth(old.birth_sequence)
-                        && old.turn_id == pending.turn_id
+                    old.turn_id == pending.turn_id
                         && old.request_id == pending.id
+                        && covered(old)
                         && !questions.contains(old)
                 })
             });
-            entry.timed_births.retain(|old| {
-                old.birth_sequence >= cut || !generation.proof.covers_birth(old.birth_sequence)
-            });
+            entry.timed_births.retain(|old| !covered(old));
             for question in questions {
                 if self.is_resolved(
                     &key,
@@ -483,7 +494,9 @@ impl SessionStore {
                         lifetime: RequestLifetime::UntilResolved,
                     });
                 }
-                entry.timed_births.push(question.clone());
+                if !entry.timed_births.contains(question) {
+                    entry.timed_births.push(question.clone());
+                }
             }
         }
         restore_entry_status(&mut entry);

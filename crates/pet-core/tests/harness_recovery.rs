@@ -100,6 +100,11 @@ fn later_writer_reuses_turn_and_positions_without_reusing_old_terminal_facts() {
 #[test]
 fn retained_timed_birth_survives_epoch_change_and_late_old_resolution_cannot_remove_new_birth() {
     let mut store = SessionStore::default();
+    let successor = |mut wire: Value| {
+        wire["observation"]["version"] = json!(2);
+        wire["observation"]["firstLiveSequence"] = json!(3);
+        event(wire)
+    };
     let request = |epoch, id, birth| {
         let mut json = value(
             epoch,
@@ -111,18 +116,24 @@ fn retained_timed_birth_survives_epoch_change_and_late_old_resolution_cannot_rem
             }),
         );
         json["questionBirth"] = json!(birth);
-        event(json)
+        if epoch == NEW {
+            successor(json)
+        } else {
+            event(json)
+        }
     };
     store.apply(&request(OLD, "old-tail", 3));
     store.apply(&request(OLD, "retained", 2));
-    store.apply(&recovered(
+    store.apply(&successor(value(
         NEW,
-        4,
+        "snapshot",
         None,
-        Some(vec![
-            json!({"requestId": "retained", "turnId": "2", "birthSequence": 2}),
-        ]),
-    ));
+        Some(3),
+        json!({
+            "type":"source_recovery", "snapshotEventCount":4, "running":false,
+            "timed":[{"requestId":"retained", "turnId":"2", "birthSequence":2}],
+        }),
+    )));
     let snapshot = store.snapshot();
     assert_eq!(snapshot.sessions[0].pending.len(), 1);
     assert_eq!(snapshot.sessions[0].pending[0].id, "retained");
@@ -139,7 +150,7 @@ fn retained_timed_birth_survives_epoch_change_and_late_old_resolution_cannot_rem
     ));
     store.apply(&old_resolution);
     assert_eq!(store.snapshot().sessions[0].pending.len(), 2);
-    let resolution = event(value(
+    let resolution = successor(value(
         NEW,
         "resolution",
         Some("2"),
@@ -317,6 +328,111 @@ fn incomplete_request_coverage_preserves_unconfirmed_previous_requests() {
     let replayed = SessionStore::restore(&[request, partial], 100).snapshot();
     assert_eq!(replayed.sessions[0].status, SessionStatus::Unknown);
     assert_eq!(replayed.sessions[0].pending, latest.sessions[0].pending);
+}
+
+#[test]
+fn v1_handoff_preserves_unverified_births_in_both_orders_and_after_compaction() {
+    use pet_core::{AppPaths, JournalStore};
+
+    let new_writer = |mut wire: Value| {
+        wire["observation"]["recoveredEventCount"] = json!(6);
+        event(wire)
+    };
+    let requested = |epoch, id, birth| {
+        let mut wire = value(
+            epoch,
+            id,
+            Some("1"),
+            None,
+            json!({
+                "type":"attention_requested", "requestId":id, "reason":"answer", "lifetime":"until_resolved",
+            }),
+        );
+        wire["questionBirth"] = json!(birth);
+        wire
+    };
+    let snapshot = |id, cut: u64, timed: Value| {
+        new_writer(value(
+            NEW,
+            id,
+            None,
+            Some(cut - 1),
+            json!({
+                "type":"source_recovery", "snapshotEventCount":cut, "running":false, "timed":timed,
+            }),
+        ))
+    };
+    let start = new_writer(value(
+        NEW,
+        "start",
+        Some("2"),
+        Some(8),
+        json!({"type":"turn_started"}),
+    ));
+    let partial = snapshot("partial", 8, Value::Null);
+    let legacy_complete = snapshot("legacy-complete", 10, json!([]));
+    for order in [
+        [&start, &partial],
+        [&partial, &start],
+        [&legacy_complete, &start],
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&directory.path().canonicalize().unwrap().join("app"));
+        {
+            let mut journal = JournalStore::open_with_clock(paths.clone(), || 100).unwrap();
+            for (id, birth) in [
+                ("legacy-prefix", 2),
+                ("unverified-writer", 5),
+                ("salvaged-tail", 7),
+            ] {
+                journal.ingest(event(requested(OLD, id, birth))).unwrap();
+            }
+            for fact in order {
+                journal.ingest(fact.clone()).unwrap();
+                let current = journal.snapshot();
+                assert_ne!(current.sessions[0].status, SessionStatus::NeedsAttention);
+                for id in ["unverified-writer", "salvaged-tail"] {
+                    assert!(
+                        current.sessions[0]
+                            .pending
+                            .iter()
+                            .any(|pending| pending.id == id),
+                        "缺少 {id}，首到事件 {}",
+                        order[0].event_id
+                    );
+                }
+            }
+            journal.compact(100).unwrap();
+        }
+        let mut journal = JournalStore::open_with_clock(paths, || 100).unwrap();
+        let current = journal.snapshot();
+        assert_eq!(current.notifications.len(), 3);
+        assert!(
+            current.sessions[0]
+                .pending
+                .iter()
+                .any(|pending| pending.id == "salvaged-tail")
+        );
+        journal.ingest(legacy_complete.clone()).unwrap();
+        journal
+            .ingest(new_writer(requested(NEW, "current-live", 10)))
+            .unwrap();
+        assert_eq!(
+            journal.snapshot().sessions[0].status,
+            SessionStatus::NeedsAttention
+        );
+        journal
+            .ingest(snapshot("same-writer-empty", 11, json!([])))
+            .unwrap();
+        let current = journal.snapshot();
+        let remaining: Vec<_> = current.sessions[0]
+            .pending
+            .iter()
+            .map(|pending| pending.id.as_str())
+            .collect();
+        assert_eq!(remaining, ["salvaged-tail", "unverified-writer"]);
+        assert_eq!(current.sessions[0].status, SessionStatus::Unknown);
+    }
 }
 
 #[test]
@@ -683,17 +799,19 @@ fn actual_direct_handoff_keeps_the_owner_match_after_compaction() {
 #[test]
 fn unproved_writer_gaps_and_salvaged_tail_do_not_settle_known_old_requests() {
     let mut store = SessionStore::default();
-    let mut asked = value(
-        OLD,
-        "original",
-        Some("1"),
-        None,
-        json!({
-            "type":"attention_requested", "requestId":"original", "reason":"answer", "lifetime":"until_resolved",
-        }),
-    );
-    asked["questionBirth"] = json!(4);
-    assert!(store.apply(&event(asked)).should_notify);
+    for (id, birth) in [("original", 4), ("salvaged", 7), ("discarded-old-tail", 8)] {
+        let mut asked = value(
+            OLD,
+            id,
+            Some("1"),
+            None,
+            json!({
+                "type":"attention_requested", "requestId":id, "reason":"answer", "lifetime":"until_resolved",
+            }),
+        );
+        asked["questionBirth"] = json!(birth);
+        assert!(store.apply(&event(asked)).should_notify);
+    }
     let mut handoff = value(
         NEW,
         "new-recovery",
@@ -709,7 +827,9 @@ fn unproved_writer_gaps_and_salvaged_tail_do_not_settle_known_old_requests() {
     store.apply(&event(handoff.clone()));
     let current = store.snapshot();
     assert_eq!(current.sessions[0].status, SessionStatus::Unknown);
+    assert_eq!(current.sessions[0].pending.len(), 2);
     assert_eq!(current.sessions[0].pending[0].id, "original");
+    assert_eq!(current.sessions[0].pending[1].id, "salvaged");
 
     handoff["kind"]["timed"] = json!([{ "requestId":"forged", "turnId":"1", "birthSequence":7 }]);
     assert!(decode_event(&serde_json::to_vec(&handoff).unwrap()).is_err());
