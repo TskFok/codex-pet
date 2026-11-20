@@ -42,8 +42,8 @@ define_class!(
         fn draw_rect(&self, _rect: NSRect) {
             NSColor::clearColor().setFill();
             NSRectFillUsingOperation(self.bounds(), NSCompositingOperation::Copy);
-            // 只提供原生命中 alpha。显示细节由上方固定穿透的 Canvas 子窗负责。
-            NSColor::colorWithSRGBRed_green_blue_alpha(169.0/255.0,214.0/255.0,196.0/255.0,1.0).setFill();
+            // 暂用原生椭圆命中区。让命中代理尽量透明，月影由 Canvas 子窗绘制。
+            NSColor::colorWithSRGBRed_green_blue_alpha(0.0,0.0,0.0,0.01).setFill();
             NSBezierPath::bezierPathWithOvalInRect(NSRect::new(NSPoint::new(28.0,24.0),NSSize::new(104.0,120.0))).fill();
         }
         #[unsafe(method(mouseDown:))]

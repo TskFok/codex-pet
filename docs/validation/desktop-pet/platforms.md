@@ -14,7 +14,7 @@
 
 资源实验：分别以静止（idle）、动画（animation）、隐藏（hidden）运行 5 分钟；记录主进程与 WebView 子进程 CPU/RSS、隐藏绘制计数。实际测量结果与锁定预算在后续记录，不以猜测当实测。
 
-## 修复 round1：当前输入结构与验证状态
+## 修复 round1（4739933）：窗口输入结构与历史验证
 
 2026-11-12：移除光标/按键轮询和从采样推断的拖动锚点。点击路由由操作系统在真实按下时处理，拖动只由本次实际 mouseDown / PointerDown 触发。
 
@@ -67,6 +67,33 @@ Windows PowerShell 在相同测试/构建后设置 `$env:PET_VALIDATION_PHASE = 
 - Task9 将原型椭圆替换为缓存 AlphaMask；Task12 重做最终资源和平台验收。既定预算保留在以下历史表中，当前修复版本尚未完成完整资源预算验收。
 
 参考：[Tauri 配置限制](https://v2.tauri.app/reference/config/#windowconfig)、[Windows 系统区域及所有权](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowrgn)。
+
+## Task 8：月影 Canvas 播放与后台帧率（2026-11-20）
+
+本机环境为 macOS 27.0.1（26A434）、Apple Silicon、显示缩放 2、WebKit 22625.1.29.11.28、Tauri 2.12.4。计时取 Canvas 绘制完成后的 `performance.now()`。每段同步冻结计数和间隔，原生状态另记返回时刻。P95 使用 nearest-rank。
+
+| 模式 | 观测时长 | 实际绘制间隔数 | P95 | ≤ 50 ms | 原生可见 / 聚焦 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 默认 30 FPS | 60.003 s | 1799 | 35 ms | 100% | 是 / 否 |
+| 60 FPS | 60.003 s | 3594 | 18 ms | 99.972% | 是 / 否 |
+| 隐藏 | 60.104 s | 0（累计绘制 0） | — | — | 否 / 否 |
+
+默认档的 128 次前台进程采样覆盖约 64 秒，桌宠从未是采样到的前台进程。60 FPS 档按间隔折算为 59.905 次绘制/秒，动作姿态仍使用图集清单中的时长。4739933 在相同系统/WebKit 的原型报告中为 1798 个间隔、P95 50 ms、99.555% ≤ 50 ms，使用当次 rAF 时间戳。两版均达到默认档目标。
+
+macOS 检查了九个动作的原生窗口截图。输入代理仍用原生椭圆，底色改为 1% 黑色，实测实体测试点仍命中代理、透明角仍落到下层。隔离测试副本通过原有窗口组入口完成隐藏和再显示，并向 AppKit 通知中心注入睡眠/唤醒通知，分别检查了暂停、从当前动作开头恢复，以及隐藏期间收到唤醒仍保持隐藏。真机系统休眠、实际物理拖动、Windows 原生表现及最终三模式资源占用待验。Windows 交叉类型检查覆盖电源事件与共享状态模块，完整桌宠交叉检查停在 Tauri 资源工具 `llvm-rc` 缺失。
+
+隔离复测使用 debug 构建。先创建并解析临时目录的绝对路径，再指定诊断与 broker 数据目录：
+
+```sh
+validation_root=$(mktemp -d "${TMPDIR:-/tmp}/codex-pet-validation.XXXXXX")
+validation_root=$(cd "$validation_root" && pwd -P)
+PET_VALIDATION_PHASE=animation \
+  PET_DIAGNOSTICS_DIR="$validation_root/diagnostics" \
+  PET_VALIDATION_DATA_DIR="$validation_root/app" \
+  target/debug/pet-desktop
+```
+
+同一运行入口支持用 `PET_VALIDATION_FPS=60` 切换帧率，或用 `PET_VALIDATION_STATE` 指定图集清单中的动作。原始间隔、焦点采样、窗口截图和测试说明保存在本地 `.superpowers/sdd/2026-11-11-tauri-desktop-pet/task-8-evidence/`。
 
 ## 69fbf87 原型历史资源基线（2026-11-11）
 

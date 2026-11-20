@@ -3,7 +3,8 @@ pub mod platform;
 mod windows;
 
 use broker::{BrokerHandle, BrokerStartup, BrokerView};
-use pet_core::{AppPaths, PetSnapshot};
+use pet_core::{AppPaths, PetSnapshot, StorageError};
+use platform::{Playback, PlaybackSignal};
 use serde::Serialize;
 use std::{
     fs,
@@ -107,10 +108,24 @@ fn pet_snapshot(state: tauri::State<'_, NotificationRuntime>) -> Option<PetSnaps
     }
 }
 
+fn notification_paths() -> Result<AppPaths, StorageError> {
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("PET_VALIDATION_DATA_DIR")
+        && std::env::var_os("PET_DIAGNOSTICS_DIR").is_some_and(|directory| !directory.is_empty())
+    {
+        let root = std::path::PathBuf::from(path);
+        if !root.is_absolute() {
+            return Err(StorageError::InvalidData("诊断应用数据目录必须是绝对路径"));
+        }
+        return Ok(AppPaths::under(&root));
+    }
+    AppPaths::for_user()
+}
+
 fn start_notifications(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         let state = app.state::<NotificationRuntime>();
-        let paths = match AppPaths::for_user() {
+        let paths = match notification_paths() {
             Ok(paths) => paths,
             Err(error) => {
                 eprintln!("桌宠通知：无法定位本机应用数据目录，{error}");
@@ -162,6 +177,13 @@ struct RuntimeInfo {
     position: tauri::PhysicalPosition<i32>,
     size: tauri::PhysicalSize<u32>,
     phase: String,
+    playback: PlaybackSignal,
+    #[cfg(debug_assertions)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    validation_state: Option<String>,
+    #[cfg(debug_assertions)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    validation_fps: Option<u8>,
     notification_service: NotificationService,
     #[cfg(target_os = "macos")]
     input_route: Option<serde_json::Value>,
@@ -171,6 +193,7 @@ struct RuntimeInfo {
 fn runtime_info(
     window: tauri::WebviewWindow,
     notifications: tauri::State<'_, NotificationRuntime>,
+    playback: tauri::State<'_, Playback>,
 ) -> Result<RuntimeInfo, String> {
     Ok(RuntimeInfo {
         os: std::env::consts::OS,
@@ -188,6 +211,13 @@ fn runtime_info(
         #[cfg(target_os = "macos")]
         input_route: platform::route_report(&window),
         phase: std::env::var("PET_VALIDATION_PHASE").unwrap_or_else(|_| "animation".into()),
+        playback: playback.snapshot(),
+        #[cfg(debug_assertions)]
+        validation_state: std::env::var("PET_VALIDATION_STATE").ok(),
+        #[cfg(debug_assertions)]
+        validation_fps: std::env::var("PET_VALIDATION_FPS")
+            .ok()
+            .and_then(|fps| fps.parse().ok()),
         notification_service: notifications.status(),
     })
 }
@@ -260,6 +290,7 @@ pub fn run() {
     });
     let app = builder
         .manage(DiagnosticState::default())
+        .manage(Playback::default())
         .manage(NotificationRuntime::default())
         .invoke_handler(tauri::generate_handler![
             runtime_info,

@@ -1,7 +1,14 @@
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod macos_power;
 #[cfg(target_os = "windows")]
 mod windows;
+#[cfg(target_os = "windows")]
+mod windows_power;
+
+mod playback;
+pub(crate) use playback::{Playback, PlaybackSignal};
 
 use std::fmt;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -40,9 +47,15 @@ pub fn create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError> {
     let builder = windows::configure(builder);
     let window = builder.build()?;
     #[cfg(target_os = "macos")]
-    macos::install_input(&window)?;
+    {
+        macos::install_input(&window)?;
+        macos_power::install(app);
+    }
     #[cfg(target_os = "windows")]
-    windows::install_input(&window)?;
+    {
+        windows::install_input(&window)?;
+        windows_power::install(&window)?;
+    }
     Ok(())
 }
 
@@ -55,7 +68,6 @@ pub(crate) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::
 pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     {
-        let _ = app;
         macos::set_visible(visible)?;
     }
     #[cfg(not(target_os = "macos"))]
@@ -69,10 +81,12 @@ pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<(
             }
         }
     }
+    playback::set_visible(app, visible);
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
 pub(crate) fn shutdown_input() {
+    macos_power::shutdown();
     macos::shutdown_input();
 }
