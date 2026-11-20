@@ -1,4 +1,5 @@
 pub mod paths;
+pub mod pet_package;
 pub mod protocol;
 pub mod state;
 pub mod storage;

@@ -12,6 +12,7 @@ use std::{
 pub struct AppPaths {
     pub root: PathBuf,
     pub outbox: PathBuf,
+    pub pets: PathBuf,
     pub journal: PathBuf,
     /// 共享路径定义。当前去重索引随日志检查点一起写入。
     pub dedup: PathBuf,
@@ -42,6 +43,7 @@ impl AppPaths {
         Self {
             root: root.to_path_buf(),
             outbox: root.join("outbox"),
+            pets: root.join("pets"),
             journal: root.join("journal.jsonl"),
             dedup: root.join("dedup.json"),
             settings: root.join("settings.json"),
@@ -218,27 +220,48 @@ pub fn durable_rename(from: &Path, to: &Path) -> Result<(), StorageError> {
     #[cfg(not(windows))]
     fs::rename(from, to)?;
     #[cfg(windows)]
+    move_file_through(from, to, true)?;
+    Ok(())
+}
+
+/// 在同卷原子发布完整目录，已有同名文件或目录时失败。
+pub(crate) fn publish_directory(from: &Path, to: &Path) -> io::Result<()> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::{
-            MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
-        };
-        let from: Vec<u16> = from.as_os_str().encode_wide().chain([0]).collect();
-        let to: Vec<u16> = to.as_os_str().encode_wide().chain([0]).collect();
-        if from[..from.len() - 1].contains(&0) || to[..to.len() - 1].contains(&0) {
-            return Err(StorageError::InvalidData("文件路径包含空字符"));
-        }
-        // 两个缓冲区在调用期间有效并以 NUL 结尾，移动限定在同一个卷内。
-        if unsafe {
-            MoveFileExW(
-                from.as_ptr(),
-                to.as_ptr(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-        } == 0
-        {
-            return Err(io::Error::last_os_error().into());
-        }
+        use rustix::fs::{CWD, RenameFlags, renameat_with};
+        renameat_with(CWD, from, CWD, to, RenameFlags::NOREPLACE)?;
+        Ok(())
+    }
+    #[cfg(windows)]
+    return move_file_through(from, to, false);
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        let _ = (from, to);
+        Err(io::ErrorKind::Unsupported.into())
+    }
+}
+
+#[cfg(windows)]
+fn move_file_through(from: &Path, to: &Path, replace: bool) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+    let from: Vec<u16> = from.as_os_str().encode_wide().chain([0]).collect();
+    let to: Vec<u16> = to.as_os_str().encode_wide().chain([0]).collect();
+    if from[..from.len() - 1].contains(&0) || to[..to.len() - 1].contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "文件路径包含空字符",
+        ));
+    }
+    let mut flags = MOVEFILE_WRITE_THROUGH;
+    if replace {
+        flags |= MOVEFILE_REPLACE_EXISTING;
+    }
+    // 两个缓冲区在调用期间有效并以 NUL 结尾，移动限定在同一个卷内。
+    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), flags) } == 0 {
+        return Err(io::Error::last_os_error());
     }
     Ok(())
 }
