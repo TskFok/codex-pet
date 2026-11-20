@@ -1,5 +1,7 @@
 pub mod broker;
+pub mod placement;
 pub mod platform;
+mod tray;
 mod windows;
 
 use broker::{BrokerHandle, BrokerStartup, BrokerView};
@@ -25,6 +27,7 @@ struct DiagnosticState(Mutex<()>);
 struct NotificationRuntime {
     connection: RwLock<NotificationConnection>,
     exit: Notify,
+    worker: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 #[derive(Default)]
@@ -123,7 +126,8 @@ fn notification_paths() -> Result<AppPaths, StorageError> {
 }
 
 fn start_notifications(app: tauri::AppHandle) {
-    tauri::async_runtime::spawn(async move {
+    let target = app.clone();
+    let worker = tauri::async_runtime::spawn(async move {
         let state = app.state::<NotificationRuntime>();
         let paths = match notification_paths() {
             Ok(paths) => paths,
@@ -160,6 +164,7 @@ fn start_notifications(app: tauri::AppHandle) {
             .await
             .ok();
     });
+    *target.state::<NotificationRuntime>().worker.lock().unwrap() = Some(worker);
 }
 
 #[derive(Serialize)]
@@ -271,21 +276,37 @@ fn record_diagnostic(
 }
 
 #[tauri::command]
-fn pointer_input(
+fn pointer_input(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "pet" {
+        return Err("需要桌宠窗口".into());
+    }
+    window.start_dragging().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_hit_region(
     window: tauri::WebviewWindow,
-    input: windows::PointerInput,
-) -> Result<bool, String> {
-    windows::dispatch_pointer_input(input, || window.start_dragging()).map_err(|e| e.to_string())
+    frame: pet_core::pet_package::FrameRect,
+    mask: windows::AlphaMask,
+) -> Result<(), String> {
+    if window.label() != "pet" || !mask.validate() {
+        return Err("无效的桌宠命中区域".into());
+    }
+    platform::update_hit_region(&window, &frame, mask).map_err(|e| e.to_string())
 }
 
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
     let builder = builder.activate_ignoring_other_apps(false);
-    #[cfg(target_os = "macos")]
     let builder = builder.on_window_event(|window, event| {
-        if window.label() == "pet" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-            platform::shutdown_input();
+        if window.label() == "pet"
+            && let tauri::WindowEvent::CloseRequested { api, .. } = event
+        {
+            api.prevent_close();
+            if let Err(error) = platform::set_pet_visible(window.app_handle(), false) {
+                eprintln!("隐藏桌宠失败：{error}");
+            }
         }
     });
     let app = builder
@@ -296,15 +317,21 @@ pub fn run() {
             runtime_info,
             record_diagnostic,
             pointer_input,
+            update_hit_region,
             pet_snapshot
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            let saved = notification_paths()
+                .and_then(|p| placement::load(&p))
+                .unwrap_or_else(|e| {
+                    eprintln!("桌宠使用默认位置：{e}");
+                    placement::WindowPlacement::default()
+                });
+            app.manage(placement::PlacementState::new(saved));
             platform::create_pet_window(app.handle())?;
-            if std::env::var("PET_VALIDATION_PHASE").as_deref() == Ok("hidden") {
-                platform::set_pet_visible(app.handle(), false)?;
-            }
+            tray::install(app.handle())?;
             start_notifications(app.handle().clone());
             Ok(())
         })
@@ -312,7 +339,12 @@ pub fn run() {
         .expect("桌宠窗口启动失败");
     app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
-            app.state::<NotificationRuntime>().exit.notify_one();
+            let state = app.state::<NotificationRuntime>();
+            state.exit.notify_one();
+            let worker = state.worker.lock().unwrap().take();
+            if let Some(worker) = worker {
+                let _ = tauri::async_runtime::block_on(worker);
+            }
             #[cfg(target_os = "macos")]
             platform::shutdown_input();
         }

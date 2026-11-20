@@ -1,184 +1,87 @@
 use serde::Deserialize;
 
-/// 测试角色实体区；输入坐标必须来自本次原生/PointerEvent，而不是光标采样。
-pub fn hits_pet(x: f64, y: f64) -> bool {
-    ((x - 80.0) / 52.0).powi(2) + ((y - 84.0) / 60.0).powi(2) <= 1.0
+#[derive(Clone, Default, Deserialize)]
+pub struct AlphaMask {
+    pub width: u32,
+    pub height: u32,
+    /// 行和半开像素区间 [y, left, right]，包含等比绘制时的透明边缘。
+    pub runs: Vec<[u32; 3]>,
 }
 
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PointerPhase {
-    Down,
-    Move,
-    Up,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-pub struct PointerInput {
-    pub phase: PointerPhase,
-    pub x: f64,
-    pub y: f64,
-    pub button: i16,
-}
-
-pub fn dispatch_pointer_input<E>(
-    input: PointerInput,
-    start_drag: impl FnOnce() -> Result<(), E>,
-) -> Result<bool, E> {
-    if !matches!(input.phase, PointerPhase::Down)
-        || input.button != 0
-        || !hits_pet(input.x, input.y)
-    {
-        return Ok(false);
+impl AlphaMask {
+    pub fn validate(&self) -> bool {
+        self.width > 0
+            && self.height > 0
+            && self.width <= 8192
+            && self.height <= 8192
+            && self.runs.len() <= 1_000_000
+            && self
+                .runs
+                .iter()
+                .all(|&[y, l, r]| y < self.height && l < r && r <= self.width)
+            && self.runs.windows(2).all(|pair| {
+                pair[0][0] < pair[1][0] || (pair[0][0] == pair[1][0] && pair[0][2] <= pair[1][1])
+            })
     }
-    start_drag()?;
-    Ok(true)
+}
+
+#[cfg(any(test, target_os = "windows"))]
+impl AlphaMask {
+    pub(crate) fn region_data(&self, w: i32, h: i32, (dx, dy): (i32, i32)) -> Vec<i32> {
+        // RGNDATAHEADER 为 8 个 32 位字段，随后是按行排序、互不重叠的 RECT。
+        let mut data = vec![32, 1, 0, 0, i32::MAX, i32::MAX, i32::MIN, i32::MIN];
+        let x = |v| dx + (f64::from(v) * f64::from(w) / f64::from(self.width)).round() as i32;
+        let y = |v| dy + (f64::from(v) * f64::from(h) / f64::from(self.height)).round() as i32;
+        for &[row, left, right] in &self.runs {
+            let (left, right, top, bottom) = (x(left), x(right), y(row), y(row + 1));
+            if left < right && top < bottom {
+                data[4] = data[4].min(left);
+                data[5] = data[5].min(top);
+                data[6] = data[6].max(right);
+                data[7] = data[7].max(bottom);
+                data.extend([left, top, right, bottom]);
+            }
+        }
+        data[2] = (data.len() as i32 - 8) / 4;
+        data[3] = data[2] * 16;
+        data
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
-
-    fn input(phase: PointerPhase, x: f64, y: f64) -> PointerInput {
-        PointerInput {
-            phase,
-            x,
-            y,
-            button: 0,
-        }
-    }
-    fn accept(event: PointerInput) -> bool {
-        dispatch_pointer_input(event, || Ok::<_, ()>(())).unwrap()
-    }
-
     #[test]
-    fn body_move_then_corner_down_routes_by_actual_down_point() {
-        assert!(!accept(input(PointerPhase::Move, 80.0, 84.0)));
-        assert!(!accept(input(PointerPhase::Down, 5.0, 5.0)));
-        assert!(accept(input(PointerPhase::Down, 80.0, 84.0)));
-    }
-
-    #[test]
-    fn corner_down_then_body_move_never_starts_drag() {
-        let attempts = Cell::new(0);
-        for event in [
-            input(PointerPhase::Down, 5.0, 5.0),
-            input(PointerPhase::Move, 80.0, 84.0),
-            input(PointerPhase::Up, 80.0, 84.0),
-        ] {
-            let accepted = dispatch_pointer_input(event, || {
-                attempts.set(attempts.get() + 1);
-                Ok::<_, ()>(())
-            })
-            .unwrap();
-            assert!(!accepted);
-        }
-        assert_eq!(attempts.get(), 0);
-    }
-
-    #[test]
-    fn temporary_platform_error_does_not_disable_the_next_real_down() {
-        let body = input(PointerPhase::Down, 80.0, 84.0);
+    fn physical_region_keeps_gaps_and_accounts_for_dpi_and_nonclient_offset() {
+        let mask = AlphaMask {
+            width: 4,
+            height: 2,
+            runs: vec![[0, 0, 1], [0, 2, 4], [1, 2, 3]],
+        };
+        assert!(mask.validate());
+        let data = mask.region_data(6, 4, (8, 30));
         assert_eq!(
-            dispatch_pointer_input(body, || Err("临时平台错误")),
-            Err("临时平台错误")
+            data,
+            [
+                32, 1, 3, 48, 8, 30, 14, 34, 8, 30, 10, 32, 11, 30, 14, 32, 11, 32, 13, 34
+            ]
         );
-        assert_eq!(dispatch_pointer_input(body, || Ok::<_, &str>(())), Ok(true));
     }
-
     #[test]
-    fn invalid_coordinates_and_other_buttons_never_call_native_drag() {
-        for event in [
-            input(PointerPhase::Down, f64::NAN, 84.0),
-            PointerInput {
-                button: 1,
-                ..input(PointerPhase::Down, 80.0, 84.0)
-            },
+    fn unordered_rows_and_outside_extents_are_rejected() {
+        for runs in [
+            vec![[1, 0, 1], [0, 1, 2]],
+            vec![[0, 1, 3], [0, 2, 4]],
+            vec![[0, 2, 5]],
+            vec![[2, 0, 2]],
         ] {
-            assert!(!dispatch_pointer_input(event, || Err("不得调用原生拖动")).unwrap());
-        }
-        assert!(hits_pet(80.0, 25.0));
-        assert!(!hits_pet(135.0, 84.0));
-    }
-}
-
-#[cfg(any(target_os = "windows", test))]
-pub mod region {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct BodyRegion {
-        pub left: i32,
-        pub top: i32,
-        pub right: i32,
-        pub bottom: i32,
-    }
-
-    pub fn body_region(width: i32, height: i32, offset: (i32, i32)) -> Option<BodyRegion> {
-        if width <= 0 || height <= 0 {
-            return None;
-        }
-        let x = |value: f64| offset.0 + (value * f64::from(width) / 160.0).round() as i32;
-        let y = |value: f64| offset.1 + (value * f64::from(height) / 180.0).round() as i32;
-        Some(BodyRegion {
-            left: x(28.0),
-            top: y(24.0),
-            right: x(132.0),
-            bottom: y(144.0),
-        })
-    }
-
-    #[derive(Default)]
-    pub struct RegionUpdate {
-        applied: Option<BodyRegion>,
-    }
-    impl RegionUpdate {
-        pub fn apply<E>(
-            &mut self,
-            requested: BodyRegion,
-            operation: impl FnOnce(BodyRegion) -> Result<(), E>,
-        ) -> Result<bool, E> {
-            if self.applied == Some(requested) {
-                return Ok(false);
-            }
-            operation(requested)?;
-            self.applied = Some(requested);
-            Ok(true)
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        #[test]
-        fn region_accounts_for_physical_dpi_and_client_offset() {
-            assert_eq!(
-                body_region(320, 360, (8, 30)),
-                Some(BodyRegion {
-                    left: 64,
-                    top: 78,
-                    right: 272,
-                    bottom: 318
-                })
-            );
-            assert_eq!(body_region(0, 360, (0, 0)), None);
-        }
-        #[test]
-        fn failed_native_region_update_is_retried_not_cached_as_applied() {
-            let mut update = RegionUpdate::default();
-            let shape = BodyRegion {
-                left: 28,
-                top: 24,
-                right: 132,
-                bottom: 144,
-            };
-            assert_eq!(
-                update.apply(shape, |_| Err("临时原生失败")),
-                Err("临时原生失败")
-            );
-            assert_eq!(update.apply(shape, |_| Ok::<_, &str>(())), Ok(true));
-            assert_eq!(
-                update.apply(shape, |_| Err("重复配置不应调用平台")),
-                Ok(false)
+            assert!(
+                !AlphaMask {
+                    width: 4,
+                    height: 2,
+                    runs
+                }
+                .validate()
             );
         }
     }

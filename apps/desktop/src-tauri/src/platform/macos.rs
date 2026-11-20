@@ -1,12 +1,14 @@
-use objc2::{MainThreadOnly, define_class, msg_send, rc::Retained};
+use crate::placement::{HEIGHT, WIDTH, WindowPlacement, WorkArea, clamp_placement};
+use crate::windows::AlphaMask;
+use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained};
 use objc2_app_kit::{
-    NSBackingStoreType, NSBezierPath, NSColor, NSCompositingOperation, NSEvent,
-    NSRectFillUsingOperation, NSResponder, NSView, NSWindow, NSWindowOrderingMode,
+    NSBackingStoreType, NSColor, NSCompositingOperation, NSEvent, NSRectFillList,
+    NSRectFillUsingOperation, NSResponder, NSScreen, NSView, NSWindow, NSWindowOrderingMode,
     NSWindowStyleMask,
 };
-use objc2_foundation::{MainThreadMarker, NSObject, NSPoint, NSRect, NSSize};
+use objc2_foundation::{MainThreadMarker, NSNumber, NSObject, NSPoint, NSRect, NSSize, NSString};
 use std::cell::RefCell;
-use tauri::{WebviewWindowBuilder, Wry, utils::config::BackgroundThrottlingPolicy};
+use tauri::{Manager, WebviewWindowBuilder, Wry, utils::config::BackgroundThrottlingPolicy};
 
 pub(super) fn configure(
     builder: WebviewWindowBuilder<'_, Wry, tauri::AppHandle>,
@@ -32,6 +34,7 @@ define_class!(
 define_class!(
     #[unsafe(super(NSView, NSResponder, NSObject))]
     #[thread_kind = MainThreadOnly]
+    #[ivars = RefCell<AlphaMask>]
     struct PetInputView;
     impl PetInputView {
         #[unsafe(method(isFlipped))]
@@ -42,20 +45,31 @@ define_class!(
         fn draw_rect(&self, _rect: NSRect) {
             NSColor::clearColor().setFill();
             NSRectFillUsingOperation(self.bounds(), NSCompositingOperation::Copy);
-            // 暂用原生椭圆命中区。让命中代理尽量透明，月影由 Canvas 子窗绘制。
-            NSColor::colorWithSRGBRed_green_blue_alpha(0.0,0.0,0.0,0.01).setFill();
-            NSBezierPath::bezierPathWithOvalInRect(NSRect::new(NSPoint::new(28.0,24.0),NSSize::new(104.0,120.0))).fill();
+            let mask = self.ivars().borrow();
+            if mask.runs.is_empty() { return; }
+            let sx = self.bounds().size.width / f64::from(mask.width);
+            let sy = self.bounds().size.height / f64::from(mask.height);
+            let mut rects: Vec<_> = mask.runs.iter().map(|&[y, left, right]| {
+                NSRect::new(
+                    NSPoint::new(f64::from(left) * sx, f64::from(y) * sy),
+                    NSSize::new(f64::from(right - left) * sx, sy),
+                )
+            }).collect();
+            NSColor::colorWithSRGBRed_green_blue_alpha(0., 0., 0., 0.01).setFill();
+            // SAFETY: 非空连续矩形数组在同步绘制结束前保持有效。
+            unsafe {
+                NSRectFillList(std::ptr::NonNull::new(rects.as_mut_ptr()).unwrap(), rects.len() as isize);
+            }
         }
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            let point = self.convertPoint_fromView(event.locationInWindow(), None);
             if let Some(window) = self.window() {
-                let input = crate::windows::PointerInput { phase:crate::windows::PointerPhase::Down, x:point.x, y:point.y, button:event.buttonNumber() as i16 };
-                let _ = crate::windows::dispatch_pointer_input(input, || {
-                    eprintln!("桌宠原生按下：{},{}",point.x,point.y);
-                    window.performWindowDragWithEvent(event);
-                    Ok::<_,std::convert::Infallible>(())
-                });
+                #[cfg(debug_assertions)]
+                if std::env::var_os("PET_DIAGNOSTICS_DIR").is_some() {
+                    let point = self.convertPoint_fromView(event.locationInWindow(), None);
+                    eprintln!("桌宠原生按下：{},{}", point.x, point.y);
+                }
+                window.performWindowDragWithEvent(event);
             }
         }
     }
@@ -64,6 +78,8 @@ define_class!(
 struct ProxyPair {
     proxy: Retained<PetProxyWindow>,
     renderer: Retained<NSWindow>,
+    view: Retained<PetInputView>,
+    frame: Option<pet_core::pet_package::FrameRect>,
 }
 impl Drop for ProxyPair {
     fn drop(&mut self) {
@@ -91,7 +107,7 @@ pub(super) fn install_input(window: &tauri::WebviewWindow) -> tauri::Result<()> 
     proxy.setHasShadow(false);
     proxy.setLevel(native.level());
     let view: Retained<PetInputView> = unsafe {
-        msg_send![PetInputView::alloc(mtm), initWithFrame:NSRect::new(NSPoint::new(0.0,0.0),native.frame().size)]
+        msg_send![super(PetInputView::alloc(mtm).set_ivars(RefCell::default())), initWithFrame:NSRect::new(NSPoint::new(0.0,0.0),native.frame().size)]
     };
     proxy.setContentView(Some(&view));
     native.setIgnoresMouseEvents(true);
@@ -99,8 +115,15 @@ pub(super) fn install_input(window: &tauri::WebviewWindow) -> tauri::Result<()> 
     unsafe {
         proxy.addChildWindow_ordered(native, NSWindowOrderingMode::Above);
     }
-    PROXY.with(|state| *state.borrow_mut() = Some(ProxyPair { proxy, renderer }));
-    set_visible(true)?;
+    super::macos_power::watch_position(window.app_handle(), &proxy);
+    PROXY.with(|state| {
+        *state.borrow_mut() = Some(ProxyPair {
+            proxy,
+            renderer,
+            view,
+            frame: None,
+        })
+    });
     Ok(())
 }
 
@@ -135,7 +158,7 @@ pub(super) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::
         let corner=NSPoint::new(frame.origin.x+5.0,frame.origin.y+frame.size.height-5.0);
         let query=|point,below|NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(point,below,mtm);
         let report=serde_json::json!({
-            "rendererWindow":native.windowNumber(),"proxyWindow":pair.proxy.windowNumber(),
+            "pose":pair.frame,"runCount":pair.view.ivars().borrow().runs.len(),"rendererWindow":native.windowNumber(),"proxyWindow":pair.proxy.windowNumber(),
             "rendererParent":native.parentWindow().map(|p|p.windowNumber()),
             "bodyPoint":{"x":body.x,"y":body.y},"cornerPoint":{"x":corner.x,"y":corner.y},
             "bodyWindow":query(body,0),"cornerWindow":query(corner,0),
@@ -146,4 +169,93 @@ pub(super) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::
         });
         Some(report)
     })
+}
+
+pub(super) fn update_hit_region(
+    frame: &pet_core::pet_package::FrameRect,
+    mask: AlphaMask,
+) -> tauri::Result<()> {
+    let view = PROXY
+        .with(|state| {
+            let mut state = state.borrow_mut();
+            let pair = state.as_mut()?;
+            pair.frame = Some(*frame);
+            *pair.view.ivars().borrow_mut() = mask;
+            Some(pair.view.clone())
+        })
+        .ok_or_else(|| std::io::Error::other("桌宠代理不可用"))?;
+    view.setNeedsDisplay(true);
+    view.displayIfNeeded();
+    Ok(())
+}
+
+fn area(screen: &NSScreen) -> WorkArea {
+    let number = screen
+        .deviceDescription()
+        .objectForKey(&NSString::from_str("NSScreenNumber"))
+        .and_then(|v| v.downcast::<NSNumber>().ok())
+        .map(|n| n.unsignedIntValue());
+    let rect = screen.visibleFrame();
+    let scale = screen.backingScaleFactor();
+    WorkArea {
+        id: number
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| screen.localizedName().to_string()),
+        x: rect.origin.x * scale,
+        y: -(rect.origin.y + rect.size.height) * scale,
+        width: rect.size.width * scale,
+        height: rect.size.height * scale,
+        scale_factor: scale,
+    }
+}
+
+pub(super) fn position(saved: Option<WindowPlacement>) -> tauri::Result<Option<WindowPlacement>> {
+    let mtm =
+        MainThreadMarker::new().ok_or_else(|| std::io::Error::other("桌宠位置必须在主线程恢复"))?;
+    let Some((proxy, renderer)) = PROXY.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|p| (p.proxy.clone(), p.renderer.clone()))
+    }) else {
+        return Ok(None);
+    };
+    let areas: Vec<_> = NSScreen::screens(mtm)
+        .iter()
+        .map(|screen| area(&screen))
+        .collect();
+    let current = proxy.frame();
+    let requested = match saved {
+        Some(p) => p,
+        None => {
+            let Some(screen) = proxy.screen() else {
+                return Ok(None);
+            };
+            let area = area(&screen);
+            area.capture(
+                current.origin.x * area.scale_factor,
+                -(current.origin.y + current.size.height) * area.scale_factor,
+                current.size.width / WIDTH,
+            )
+        }
+    };
+    let fit = clamp_placement(requested, &areas);
+    if let Some(area) = areas
+        .iter()
+        .find(|a| a.usable() && Some(&a.id) == fit.monitor_id.as_ref())
+    {
+        let (x, y) = area.position(&fit);
+        let size = NSSize::new(WIDTH * fit.scale, HEIGHT * fit.scale);
+        let frame = NSRect::new(
+            NSPoint::new(x / area.scale_factor, -y / area.scale_factor - size.height),
+            size,
+        );
+        if current != frame {
+            proxy.setFrame_display(frame, true);
+        }
+        if renderer.frame() != frame {
+            renderer.setFrame_display(frame, true);
+        }
+        return Ok(Some(fit));
+    }
+    Ok(None)
 }

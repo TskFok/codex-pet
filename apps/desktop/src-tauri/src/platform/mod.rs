@@ -11,7 +11,7 @@ mod playback;
 pub(crate) use playback::{Playback, PlaybackSignal};
 
 use std::fmt;
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Debug)]
 pub struct PlatformError(tauri::Error);
@@ -29,9 +29,9 @@ impl From<tauri::Error> for PlatformError {
 
 pub fn create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError> {
     let builder = WebviewWindowBuilder::new(app, "pet", WebviewUrl::App("index.html".into()))
-        .title("桌宠窗口实验")
+        .title("月影桌宠")
+        .visible(false)
         .inner_size(160.0, 180.0)
-        .position(120.0, 180.0)
         .resizable(false)
         .decorations(false)
         .shadow(false)
@@ -43,8 +43,6 @@ pub fn create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError> {
         .focusable(false);
     #[cfg(target_os = "macos")]
     let builder = macos::configure(builder);
-    #[cfg(target_os = "windows")]
-    let builder = windows::configure(builder);
     let window = builder.build()?;
     #[cfg(target_os = "macos")]
     {
@@ -56,6 +54,10 @@ pub fn create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError> {
         windows::install_input(&window)?;
         windows_power::install(&window)?;
     }
+    set_pet_visible(
+        app,
+        std::env::var("PET_VALIDATION_PHASE").as_deref() != Ok("hidden"),
+    )?;
     Ok(())
 }
 
@@ -66,6 +68,9 @@ pub(crate) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::
 
 /// 操作整个桌宠窗口组，调用者不能只隐藏 macOS 的 Canvas 子窗。
 pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<()> {
+    if visible {
+        restore_placement(app)?;
+    }
     #[cfg(target_os = "macos")]
     {
         macos::set_visible(visible)?;
@@ -82,6 +87,7 @@ pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<(
         }
     }
     playback::set_visible(app, visible);
+    crate::tray::sync_visibility(app, visible)?;
     Ok(())
 }
 
@@ -89,4 +95,55 @@ pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<(
 pub(crate) fn shutdown_input() {
     macos_power::shutdown();
     macos::shutdown_input();
+}
+
+pub(crate) fn restore_placement(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let saved = app.state::<crate::placement::PlacementState>().current();
+    #[cfg(target_os = "macos")]
+    let position = macos::position(Some(saved))?;
+    #[cfg(target_os = "windows")]
+    let position = windows::position(app, Some(saved))?;
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    if let Some(position) = position {
+        app.state::<crate::placement::PlacementState>()
+            .remember(position);
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub(super) fn finish_drag(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let result = macos::position(None);
+    #[cfg(target_os = "windows")]
+    let result = windows::position(app, None);
+    match result {
+        Ok(Some(position)) => app
+            .state::<crate::placement::PlacementState>()
+            .remember(position),
+        Err(error) => eprintln!("桌宠位置更新失败：{error}"),
+        _ => {}
+    }
+}
+
+pub(crate) fn update_hit_region(
+    window: &tauri::WebviewWindow,
+    frame: &pet_core::pet_package::FrameRect,
+    mask: crate::windows::AlphaMask,
+) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window;
+        macos::update_hit_region(frame, mask)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = frame;
+        windows::update_hit_region(window, mask)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (window, frame, mask);
+        Ok(())
+    }
 }

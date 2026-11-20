@@ -5,7 +5,7 @@ use tauri::{Emitter, Manager};
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PlaybackSignal {
-    pub(super) visible: bool,
+    pub(crate) visible: bool,
     pub(super) suspended: bool,
     pub(super) revision: u64,
 }

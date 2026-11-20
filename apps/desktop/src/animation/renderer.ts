@@ -1,8 +1,10 @@
 import { FrameCadence } from '../diagnostics/frame-cadence';
-import type { Animation, Atlas, PetManifest } from '../types';
+import type { Animation, Atlas, FrameRect, PetManifest } from '../types';
 import { AnimationClock, type AnimationSample } from './clock';
+import { PoseMasks, type AlphaMask } from './hit-mask';
 
 interface RendererOptions {
+  onPose?: (mask: AlphaMask, frame: FrameRect) => void;
   resolveAtlasUrl: (atlas: Atlas) => string;
   staticFrame?: boolean;
   onDraw?: (timestamp: number, state: string, sample: AnimationSample) => void;
@@ -13,6 +15,7 @@ interface Mount {
   context: CanvasRenderingContext2D;
   manifest: PetManifest;
   ready: Promise<void>;
+  masks: PoseMasks;
   image?: HTMLImageElement;
 }
 
@@ -52,9 +55,17 @@ export class PetRenderer {
       this.mounted = undefined;
       throw error;
     });
-    const mount: Mount = { canvas, context, manifest, ready };
+    const mount: Mount = { canvas, context, manifest, ready, masks: new PoseMasks() };
     this.mounted = mount;
     return ready;
+  }
+
+  resize(width: number, height: number): void {
+    const canvas = this.mounted?.canvas;
+    if (!canvas || (width === canvas.width && height === canvas.height)) return;
+    canvas.width = width;
+    canvas.height = height;
+    this.scheduleFrame();
   }
 
   setState(state: string, nowMs: number): void {
@@ -138,6 +149,11 @@ export class PetRenderer {
       mount.context.clearRect(0, 0, canvas.width, canvas.height);
       mount.context.drawImage(mount.image, rect.x, rect.y, rect.width, rect.height,
         (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+      if (this.options.onPose) {
+        const mask = mount.masks.sample(rect, canvas.width, canvas.height, () =>
+          mount.context.getImageData(0, 0, canvas.width, canvas.height).data);
+        if (mask) this.options.onPose(mask, rect);
+      }
       this.options.onDraw?.(performance.now(), state, sample);
     }
 
