@@ -157,13 +157,15 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** `BrokerHandle::start(paths: AppPaths) -> Result<Self, BrokerError>`、`snapshot(&self) -> PetSnapshot`、`subscribe(&self) -> tokio::sync::broadcast::Receiver<PetSnapshot>`；POST `/v1/events` 输入 EventEnvelope、返回 IngestAck。发现文件 `Discovery { schema_version: u16, port: u16, token: String }`。`deliver(event: &EventEnvelope, paths: &AppPaths) -> Result<DeliveryOutcome, DeliveryError>`；DeliveryOutcome 为 Delivered 或 Queued。
 
-- [ ] **1. 写失败测试。** 真实 loopback 端口测试错令牌/带 Origin/超限 body 被拒绝、持久化失败不 ACK；ACK 丢失后重试只产生一次通知。`offline_requested_then_resolved_never_bubbles` 将同一批离线 requested/resolved/end 归并后断言只展示仍有效项目；旧发现文件和重启令牌轮换可恢复。
-- [ ] **2. 运行并确认失败。** `cargo test -p pet-desktop --test broker`、`cargo test -p pet-bridge --test delivery`。
-- [ ] **3. 实现。** 随机 loopback 端口和用户目录私有发现文件，验证 token 与来源；bridge 先 enqueue，再最多尝试 200 ms 网络投递，收到持久化 ACK 后删除。应用启动/休眠恢复扫描、notify 文件监测共同触发补发；启动先归并整批状态再通知，去重贯穿 HTTP 与文件扫描。probe-dir 仅作为显式诊断模式保留。
+- [x] **1. 写失败测试。** 真实 loopback 端口测试错令牌/带 Origin/超限 body 被拒绝、持久化失败不 ACK；ACK 丢失后重试只产生一次通知。`offline_requested_then_resolved_never_bubbles` 将同一批离线 requested/resolved/end 归并后断言只展示仍有效项目；旧发现文件和重启令牌轮换可恢复。
+- [x] **2. 运行并确认失败。** `cargo test -p pet-desktop --test broker`、`cargo test -p pet-bridge --test delivery`。
+- [x] **3. 实现。** 随机 loopback 端口和用户目录私有发现文件，验证 token 与来源；bridge 先 enqueue，再最多尝试 200 ms 网络投递，收到持久化 ACK 后删除。应用启动/休眠恢复扫描、notify 文件监测共同触发补发；启动先归并整批状态再通知，去重贯穿 HTTP 与文件扫描。probe-dir 仅作为显式诊断模式保留。
 - [ ] **4. 验证。** 重跑测试；实际关闭桌宠、产生提醒、重启，验证历史和当前状态正确，原任务不中断。Windows 转发器无控制台闪烁；磁盘完全不可写时输出诊断并正常退出宿主 Hook，不声称已留存。
-- [ ] **5. 提交。** `git commit -m "接通桌宠本地通知入口与断线恢复"`。
+- [x] **5. 提交。** `git commit -m "接通桌宠本地通知入口与断线恢复"`。
 
 先交付本机投递和离线恢复，再实现 Harness 来源自身的权威恢复。现有公开接口能观察连续会话，以及用原始调用 ID 恢复正常持久化的定时请求。普通直接提问的观察器重载和未同步会话尾部的崩溃回退，需要宿主补充请求身份、作用域、完整恢复边界及日志代次。恢复前须识别源代次与每个会话的水位，确切区分仍待处理和已解除的请求，避免旧代回合结束或请求解除记录影响新代。用只读旁观者接口接入，保持原任务与原应用提问流程。两部分分别审阅，真实来源恢复进入最终发行验收。
+
+本机可靠投递与 Harness 来源恢复已经实现并通过独立复审。桌宠进度至 `f616d4e`，配套 Harness 补丁目标为 `c507c325`。隔离验证覆盖 macOS 离线补发、进程强杀、旧凭证兼容和原问题服务的准确解除。步骤 4 保留 Windows 原生无控制台、系统休眠及真实应用操作的验收待办。
 
 ### Task 7:旧宠物导入和独立动画包格式
 
