@@ -187,11 +187,13 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** `AnimationClock.sample(animation: Animation, elapsedMs: number): { frameIndex: number; rect: FrameRect }`；`PetRenderer.mount(canvas: HTMLCanvasElement, manifest: PetManifest): Promise<void>`、`setState(state: string, nowMs: number): void`、`setVisible(visible: boolean, nowMs: number): void`、`setFps(fps: 30|60): void`、`dispose(): void`。浏览器边界类型在 types.ts 与 manifest JSON fixture 对齐。
 
-- [ ] **1. 写失败测试。** 不同时长边界、loop_start、一次跳过 5 秒后直接采样当前帧；30 FPS 下 0/16/34 ms 的采样不在每次 rAF 都绘制。隐藏后已安排的回调被取消且不继续安排；恢复从当前状态重新计时，重复 mount/dispose 不泄漏循环。
-- [ ] **2. 运行并确认失败。** `pnpm --filter @codex-pet/desktop test -- animation`。
-- [ ] **3. 实现。** 图集加载一次并缓存；drawImage 裁切，不逐帧解码或改写完整 UI。rAF 用 elapsed 时间采样、按目标 FPS 节流；移动和整体轻变换独立于角色姿态，不把 60 FPS 宣传为 60 个独立姿态。
+- [x] **1. 写失败测试。** 不同时长边界、loop_start、一次跳过 5 秒后直接采样当前帧；30 FPS 下 0/16/34 ms 的采样不在每次 rAF 都绘制。隐藏后已安排的回调被取消且不继续安排；恢复从当前状态重新计时，重复 mount/dispose 不泄漏循环。
+- [x] **2. 运行并确认失败。** `pnpm --filter @codex-pet/desktop test -- animation`。
+- [x] **3. 实现。** 图集加载一次并缓存；drawImage 裁切，不逐帧解码或改写完整 UI。rAF 用 elapsed 时间采样、按目标 FPS 节流；移动和整体轻变换独立于角色姿态，不把 60 FPS 宣传为 60 个独立姿态。
 - [ ] **4. 验证。** 重跑测试；两平台九状态视觉检查、可见未聚焦 60 秒间隔统计、隐藏/休眠恢复；对照任务 2 的报告确认无退化。
-- [ ] **5. 提交。** `git commit -m "添加流畅动画播放与后台生命周期管理"`。
+- [x] **5. 提交。** `git commit -m "添加流畅动画播放与后台生命周期管理"`。
+
+实现及独立复审通过（`115857c`）。macOS 的默认 30 FPS 档未聚焦 60 秒，P95 为 35 ms，隐藏 60 秒零绘制。60 FPS 档实测约 59.9 次绘制每秒。Windows 原生、真实系统休眠和资源验证继续保留，详见[平台记录](../../validation/desktop-pet/platforms.md)。
 
 ### Task 9:可恢复的窗口位置、输入命中与托盘
 
