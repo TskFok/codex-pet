@@ -69,6 +69,7 @@ pub fn normalize_codex(
         sequence: None,
         observation: None,
         question_birth: None,
+        direct_question_owner: None,
         occurred_at_ms: now_ms,
         received_at_ms: None,
         summary: None,

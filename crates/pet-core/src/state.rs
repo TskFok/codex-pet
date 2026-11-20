@@ -37,6 +37,8 @@ struct SessionEntry {
     #[serde(default)]
     timed_births: Vec<RecoveredQuestion>,
     #[serde(default)]
+    direct_questions: Vec<DirectQuestionRef>,
+    #[serde(default)]
     audit_only: bool,
 }
 
@@ -46,6 +48,33 @@ struct ObservedGeneration {
     snapshot_event_count: Option<u64>,
     timed_event_count: Option<u64>,
     confirmed_ends: HashSet<String>,
+    #[serde(default)]
+    snapshot_running: Option<bool>,
+    #[serde(default)]
+    last_terminal_sequence: Option<u64>,
+}
+
+#[derive(Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
+struct DirectQuestionRef {
+    owner: String,
+    epoch: String,
+    turn: Option<String>,
+    request: String,
+}
+
+impl DirectQuestionRef {
+    fn from_event(event: &EventEnvelope, request_id: &str) -> Option<Self> {
+        Some(Self {
+            owner: event.direct_question_owner.clone()?,
+            epoch: event.observation.as_ref()?.epoch_id.clone(),
+            turn: event.turn_id.clone(),
+            request: request_id.into(),
+        })
+    }
+
+    fn matches_pending(&self, pending: &PendingRequest) -> bool {
+        self.turn == pending.turn_id && self.request == pending.id
+    }
 }
 
 impl SessionEntry {
@@ -76,6 +105,7 @@ impl SessionEntry {
             observation: None,
             uncertain_pending: HashSet::new(),
             timed_births: Vec::new(),
+            direct_questions: Vec::new(),
             audit_only: false,
         }
     }
@@ -134,6 +164,7 @@ pub struct SessionStore {
     // 明确回合的结束事实独立于当前投影和可见历史，裁剪历史不能使它复活。
     confirmed_turn_ends: HashSet<(SessionKey, String)>,
     scoped_resolved: HashSet<(SessionKey, String, Option<String>, String)>,
+    direct_resolved: HashSet<(SessionKey, DirectQuestionRef)>,
     notification_epochs: BTreeMap<String, String>,
     now_ms: u64,
 }
@@ -151,6 +182,8 @@ pub(crate) struct SessionCheckpoint {
     confirmed_turn_ends: HashSet<(SessionKey, String)>,
     #[serde(default)]
     scoped_resolved: HashSet<(SessionKey, String, Option<String>, String)>,
+    #[serde(default)]
+    direct_resolved: HashSet<(SessionKey, DirectQuestionRef)>,
     #[serde(default)]
     notification_epochs: BTreeMap<String, String>,
     now_ms: u64,
@@ -178,41 +211,51 @@ impl SessionStore {
         self.now_ms = self
             .now_ms
             .max(event.received_at_ms.unwrap_or(event.occurred_at_ms));
-        if !self.accept_observation(event) {
+        let accepted = self.accept_observation(event);
+        let should_notify = if let EventKind::AttentionResolved { request_id } = &event.kind
+            && let Some(question) = DirectQuestionRef::from_event(event, request_id)
+        {
+            self.resolve_direct(event, question, accepted);
+            false
+        } else if !accepted {
             return ApplyResult::default();
-        }
-        let should_notify = match &event.kind {
-            EventKind::SourceDisconnected => {
-                for entry in self.sessions.values_mut().filter(|entry| {
-                    entry.observation.is_none()
-                        && entry.projection.key.source == event.identity.source
-                        && entry.projection.key.installation_id == event.identity.installation_id
-                        && entry.instance_id == event.identity.instance_id
-                }) {
-                    if !entry.terminal {
-                        mark_activity_unknown(entry);
+        } else if let Some(notify) = self.apply_idle_turn_end(event) {
+            notify
+        } else {
+            match &event.kind {
+                EventKind::SourceDisconnected => {
+                    for entry in self.sessions.values_mut().filter(|entry| {
+                        entry.observation.is_none()
+                            && entry.projection.key.source == event.identity.source
+                            && entry.projection.key.installation_id
+                                == event.identity.installation_id
+                            && entry.instance_id == event.identity.instance_id
+                    }) {
+                        if !entry.terminal {
+                            mark_activity_unknown(entry);
+                        }
                     }
+                    false
                 }
-                false
+                EventKind::SourceSnapshot { sessions } => {
+                    self.apply_source_snapshot(event, sessions);
+                    false
+                }
+                EventKind::SourceRecovery {
+                    snapshot_event_count,
+                    running,
+                    timed,
+                } => {
+                    self.apply_recovery_snapshot(
+                        event,
+                        *snapshot_event_count,
+                        *running,
+                        timed.as_deref(),
+                    );
+                    false
+                }
+                _ => self.apply_session_event(event),
             }
-            EventKind::SourceSnapshot { sessions } => {
-                self.apply_source_snapshot(event, sessions);
-                false
-            }
-            EventKind::SourceRecovery {
-                snapshot_event_count,
-                running,
-                timed,
-            } => {
-                self.apply_recovery_snapshot(
-                    event,
-                    *snapshot_event_count,
-                    *running,
-                    timed.as_deref(),
-                );
-                false
-            }
-            _ => self.apply_session_event(event),
         };
         self.prune_history();
         self.refresh_unread();
@@ -249,10 +292,11 @@ impl SessionStore {
                     .sequence
                     .is_some_and(|seq| current.snapshot_event_count.is_some_and(|cut| seq < cut));
                 return !below_snapshot
-                    || !matches!(
-                        event.kind,
-                        EventKind::TurnStarted | EventKind::TurnEnded { .. }
-                    );
+                    || match event.kind {
+                        EventKind::TurnStarted => false,
+                        EventKind::TurnEnded { .. } => current.snapshot_running == Some(false),
+                        _ => true,
+                    };
             }
             if !proof.ancestors.iter().any(|old| {
                 old.generation == current.proof.generation
@@ -269,17 +313,18 @@ impl SessionStore {
             entry.external_unread_end = previous.external_unread_end;
             entry.projection.pending = previous.projection.pending;
             entry.timed_births = previous.timed_births;
+            entry.direct_questions = previous.direct_questions;
             entry.projection.pending.retain(|pending| {
                 pending.lifetime == RequestLifetime::UntilResolved
                     && !entry.timed_births.iter().any(|timed| {
                         timed.turn_id == pending.turn_id
                             && timed.request_id == pending.id
-                            && timed.birth_sequence >= proof.recovered_event_count
+                            && timed.birth_sequence >= proof.live_start()
                     })
             });
             entry
                 .timed_births
-                .retain(|timed| timed.birth_sequence < proof.recovered_event_count);
+                .retain(|timed| timed.birth_sequence < proof.live_start());
             entry.uncertain_pending.extend(
                 entry
                     .projection
@@ -296,6 +341,8 @@ impl SessionStore {
             snapshot_event_count: None,
             timed_event_count: None,
             confirmed_ends: HashSet::new(),
+            snapshot_running: None,
+            last_terminal_sequence: None,
         });
         self.sessions.insert(key, entry);
         true
@@ -319,16 +366,23 @@ impl SessionStore {
             .is_none_or(|previous| cut > previous)
             && entry.sequence.is_none_or(|seq| seq < cut)
         {
-            entry.projection.turn_id.clone_from(&event.turn_id);
+            if running || !entry.terminal {
+                entry.projection.turn_id.clone_from(&event.turn_id);
+                entry.terminal = false;
+                entry.terminal_status = None;
+            }
             entry.running_known = running;
-            entry.terminal = false;
-            entry.terminal_status = None;
             entry.has_turn_fact = true;
-            entry.known_turns.insert(event.turn_id.clone());
+            entry.known_turns.insert(entry.projection.turn_id.clone());
             entry.sequence = event.sequence;
         }
-        generation.snapshot_event_count =
-            Some(generation.snapshot_event_count.unwrap_or(0).max(cut));
+        if generation
+            .snapshot_event_count
+            .is_none_or(|previous| cut > previous)
+        {
+            generation.snapshot_event_count = Some(cut);
+            generation.snapshot_running = Some(running);
+        }
         if let Some(questions) = timed
             && generation
                 .timed_event_count
@@ -338,12 +392,15 @@ impl SessionStore {
             entry.projection.pending.retain(|pending| {
                 !entry.timed_births.iter().any(|old| {
                     old.birth_sequence < cut
+                        && generation.proof.covers_birth(old.birth_sequence)
                         && old.turn_id == pending.turn_id
                         && old.request_id == pending.id
                         && !questions.contains(old)
                 })
             });
-            entry.timed_births.retain(|old| old.birth_sequence >= cut);
+            entry.timed_births.retain(|old| {
+                old.birth_sequence >= cut || !generation.proof.covers_birth(old.birth_sequence)
+            });
             for question in questions {
                 if self.is_resolved(
                     &key,
@@ -395,6 +452,94 @@ impl SessionStore {
             self.resolved
                 .contains(&(key.clone(), turn.clone(), request_id.into()))
         }
+    }
+
+    fn resolve_direct(
+        &mut self,
+        event: &EventEnvelope,
+        question: DirectQuestionRef,
+        accepted: bool,
+    ) {
+        let key = event.session_key();
+        let Some(entry) = self.sessions.get_mut(&key) else {
+            return;
+        };
+        let exact = entry.direct_questions.contains(&question);
+        if !accepted {
+            let Some(current) = &entry.observation else {
+                return;
+            };
+            let Some(old) = &event.observation else {
+                return;
+            };
+            if !exact
+                || old.stream_id != current.proof.stream_id
+                || !current.proof.ancestors.iter().any(|ancestor| {
+                    ancestor.epoch_id == old.epoch_id
+                        && ancestor.generation == old.generation
+                        && ancestor.first_sequence == old.recovered_event_count
+                })
+            {
+                return;
+            }
+        }
+        if exact {
+            entry
+                .projection
+                .pending
+                .retain(|pending| !question.matches_pending(pending));
+            entry
+                .uncertain_pending
+                .remove(&(question.turn.clone(), question.request.clone()));
+            entry
+                .direct_questions
+                .retain(|previous| previous != &question);
+            restore_entry_status(entry);
+            self.resolve_notifications(
+                &key,
+                &question.turn,
+                Some(&question.request),
+                Some(&question.epoch),
+            );
+        }
+        self.direct_resolved.insert((key, question));
+    }
+
+    fn apply_idle_turn_end(&mut self, event: &EventEnvelope) -> Option<bool> {
+        let EventKind::TurnEnded { outcome } = &event.kind else {
+            return None;
+        };
+        let (turn, seq) = (event.turn_id.as_ref()?, event.sequence?);
+        let key = event.session_key();
+        let entry = self.sessions.get_mut(&key)?;
+        let generation = entry.observation.as_mut()?;
+        let cut = generation.snapshot_event_count?;
+        if generation.snapshot_running != Some(false) || seq >= cut {
+            return None;
+        }
+        if !generation.confirmed_ends.insert(turn.clone()) {
+            return Some(false);
+        }
+        entry.projection.pending.retain(|pending| {
+            pending.lifetime == RequestLifetime::UntilResolved || pending.turn_id != event.turn_id
+        });
+        if !entry.running_known
+            && entry.sequence.is_none_or(|latest| latest < cut)
+            && generation
+                .last_terminal_sequence
+                .is_none_or(|last| seq >= last)
+        {
+            entry.projection.turn_id.clone_from(&event.turn_id);
+            entry.terminal = true;
+            entry.terminal_status = Some(status_for_outcome(*outcome));
+            generation.last_terminal_sequence = Some(seq);
+            entry.known_turns.insert(event.turn_id.clone());
+        }
+        let epoch = generation.proof.epoch_id.clone();
+        restore_entry_status(entry);
+        self.resolve_notifications(&key, &event.turn_id, None, Some(&epoch));
+        self.push_notification(event, NotificationKind::TurnEnded { outcome: *outcome });
+        Some(true)
     }
 
     fn apply_session_event(&mut self, event: &EventEnvelope) -> bool {
@@ -615,6 +760,9 @@ impl SessionStore {
                 }
                 entry.terminal = true;
                 entry.terminal_status = Some(status_for_outcome(*outcome));
+                if let Some(generation) = &mut entry.observation {
+                    generation.last_terminal_sequence = event.sequence;
+                }
                 entry.projection.status = status_for_outcome(*outcome);
                 entry
                     .projection
@@ -676,6 +824,21 @@ impl SessionStore {
             .map(|proof| proof.epoch_id.as_str());
         if self.is_resolved(&key, &event.turn_id, request_id, epoch) {
             return false;
+        }
+        if let Some(question) = DirectQuestionRef::from_event(event, request_id) {
+            if self.direct_resolved.contains(&(key, question.clone())) {
+                return false;
+            }
+            if !entry.direct_questions.contains(&question) {
+                entry.direct_questions.retain(|previous| {
+                    previous.turn != question.turn || previous.request != question.request
+                });
+                entry
+                    .projection
+                    .pending
+                    .retain(|pending| !question.matches_pending(pending));
+                entry.direct_questions.push(question);
+            }
         }
         if let Some(birth_sequence) = event.question_birth {
             let fact = RecoveredQuestion {

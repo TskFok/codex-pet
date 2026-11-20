@@ -37,19 +37,21 @@
       "patchTargetCommit": "c34aa26c7750c694fc9f075cfb30ec2fbaad63b4"
     },
     "sessionObservationApi": {
-      "version": 1,
+      "version": 2,
       "patch": "patches/session-observation-recovery.patch",
       "baseCommit": "c34aa26c7750c694fc9f075cfb30ec2fbaad63b4",
-      "patchTargetCommit": "11a4975bf5b2a3e954c86c8fa5b914fe8bc637a9",
+      "patchTargetCommit": "608241fecc42f452abee0f6331c77ad71ae77cf5",
       "scope": "agent_live_resume_from_existing_jsonl_with_verified_receipt",
       "maxAncestorEpochs": 128,
       "snapshot": [
         "session_current_turn",
         "timed_questions_if_complete"
       ],
-      "directQuestions": "explicit_owner_audit",
+      "directQuestions": "same_service_exact_old_epoch_audit_with_pending_owner_proof",
       "approvals": "continuous_native_log_events",
-      "missingOrIncompatibleReceipt": "no_authoritative_takeover"
+      "missingOrIncompatibleReceipt": "no_authoritative_takeover",
+      "verifiedBirths": "persisted_batch_witness_and_validated_prefix_digest",
+      "v1Receipt": "read_for_epoch_chain_without_inferred_birth_intervals"
     }
   },
   "loading": {

@@ -15,7 +15,7 @@ index 22b3192588..f3afb0b442 100644
 @@ -806,0 +816 @@ export class AgentLoop extends Service implements AgentFactory {
 +            observationRecovery,
 diff --git a/packages/core/agent-loop/tests/resume.spec.ts b/packages/core/agent-loop/tests/resume.spec.ts
-index db984c2bbc..936bcb2d0f 100644
+index db984c2bbc..7a231a7f0a 100644
 --- a/packages/core/agent-loop/tests/resume.spec.ts
 +++ b/packages/core/agent-loop/tests/resume.spec.ts
 @@ -11 +11 @@ import SessionStore, { SessionLogOffset, SessionSeq, Session, SessionId, TOOL_NO
@@ -26,7 +26,7 @@ index db984c2bbc..936bcb2d0f 100644
 +    ctx2.on('session/created', (session) => { observations.push(session.observationRecovery) })
 @@ -528,0 +531,2 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume',
 +    expect(observations).toEqual([handle.agent.session.observationRecovery])
-+    expect(observations[0]).toMatchObject({ version: 1, generation: 1, recoveredEventCount: 1 })
++    expect(observations[0]).toMatchObject({ version: 2, generation: 1, recoveredEventCount: 1, firstLiveSequence: 1 })
 diff --git a/packages/core/session/src/index.ts b/packages/core/session/src/index.ts
 index e9baee1b82..b564099f93 100644
 --- a/packages/core/session/src/index.ts
@@ -46,10 +46,10 @@ index e9baee1b82..b564099f93 100644
 @@ -1178,0 +1184 @@ export class SessionStore extends Service {
 +            options.observationRecovery,
 diff --git a/packages/core/session/src/types.ts b/packages/core/session/src/types.ts
-index 7787dd9bd0..c3761d3db1 100644
+index 7787dd9bd0..4f7b35ad88 100644
 --- a/packages/core/session/src/types.ts
 +++ b/packages/core/session/src/types.ts
-@@ -166,0 +167,32 @@ export interface CreateSessionOptions {
+@@ -166,0 +167,43 @@ export interface CreateSessionOptions {
 +/** Identity of one persisted observation chain or write epoch. */
 +export type SessionObservationToken = Branded<'SessionObservationToken'>
 +
@@ -62,27 +62,38 @@ index 7787dd9bd0..c3761d3db1 100644
 +  return brandString<SessionObservationToken>(value)
 +}
 +
-+/** One older writer whose retained events may supply a request's birth identity. */
++/** Half-open interval of births witnessed in a durable batch from one write owner. */
++export interface SessionObservationBirthRange {
++  readonly firstSequence: number
++  readonly eventCount: number
++}
++
++/** An older certified writer and any verified births it left in the log. */
 +export interface SessionObservationAncestor {
 +  readonly epochId: SessionObservationToken
 +  readonly generation: number
-+  /** First event position attributed to that writer. */
++  /** This writer's recovered event count, used to link its published receipt. */
 +  readonly firstSequence: number
++  readonly verifiedBirths?: SessionObservationBirthRange
 +}
 +
-+/** Immutable evidence published durably by the backend before the resumed Session is announced. */
-+export interface SessionObservationRecovery {
-+  readonly version: 1
++interface SessionObservationChain {
 +  readonly streamId: SessionObservationToken
 +  readonly epochId: SessionObservationToken
 +  readonly generation: number
-+  /** Exact retained durable prefix, measured before new writer events and synthetic closers. */
++  /** Exact retained durable prefix, before any rewrites of salvageable torn records. */
 +  readonly recoveredEventCount: number
-+  /** Recent preceding owners in order. A missing older owner leaves earlier facts unproven. */
++  /** Recent preceding certified writers, whether or not they have verified births. */
 +  readonly ancestors: readonly SessionObservationAncestor[]
 +}
 +
-@@ -185,0 +218,2 @@ export interface RestoredSessionOptions {
++/** Immutable evidence published durably by the backend before announcing a resumed Session. */
++export type SessionObservationRecovery = SessionObservationChain & (
++  | { readonly version: 1; readonly firstLiveSequence?: never }
++  | { readonly version: 2; readonly firstLiveSequence: number }
++)
++
+@@ -185,0 +229,2 @@ export interface RestoredSessionOptions {
 +  /** Optional durable evidence supplied by the write handle that recovered this seed. */
 +  readonly observationRecovery?: SessionObservationRecovery | undefined
 diff --git a/packages/interaction/user-questions/src/index.ts b/packages/interaction/user-questions/src/index.ts
@@ -102,41 +113,38 @@ index d3fd945e7c..2c073784b5 100644
 +  /** Observation writer at the original ask, if the Session has durable recovery evidence. */
 +  readonly observationRecovery?: SessionObservationRecovery | undefined
 diff --git a/packages/session/session-persistence-jsonl/README.i18n.yaml b/packages/session/session-persistence-jsonl/README.i18n.yaml
-index d8f2314ebd..7ecb3cbdff 100644
+index d8f2314ebd..254e0c3a25 100644
 --- a/packages/session/session-persistence-jsonl/README.i18n.yaml
 +++ b/packages/session/session-persistence-jsonl/README.i18n.yaml
 @@ -30,2 +30,2 @@
 -  en: 96498792672f6d50
 -  zh: d767a9c69dced889
-+  en: 91c874f3982c784d
-+  zh: 8b2ebb43e0a26421
++  en: ddd9c0f8564dfdfb
++  zh: c15df2d9d1d6caa6
 diff --git a/packages/session/session-persistence-jsonl/README.md b/packages/session/session-persistence-jsonl/README.md
-index 2de63df367..b527131ab2 100644
+index 2de63df367..1ca8c52bc4 100644
 --- a/packages/session/session-persistence-jsonl/README.md
 +++ b/packages/session/session-persistence-jsonl/README.md
 @@ -78,0 +79,2 @@ A session is materialized lazily: `create(header)` writes nothing and returns th
-+When the Agent owner prepares an existing Session for live resume, its JSONL write handle publishes a durable version-1 observation receipt in its writer-owned directory. The live Session exposes the receipt through `observationRecovery` after normal resume preparation. The receipt identifies the writer epoch, its exact durable recovered prefix, and up to 128 earlier owners. Observer reloads leave the writer epoch unchanged. The receipt is separate from the session format. An absent or unverified receipt provides no observation continuity; a receipt failure leaves ordinary session reads and writes available.
++When the Agent owner prepares an existing Session for live resume, its JSONL write handle publishes a durable version-2 observation receipt in its writer-owned directory. The live Session exposes the receipt through `observationRecovery` after normal resume preparation. The receipt identifies the writer epoch, the durable recovered prefix, the first position this owner can write, and up to 128 earlier owners. A separate synced witness records births only after the owner's main log batch commits. A successor verifies those intervals against the recovered prefix digest. Salvageable torn records and writes without a verified witness keep unknown birth ownership. Observer reloads leave the writer epoch unchanged. The receipt is separate from the session format. An absent or unverified receipt provides no observation continuity; a receipt failure leaves ordinary session reads and writes available.
 +
 diff --git a/packages/session/session-persistence-jsonl/README.zh.md b/packages/session/session-persistence-jsonl/README.zh.md
-index e5494de7d6..e186f42a74 100644
+index e5494de7d6..c034bfca93 100644
 --- a/packages/session/session-persistence-jsonl/README.zh.md
 +++ b/packages/session/session-persistence-jsonl/README.zh.md
 @@ -78,0 +79,2 @@ kind: "package-reference"
-+Agent 所有者准备恢复现有会话时，其 JSONL 写句柄会在持有写锁的目录内持久发布版本 1 的观察凭证。会话完成常规恢复准备后，通过 `observationRecovery` 公开写代次、精确的耐久恢复前缀，以及最近至多 128 个旧写所有者。观察器重载沿用原写代次。凭证独立于会话格式。凭证缺失或未经验证时，观察连续性未知，原会话读写可继续。
++Agent 所有者准备恢复现有会话时，其 JSONL 写句柄会在持有写锁的目录内持久发布版本 2 的观察凭证。会话完成常规恢复准备后，通过 `observationRecovery` 公开写代次、耐久恢复前缀、该所有者实际可写入的起点，以及最近至多 128 个旧写所有者。只有主日志批次提交后，当前所有者才会另行同步出生凭证。后继以恢复前缀摘要验证区间。撕裂帧的可读记录与缺少出生凭证的写入保留未知归属。观察器重载沿用原写代次。凭证独立于会话格式。凭证缺失或未经验证时，观察连续性未知，原会话读写可继续。
 +
 diff --git a/packages/session/session-persistence-jsonl/src/index.ts b/packages/session/session-persistence-jsonl/src/index.ts
-index f8351fa9ee..44429a6d68 100644
+index f8351fa9ee..046b45f6c6 100644
 --- a/packages/session/session-persistence-jsonl/src/index.ts
 +++ b/packages/session/session-persistence-jsonl/src/index.ts
 @@ -36,0 +37 @@ import { SessionWriteLease } from './lease.ts'
-+import { publishObservationRecovery } from './observation-recovery.ts'
-@@ -38 +39 @@ import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset }
--import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
-+import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType, SessionObservationRecovery } from '@deepseek-ai/dsh-session'
++import { publishObservationRecovery, type ObservationWriter } from './observation-recovery.ts'
 @@ -444,0 +446 @@ class JsonlSessionPersistence extends SessionPersistence {
 +        prepareObservationRecovery: () => this.recoverObservation(stored),
 @@ -1372,0 +1375,29 @@ class JsonlSessionPersistence extends SessionPersistence {
-+  private async recoverObservation(stored: CurrentStoredLog): Promise<SessionObservationRecovery | undefined> {
++  private async recoverObservation(stored: CurrentStoredLog): Promise<ObservationWriter | undefined> {
 +    try {
 +      const log = this.locate(stored.meta).path
 +      const handle = await open(log, 'r+')
@@ -167,23 +175,28 @@ index f8351fa9ee..44429a6d68 100644
 +
 diff --git a/packages/session/session-persistence-jsonl/src/observation-recovery.ts b/packages/session/session-persistence-jsonl/src/observation-recovery.ts
 new file mode 100644
-index 0000000000..a00a4bc56f
+index 0000000000..a9bc2fe5b6
 --- /dev/null
 +++ b/packages/session/session-persistence-jsonl/src/observation-recovery.ts
-@@ -0,0 +1,116 @@
-+/** Observation receipts owned by the JSONL writer lease. */
+@@ -0,0 +1,207 @@
++/** Observation receipts and durable birth evidence owned by the JSONL writer lease. */
 +import { createHash, randomUUID } from 'node:crypto'
-+import { lstat, readFile, readdir } from 'node:fs/promises'
++import { lstat, open, readFile, readdir, rename, rm } from 'node:fs/promises'
 +import { dirname, join } from 'node:path'
-+import { SessionObservationToken, type SessionEvent, type SessionObservationAncestor, type SessionObservationRecovery } from '@deepseek-ai/dsh-session'
++import { SessionObservationToken, type SessionEvent, type SessionObservationAncestor, type SessionObservationBirthRange, type SessionObservationRecovery } from '@deepseek-ai/dsh-session'
 +
 +const RECEIPT_PREFIX = '.observation-v1-'
 +const ANCESTOR_LIMIT = 128
 +const RECEIPT_BYTES = 32 * 1024
 +const TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
++const SHA256 = /^[0-9a-f]{64}$/
 +
-+interface Receipt extends SessionObservationRecovery {
-+  readonly prefixSha256: string
++type Receipt = SessionObservationRecovery & { readonly prefixSha256: string }
++
++/** The published observation and its writer-only append witness. */
++export interface ObservationWriter {
++  readonly recovery: SessionObservationRecovery
++  readonly recordBirths: (batch: readonly SessionEvent[]) => Promise<void>
 +}
 +
 +function record(value: unknown): value is Record<string, unknown> {
@@ -198,6 +211,16 @@ index 0000000000..a00a4bc56f
 +  return typeof value === 'string' && TOKEN.test(value)
 +}
 +
++function checksum(value: unknown): value is string {
++  return typeof value === 'string' && SHA256.test(value)
++}
++
++async function readRecord(path: string): Promise<unknown> {
++  const info = await lstat(path)
++  if (!info.isFile() || info.size > RECEIPT_BYTES) throw new Error('Invalid observation evidence file')
++  return JSON.parse(await readFile(path, 'utf8'))
++}
++
 +async function readPrevious(directory: string): Promise<Receipt | undefined> {
 +  const names = await readdir(directory)
 +  const indexes = names
@@ -207,14 +230,11 @@ index 0000000000..a00a4bc56f
 +  if (indexes.length === 0) return undefined
 +  const generation = indexes.reduce((latest, value) => Math.max(latest, value), 0)
 +  if (!offset(generation) || generation !== indexes.length) throw new Error('Incomplete observation receipt chain')
-+  const path = join(directory, `${RECEIPT_PREFIX}${generation}.json`)
-+  const info = await lstat(path)
-+  if (!info.isFile() || info.size > RECEIPT_BYTES) throw new Error('Invalid observation receipt file')
-+  const data: unknown = JSON.parse(await readFile(path, 'utf8'))
-+  if (!record(data) || data.version !== 1 || data.generation !== generation
++  const data = await readRecord(join(directory, `${RECEIPT_PREFIX}${generation}.json`))
++  if (!record(data) || (data.version !== 1 && data.version !== 2) || data.generation !== generation
 +    || !token(data.streamId) || !token(data.epochId) || !offset(data.recoveredEventCount)
 +    || !Array.isArray(data.ancestors) || data.ancestors.length !== Math.min(generation - 1, ANCESTOR_LIMIT)
-+    || typeof data.prefixSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(data.prefixSha256)) {
++    || !checksum(data.prefixSha256)) {
 +    throw new Error('Invalid observation receipt')
 +  }
 +  const ancestors: SessionObservationAncestor[] = []
@@ -226,79 +246,161 @@ index 0000000000..a00a4bc56f
 +      || ancestor.firstSequence > data.recoveredEventCount) {
 +      throw new Error('Invalid writer ancestry')
 +    }
++    const verifiedBirths = data.version === 2 && ancestor.verifiedBirths !== undefined
++      ? birthRange(ancestor.verifiedBirths, ancestor.firstSequence, data.recoveredEventCount)
++      : undefined
 +    priorSequence = ancestor.firstSequence
 +    ancestors.push(Object.freeze({
 +      epochId: SessionObservationToken(ancestor.epochId), generation: expected, firstSequence: priorSequence,
++      ...verifiedBirths === undefined ? {} : { verifiedBirths },
 +    }))
 +  }
-+  return {
-+    version: 1, generation, ancestors,
++  const common = {
++    generation, ancestors,
 +    streamId: SessionObservationToken(data.streamId),
 +    epochId: SessionObservationToken(data.epochId),
 +    recoveredEventCount: data.recoveredEventCount, prefixSha256: data.prefixSha256,
 +  }
++  if (data.version === 1) return { ...common, version: 1 }
++  if (!offset(data.firstLiveSequence) || data.firstLiveSequence < data.recoveredEventCount) {
++    throw new Error('Invalid live sequence boundary')
++  }
++  return { ...common, version: 2, firstLiveSequence: data.firstLiveSequence }
 +}
 +
-+function digest(events: readonly SessionEvent[], count: number): string {
++function birthRange(value: unknown, minimum: number, maximum: number): SessionObservationBirthRange {
++  if (!record(value) || !offset(value.firstSequence) || !offset(value.eventCount)
++    || value.firstSequence < minimum || value.eventCount <= value.firstSequence || value.eventCount > maximum) {
++    throw new Error('Invalid durable birth interval')
++  }
++  return Object.freeze({ firstSequence: value.firstSequence, eventCount: value.eventCount })
++}
++
++function canonical(_key: string, value: unknown): unknown {
++  if (!record(value)) return value
++  return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))
++}
++
++function prefixHash(events: readonly SessionEvent[], count: number, version: 1 | 2): ReturnType<typeof createHash> {
 +  const hash = createHash('sha256')
-+  for (let index = 0; index < count; index++) hash.update(JSON.stringify(events[index]) + '\n')
-+  return hash.digest('hex')
++  for (let index = 0; index < count; index++) {
++    hash.update(JSON.stringify(events[index], version === 1 ? undefined : canonical) + '\n')
++  }
++  return hash
++}
++
++function birthsPath(directory: string, generation: number): string {
++  return join(directory, `.observation-births-v2-${generation}.json`)
++}
++
++async function readBirths(
++  directory: string,
++  previous: Receipt,
++  events: readonly SessionEvent[],
++  cut: number,
++): Promise<SessionObservationBirthRange | undefined> {
++  if (previous.version !== 2) return undefined
++  try {
++    const value = await readRecord(birthsPath(directory, previous.generation))
++    if (!record(value) || value.epochId !== previous.epochId || !checksum(value.prefixSha256)) return undefined
++    const range = birthRange(value, previous.firstLiveSequence, cut)
++    if (range.firstSequence !== previous.firstLiveSequence
++      || prefixHash(events, range.eventCount, 2).digest('hex') !== value.prefixSha256) return undefined
++    return range
++  } catch (_error: unknown) {
++    return undefined
++  }
++}
++
++async function writeBirthWitness(path: string, content: string): Promise<void> {
++  const staging = `${path}.${randomUUID()}.tmp`
++  const handle = await open(staging, 'wx', 0o600)
++  try {
++    try {
++      await handle.writeFile(content)
++      await handle.sync()
++    } finally {
++      await handle.close()
++    }
++    await rename(staging, path)
++  } finally {
++    await rm(staging, { force: true })
++  }
 +}
 +
 +/**
 + * Publish an observation receipt while holding the session's write lease.
 + * @param logPath Canonical artifact containing the verified durable prefix.
-+ * @param events Physically recovered and logically validated events.
++ * @param events Physically recovered and logically validated events, including any salvageable records.
 + * @param recoveredEventCount Durable cut excluding uncommitted recovered frame data.
 + * @param publish Publishes a new named file without replacement and syncs its directory entry.
-+ * @returns The write epoch after its receipt reaches durable storage.
++ * @returns The write epoch and the observer's append witness after the receipt is durable.
 + */
 +export async function publishObservationRecovery(
 +  logPath: string,
 +  events: readonly SessionEvent[],
 +  recoveredEventCount: number,
 +  publish: (path: string, content: string) => Promise<void>,
-+): Promise<SessionObservationRecovery> {
++): Promise<ObservationWriter> {
 +  const directory = dirname(logPath)
 +  const previous = await readPrevious(directory)
 +  if (previous !== undefined && (
 +    previous.recoveredEventCount > recoveredEventCount
-+    || previous.prefixSha256 !== digest(events, previous.recoveredEventCount)
++    || previous.prefixSha256 !== prefixHash(events, previous.recoveredEventCount, previous.version).digest('hex')
 +  )) {
 +    throw new Error('The last certified observation prefix is unavailable')
 +  }
 +  const generation = (previous?.generation ?? 0) + 1
 +  if (!offset(generation)) throw new Error('Observation generation exhausted')
++  const verifiedBirths = previous === undefined ? undefined : await readBirths(directory, previous, events, recoveredEventCount)
 +  const ancestors = previous === undefined ? [] : [
 +    ...previous.ancestors,
 +    Object.freeze({
 +      epochId: previous.epochId,
 +      generation: previous.generation,
 +      firstSequence: previous.recoveredEventCount,
++      ...verifiedBirths === undefined ? {} : { verifiedBirths },
 +    }),
 +  ].slice(-ANCESTOR_LIMIT)
 +  const recovery = Object.freeze({
-+    version: 1 as const,
++    version: 2 as const,
 +    streamId: previous?.streamId ?? SessionObservationToken(randomUUID()),
 +    epochId: SessionObservationToken(randomUUID()),
-+    generation, recoveredEventCount, ancestors: Object.freeze(ancestors),
++    generation, recoveredEventCount, firstLiveSequence: events.length, ancestors: Object.freeze(ancestors),
 +  })
-+  const receipt: Receipt = { ...recovery, prefixSha256: digest(events, recoveredEventCount) }
++  const hash = prefixHash(events, recoveredEventCount, 2)
++  const receipt: Receipt = { ...recovery, prefixSha256: hash.copy().digest('hex') }
 +  await publish(join(directory, `${RECEIPT_PREFIX}${generation}.json`), JSON.stringify(receipt) + '\n')
-+  return recovery
++  for (const event of events.slice(recoveredEventCount)) hash.update(JSON.stringify(event, canonical) + '\n')
++  let eventCount = recovery.firstLiveSequence
++  return {
++    recovery,
++    async recordBirths(batch) {
++      for (const event of batch) hash.update(JSON.stringify(event, canonical) + '\n')
++      eventCount += batch.length
++      await writeBirthWitness(birthsPath(directory, generation), JSON.stringify({
++        epochId: recovery.epochId,
++        firstSequence: recovery.firstLiveSequence,
++        eventCount, prefixSha256: hash.copy().digest('hex'),
++      }) + '\n')
++    },
++  }
 +}
 diff --git a/packages/session/session-persistence-jsonl/src/storage.ts b/packages/session/session-persistence-jsonl/src/storage.ts
-index 197dcbc270..a5775eda51 100644
+index 197dcbc270..1b24cfc463 100644
 --- a/packages/session/session-persistence-jsonl/src/storage.ts
 +++ b/packages/session/session-persistence-jsonl/src/storage.ts
 @@ -14 +14 @@ import { errorChain } from '@deepseek-ai/dsh-llm'
 -import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 +import type { Session, SessionEvent, SessionHeader, SessionId, SessionLogOffset, SessionObservationRecovery } from '@deepseek-ai/dsh-session'
-@@ -76,0 +77 @@ export interface StorageHandleState {
-+  prepareObservationRecovery?: (() => Promise<SessionObservationRecovery | undefined>) | undefined
-@@ -94,0 +96 @@ export class JsonlSessionHandle implements SessionHandle {
+@@ -33,0 +34 @@ import type { SessionWriteLease } from './lease.ts'
++import type { ObservationWriter } from './observation-recovery.ts'
+@@ -76,0 +78 @@ export interface StorageHandleState {
++  prepareObservationRecovery?: (() => Promise<ObservationWriter | undefined>) | undefined
+@@ -94,0 +97,2 @@ export class JsonlSessionHandle implements SessionHandle {
++  private observationWriter: ObservationWriter | undefined
 +  private observationTask: Promise<SessionObservationRecovery | undefined> | undefined
-@@ -110,0 +113,18 @@ export class JsonlSessionHandle implements SessionHandle {
+@@ -110,0 +115,21 @@ export class JsonlSessionHandle implements SessionHandle {
 +  /**
 +   * Publish the restored prefix before this write handle appends new events.
 +   * @returns This handoff's immutable proof, when certified.
@@ -312,13 +414,22 @@ index 197dcbc270..a5775eda51 100644
 +    await this.run('prepare observation recovery', async () => {
 +      const prepare = this.state.prepareObservationRecovery
 +      this.state.prepareObservationRecovery = undefined
-+      if (prepare !== undefined) proof = await prepare()
++      if (prepare !== undefined) {
++        this.observationWriter = await prepare()
++        proof = this.observationWriter?.recovery
++      }
 +    })
 +    return proof
 +  }
 +
-@@ -341,0 +362 @@ export class JsonlSessionHandle implements SessionHandle {
+@@ -341,0 +367 @@ export class JsonlSessionHandle implements SessionHandle {
 +    this.state.prepareObservationRecovery = undefined
+@@ -342,0 +369,5 @@ export class JsonlSessionHandle implements SessionHandle {
++    try {
++      await this.observationWriter?.recordBirths(batch)
++    } catch (_error: unknown) {
++      // The log batch already committed. A missing or torn witness leaves this range unproven.
++    }
 diff --git a/packages/session/session-persistence-jsonl/tests/fixtures/recovery-tail-writer.mjs b/packages/session/session-persistence-jsonl/tests/fixtures/recovery-tail-writer.mjs
 new file mode 100644
 index 0000000000..23d56431e7
@@ -352,9 +463,83 @@ index 0000000000..23d56431e7
 +session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
 +writeSync(1, JSON.stringify({ generation, seedCount: session.firstLiveSeq, seen }) + '\n')
 +process.kill(process.pid, 'SIGKILL')
+diff --git a/packages/session/session-persistence-jsonl/tests/observation-births.spec.ts b/packages/session/session-persistence-jsonl/tests/observation-births.spec.ts
+new file mode 100644
+index 0000000000..297d68b159
+--- /dev/null
++++ b/packages/session/session-persistence-jsonl/tests/observation-births.spec.ts
+@@ -0,0 +1,68 @@
++/** Observation ownership across a writable handoff whose metadata publication fails. */
++import { mkdtemp, open, rm } from 'node:fs/promises'
++import type { FileHandle } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { expect, it, onTestFinished, vi } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import { SESSION_FORMAT_VERSION, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
++import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
++
++function turn(sequence: number, turnId: number): SessionEvent[] {
++  return [
++    { type: 'turn/start', seq: SessionSeq(sequence), time: sequence, data: { turn: turnId } },
++    { type: 'turn/end', seq: SessionSeq(sequence + 1), time: sequence + 1, data: { turn: turnId, reason: { kind: 'completed' } } },
++  ]
++}
++
++it('only attributes the proven birth interval when an unsealed writer appends before the next recovery', async () => {
++  const root = await mkdtemp(join(tmpdir(), 'dsh-order-'))
++  const ctx = new Context()
++  onTestFinished(async () => {
++    await ctx.fiber.dispose()
++    await rm(root, { recursive: true, force: true })
++  })
++  await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
++  const id = SessionId('between-writers')
++  const initial = await ctx.sessionPersistence.create({ version: SESSION_FORMAT_VERSION, id, createdAt: 100, isSeeded: false })
++  await initial.append(turn(0, 1))
++  await initial.close()
++
++  const first = await ctx.sessionPersistence.open(id, 'write')
++  const a = await first.prepareObservationRecovery?.()
++  expect(a).toBeDefined()
++  await first.append(turn(2, 2))
++  await first.close()
++
++  const next = await ctx.sessionPersistence.open(id, 'write')
++  const path = (await ctx.sessionPersistence.stat(id))?.location
++  if (path?.kind !== 'jsonl') throw new Error('Expected JSONL storage')
++  const file = await open(path.path, 'r')
++  const prototype: Pick<FileHandle, 'sync'> = Object.getPrototypeOf(file)
++  await file.close()
++  const sync = prototype.sync
++  let syncCalls = 0
++  const failure = vi.spyOn(prototype, 'sync').mockImplementation(async function (this: FileHandle) {
++    if (++syncCalls === 2) throw new Error('simulated observation staging sync failure')
++    await sync.call(this)
++  })
++  try {
++    expect(await next.prepareObservationRecovery?.()).toBeUndefined()
++  } finally {
++    failure.mockRestore()
++  }
++  await next.append(turn(4, 3))
++  await next.close()
++
++  const last = await ctx.sessionPersistence.open(id, 'write')
++  try {
++    expect((await last.read()).events).toEqual([...turn(0, 1), ...turn(2, 2), ...turn(4, 3)])
++    expect(await last.prepareObservationRecovery?.()).toMatchObject({
++      version: 2, generation: 2, recoveredEventCount: 6, firstLiveSequence: 6,
++      ancestors: [{ epochId: a?.epochId, generation: 1, firstSequence: 2,
++        verifiedBirths: { firstSequence: 2, eventCount: 4 } }],
++    })
++  } finally {
++    await last.close()
++  }
++})
 diff --git a/packages/session/session-persistence-jsonl/tests/observation-recovery.e2e.ts b/packages/session/session-persistence-jsonl/tests/observation-recovery.e2e.ts
 new file mode 100644
-index 0000000000..1e7e615047
+index 0000000000..4a7da3cd1c
 --- /dev/null
 +++ b/packages/session/session-persistence-jsonl/tests/observation-recovery.e2e.ts
 @@ -0,0 +1,73 @@
@@ -404,15 +589,15 @@ index 0000000000..1e7e615047
 +  expect((await recovered.read()).events.at(-1)).toMatchObject({
 +    type: 'turn/start', seq: 3, data: { turn: 2 },
 +  })
-+  expect(observed.generation).toMatchObject({ version: 1, generation: 1, recoveredEventCount: 3 })
++  expect(observed.generation).toMatchObject({ version: 2, generation: 1, recoveredEventCount: 3 })
 +  expect(second).toMatchObject({
-+    version: 1, streamId: observed.generation.streamId, generation: 2, recoveredEventCount: 3,
++    version: 2, streamId: observed.generation.streamId, generation: 2, recoveredEventCount: 3,
 +  })
 +  await recovered.close()
 +
 +  const grown = await ctx.sessionPersistence.open(id, 'write')
 +  expect(await grown.prepareObservationRecovery?.()).toMatchObject({
-+    version: 1, generation: 3, recoveredEventCount: 4,
++    version: 2, generation: 3, recoveredEventCount: 4,
 +    ancestors: [
 +      { epochId: observed.generation.epochId, generation: 1, firstSequence: 3 },
 +      { epochId: second?.epochId, generation: 2, firstSequence: 3 },
@@ -431,6 +616,33 @@ index 0000000000..1e7e615047
 +  expect((await uncertain.read()).events.map(event => event.seq)).toEqual([0, 1, 2, 3, 4])
 +  await uncertain.close()
 +})
+diff --git a/packages/session/session-persistence-jsonl/tests/zstd.spec.ts b/packages/session/session-persistence-jsonl/tests/zstd.spec.ts
+index 91cea44e31..641abdbd4f 100644
+--- a/packages/session/session-persistence-jsonl/tests/zstd.spec.ts
++++ b/packages/session/session-persistence-jsonl/tests/zstd.spec.ts
+@@ -716,0 +717,3 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
++    const first = await ctx.sessionPersistence.open(header.id, 'write')
++    expect(await first.prepareObservationRecovery?.()).toBeDefined()
++    await first.close()
+@@ -734 +737,17 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
+-    await appendBatch(ctx.sessionPersistence, header.id, thirdTurn)
++    const writer = await ctx.sessionPersistence.open(header.id, 'write')
++    try {
++      expect(await writer.prepareObservationRecovery?.()).toMatchObject({
++        recoveredEventCount: 6, firstLiveSequence: 8,
++      })
++      await writer.append(thirdTurn)
++    } finally {
++      await writer.close()
++    }
++    const later = await ctx.sessionPersistence.open(header.id, 'write')
++    try {
++      const proof = await later.prepareObservationRecovery?.()
++      expect(proof?.ancestors[0]).not.toHaveProperty('verifiedBirths')
++      expect(proof?.ancestors[1]).toMatchObject({ verifiedBirths: { firstSequence: 8, eventCount: 10 } })
++    } finally {
++      await later.close()
++    }
 diff --git a/packages/session/session-persistence/src/handle.ts b/packages/session/session-persistence/src/handle.ts
 index b6a194c87d..889e677a2f 100644
 --- a/packages/session/session-persistence/src/handle.ts

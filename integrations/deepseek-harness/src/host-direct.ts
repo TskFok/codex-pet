@@ -22,6 +22,7 @@ interface DirectQuestionServiceV1 {
   observeDirectQuestions(listener: (change: DirectChange) => void): {
     readonly snapshot: {
       readonly version: 1;
+      readonly ownerId: string;
       readonly cursor: number;
       readonly settledAfter: number;
       readonly active: readonly DirectQuestion[];
@@ -46,17 +47,19 @@ type Snapshot = ReturnType<DirectQuestionServiceV1['observeDirectQuestions']>['s
 function* recover(snapshot: Snapshot, processedThrough?: number): Iterable<HarnessObservation> {
   for (const change of snapshot.settled) {
     if (processedThrough === undefined || change.cursor > processedThrough) {
-      yield observation(change.request, change.settledAt);
+      yield observation(change.request, snapshot.ownerId, change.settledAt);
     }
   }
-  for (const request of snapshot.active) yield observation(request);
+  for (const request of snapshot.active) yield observation(request, snapshot.ownerId);
 }
 
-function observation(request: DirectQuestion, settledAt?: number): HarnessObservation {
+function observation(request: DirectQuestion, ownerId: string | undefined, settledAt?: number): HarnessObservation {
+  const proof = observationOf(request);
   return {
     sessionId: request.sessionId,
     sessionCreatedAt: request.sessionCreatedAt,
-    observation: observationOf(request),
+    observation: proof,
+    ...(proof === undefined || ownerId === undefined ? {} : { directQuestionOwner: ownerId }),
     ...(request.birthTurn === null ? {} : { turn: request.birthTurn }),
     type: settledAt === undefined ? 'question/requested' : 'question/resolved',
     requestId: `question:${request.id}`,
@@ -75,6 +78,7 @@ function pumpDirectQuestions(service: DirectQuestionServiceV1, send: Observation
   let baseline: Iterator<HarnessObservation> | undefined;
   let processedThrough = 0;
   let baselineCut = 0;
+  let ownerId: string | undefined;
   let overflow = false;
 
   function capture(after?: number): void {
@@ -97,6 +101,7 @@ function pumpDirectQuestions(service: DirectQuestionServiceV1, send: Observation
     if (after !== undefined && snapshot.settledAfter > after) {
       warn('桌宠直接提问的结束审计已超出宿主覆盖范围，部分请求仍待核实');
     }
+    ownerId = snapshot.ownerId;
     baseline = recover(snapshot, after)[Symbol.iterator]();
     baselineCut = snapshot.cursor;
   }
@@ -138,7 +143,7 @@ function pumpDirectQuestions(service: DirectQuestionServiceV1, send: Observation
       }
       const change = pending.shift();
       if (change !== undefined) {
-        if (!await deliver(observation(change.request, change.kind === 'settled' ? change.settledAt : undefined))) return;
+        if (!await deliver(observation(change.request, ownerId, change.kind === 'settled' ? change.settledAt : undefined))) return;
         processedThrough = change.cursor;
         continue;
       }

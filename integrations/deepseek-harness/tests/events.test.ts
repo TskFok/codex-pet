@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { timedRequestId } from '../src/host-recovery.js';
 import { describe, expect, it } from 'vitest';
 import { harnessIdentity, toPetEvents, type HarnessObservation } from '../src/events.js';
 const identity = { source: 'deepseek' as const, installationId: 'install-1', instanceId: 'session-log:child:100' };
@@ -57,4 +58,18 @@ it('v3 恢复事件与 Rust 共用同一协议样本', () => {
     recoverySnapshot: { snapshotEventCount: 4, running: true, timed: [{ requestId: 'question:q', turnId: '1', birthSequence: 2 }] },
   };
   expect(toPetEvents(observation, harnessIdentity(observation, 'install-recovery'))).toEqual([fixture]);
+});
+
+it('只把已证旧批次和首条新写之后的出生归给对应写者', () => {
+  const proof = {
+    version: 2 as const, streamId: 'session', epochId: 'new', generation: 2,
+    recoveredEventCount: 8, firstLiveSequence: 10,
+    ancestors: [{ epochId: 'old', generation: 1, firstSequence: 2,
+      verifiedBirths: { firstSequence: 2, eventCount: 4 } }],
+  };
+  expect(timedRequestId(proof, 'call', 1)).toBe('question:call');
+  expect(timedRequestId(proof, 'call', 3)).toBe('question:old:3:call');
+  expect(timedRequestId(proof, 'call', 4)).toBeUndefined();
+  expect(timedRequestId(proof, 'call', 9)).toBeUndefined();
+  expect(timedRequestId(proof, 'call', 10)).toBe('question:new:10:call');
 });

@@ -6,16 +6,17 @@ import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types';
 import {z} from 'zod';
 
 /** 请求的真实出生回合及日志位置；时间只供事件显示。 */
-export interface QuestionBirth {turn:number|null;seq:number;time:number;timed:boolean}
+export interface QuestionBirth {turn:number|null;seq:number;time:number;timed:boolean;ptc?:'dispatching'|'continued'}
 interface ClosedQuestion extends QuestionBirth {requestId:string;callId:string;closedSeq:number}
 interface BirthState {cut:number;openTurn:number|null;timedTool:boolean;active:Record<string,QuestionBirth>;lastClosed:ClosedQuestion|null}
 /** 插件内部的领域读取面，不暴露Projection handle或重新扫描日志。 */
 export interface QuestionBirths {
   turn(session:Session):number|undefined;
+  hasUnsettledPtcDispatch(session:Session):boolean;
   birth(session:Session,callId:string):QuestionBirth|undefined;
   closed(session:Session,seq:number):({requestId:string;callId:string}&QuestionBirth)|undefined;
 }
-const birthSchema=z.object({turn:z.number().int().nonnegative().nullable(),seq:z.number().int().nonnegative(),time:z.number().int().nonnegative(),timed:z.boolean()});
+const birthSchema=z.object({turn:z.number().int().nonnegative().nullable(),seq:z.number().int().nonnegative(),time:z.number().int().nonnegative(),timed:z.boolean(),ptc:z.enum(['dispatching','continued']).optional()});
 const schema=z.object({cut:z.number().int().nonnegative(),openTurn:z.number().int().nonnegative().nullable(),timedTool:z.boolean(),active:z.record(z.string(),birthSchema),lastClosed:birthSchema.extend({requestId:z.string(),callId:z.string(),closedSeq:z.number().int().nonnegative()}).nullable()});
 function pending(content:readonly {type:string;text?:string}[]):boolean {
   const text=content.find(block=>block.type==='text')?.text;
@@ -42,7 +43,7 @@ function fold(state:BirthState,event:SessionEvent):BirthState {
     case 'tool/call':
       return event.data.name==='ask_user_question'?{...state,active:{...state.active,[event.data.callId]:{turn:event.data.turn,seq:event.seq,time:event.time,timed:state.timedTool}}}:state;
     case 'tool/ptc-dispatch-start':
-      return event.data.name==='ask_user_question'?{...state,active:{...state.active,[event.data.subCallId]:{turn:state.openTurn,seq:event.seq,time:event.time,timed:state.timedTool}}}:state;
+      return event.data.name==='ask_user_question'?{...state,active:{...state.active,[event.data.subCallId]:{turn:state.openTurn,seq:event.seq,time:event.time,timed:state.timedTool,ptc:'dispatching'}}}:state;
     case 'tool/result':
       return pending(event.data.message.content)||event.data.error?.code==='TOOL_OUTCOME_UNKNOWN'?state:close(state,event.data.message.toolCallId,event);
     case 'tool/ptc-dispatch':
@@ -50,7 +51,7 @@ function fold(state:BirthState,event:SessionEvent):BirthState {
       if(!event.data.isError&&pending(event.data.content)){
         // 历史PTC日志可能只有settling事件，仍由其所在的真实turn/start确定回合。
         const birth = birthOf(state,event.data.subCallId) ?? {turn:state.openTurn,seq:event.seq,time:event.time};
-        return {...state,active:{...state.active,[event.data.subCallId]:{...birth,timed:true}}};
+        return {...state,active:{...state.active,[event.data.subCallId]:{...birth,timed:true,ptc:'continued'}}};
       }
       return close(state,event.data.subCallId,event);
     case 'user/message':return event.data.source.kind==='user-question-reply'?close(state,event.data.source.callId,event):state;
@@ -59,10 +60,11 @@ function fold(state:BirthState,event:SessionEvent):BirthState {
 }
 /** 注册确定性Host-only投影；状态只保留尚未settle的ask调用和最后一个解除，随当前并发数增长。 */
 export async function installQuestionBirths(ctx:Context):Promise<QuestionBirths>{
-  const handle=await ctx.sessionProjections.register({key:'desktopPetQuestionBirths',stateVersion:2,stateSchema:schema,
+  const handle=await ctx.sessionProjections.register({key:'desktopPetQuestionBirths',stateVersion:3,stateSchema:schema,
     init:(_header,cut):BirthState=>({cut,openTurn:null,timedTool:false,active:{},lastClosed:null}),apply:fold});
   return {
     turn:session=>handle.stateOf(session).openTurn??undefined,
+    hasUnsettledPtcDispatch:session=>Object.values(handle.stateOf(session).active).some(birth=>birth.ptc==='dispatching'),
     birth:(session,id)=>birthOf(handle.stateOf(session),id),
     closed:(session,seq)=>{const result=handle.stateOf(session).lastClosed;return result?.closedSeq===seq?result:undefined;},
   };

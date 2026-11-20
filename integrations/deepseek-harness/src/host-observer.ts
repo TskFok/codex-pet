@@ -28,7 +28,7 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
     const base = { ...fields(session, turnOf(session)), seq: event.seq, time: event.time };
     const closed = births?.closed(session,event.seq);
     if (closed !== undefined) {
-      const timed = base.observation !== undefined && closed.timed;
+      const timed = base.observation !== undefined && (closed.timed || closed.ptc !== undefined);
       const requestId = timed ? timedRequestId(base.observation!, closed.callId, closed.seq) : closed.requestId;
       if (requestId !== undefined) publish({
         ...base, turn: closed.turn ?? undefined, type: 'question/resolved', requestId,
@@ -65,7 +65,7 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
     const callId = request.wait?.callId;
     const birth = callId === undefined ? undefined : births?.birth(session, callId);
     const proof = observationOf(session);
-    const timed = proof !== undefined && birth?.timed === true && callId !== undefined;
+    const timed = proof !== undefined && birth !== undefined && (birth.timed || birth.ptc !== undefined) && callId !== undefined;
     const requestId = timed ? timedRequestId(proof, callId, birth.seq) : `question:${callId ?? randomUUID()}`;
     if (requestId === undefined) return next();
     const observationId = timed ? `timed:${birth.seq}` : randomUUID();

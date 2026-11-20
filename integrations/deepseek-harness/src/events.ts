@@ -4,12 +4,18 @@ export type RequestLifetime = 'turn' | 'until_resolved';
 
 export interface SourceIdentity { source: 'deepseek'; installationId: string; instanceId: string }
 export interface ObservationGeneration {
-  version: 1;
+  version: 1 | 2;
+  firstLiveSequence?: number;
   streamId: string;
   epochId: string;
   generation: number;
   recoveredEventCount: number;
-  ancestors: readonly { epochId: string; generation: number; firstSequence: number }[];
+  ancestors: readonly {
+    epochId: string;
+    generation: number;
+    firstSequence: number;
+    verifiedBirths?: { firstSequence: number; eventCount: number };
+  }[];
 }
 export interface RecoveredQuestion { requestId: string; turnId?: string; birthSequence: number }
 interface RecoverySnapshot { snapshotEventCount: number; running: boolean; timed?: readonly RecoveredQuestion[] }
@@ -22,6 +28,7 @@ export interface HarnessObservation {
   observationId?: string;
   observation?: ObservationGeneration;
   questionBirth?: number;
+  directQuestionOwner?: string;
   recoverySnapshot?: RecoverySnapshot;
   time: number;
   type: 'turn/start' | 'turn/end' | 'approval/asked' | 'approval/decided' | 'question/requested' | 'question/resolved' | 'session/recovered';
@@ -41,6 +48,7 @@ export interface EventEnvelope {
   sequence?: number;
   observation?: ObservationGeneration;
   questionBirth?: number;
+  directQuestionOwner?: string;
   occurredAtMs: number;
   summary?: string;
   kind:
@@ -88,6 +96,7 @@ export function toPetEvents(observation: HarnessObservation, identity: SourceIde
     ...(observation.seq === undefined ? {} : { upstreamEventId: `${observation.sessionId}:${observation.seq}`, sequence: observation.seq }),
     ...(observation.observation === undefined ? {} : { observation: observation.observation }),
     ...(observation.questionBirth === undefined ? {} : { questionBirth: observation.questionBirth }),
+    ...(observation.directQuestionOwner === undefined ? {} : { directQuestionOwner: observation.directQuestionOwner }),
     occurredAtMs: observation.time, kind,
   };
   if (kind.type === 'source_recovery' && kind.timed !== undefined && Buffer.byteLength(JSON.stringify(envelope)) > 65_536) {

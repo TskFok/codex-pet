@@ -28,25 +28,51 @@ pub struct ObservationGeneration {
     pub epoch_id: String,
     pub generation: u64,
     pub recovered_event_count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_live_sequence: Option<u64>,
     pub ancestors: Vec<ObservationAncestor>,
 }
 
 impl ObservationGeneration {
     pub(crate) fn request_epoch(&self, birth: Option<u64>) -> Option<&str> {
-        let Some(birth) = birth.filter(|birth| *birth < self.recovered_event_count) else {
+        let Some(birth) = birth.filter(|birth| *birth < self.live_start()) else {
             return Some(&self.epoch_id);
         };
         self.ancestors
             .iter()
             .rev()
-            .find(|ancestor| birth >= ancestor.first_sequence)
+            .find(|ancestor| {
+                if self.version == 1 {
+                    birth >= ancestor.first_sequence
+                } else {
+                    ancestor
+                        .verified_births
+                        .as_ref()
+                        .is_some_and(|range| range.contains(birth))
+                }
+            })
             .map(|ancestor| ancestor.epoch_id.as_str())
     }
 
-    fn covers_birth(&self, birth: u64) -> bool {
-        self.ancestors
-            .first()
-            .is_none_or(|first| first.generation == 1 || birth >= first.first_sequence)
+    pub(crate) fn live_start(&self) -> u64 {
+        self.first_live_sequence
+            .unwrap_or(self.recovered_event_count)
+    }
+
+    pub(crate) fn covers_birth(&self, birth: u64) -> bool {
+        let first = self.ancestors.first();
+        if self.version == 1 {
+            return first
+                .is_none_or(|first| first.generation == 1 || birth >= first.first_sequence);
+        }
+        let legacy_end = first.map_or(self.recovered_event_count, |first| {
+            if first.generation == 1 {
+                first.first_sequence
+            } else {
+                0
+            }
+        });
+        birth < legacy_end || self.request_epoch(Some(birth)).is_some()
     }
 }
 
@@ -56,6 +82,21 @@ pub struct ObservationAncestor {
     pub epoch_id: String,
     pub generation: u64,
     pub first_sequence: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_births: Option<ObservationBirthRange>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ObservationBirthRange {
+    pub first_sequence: u64,
+    pub event_count: u64,
+}
+
+impl ObservationBirthRange {
+    fn contains(&self, sequence: u64) -> bool {
+        (self.first_sequence..self.event_count).contains(&sequence)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -165,6 +206,8 @@ pub struct EventEnvelope {
     pub observation: Option<ObservationGeneration>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub question_birth: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub direct_question_owner: Option<String>,
     pub occurred_at_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub received_at_ms: Option<u64>,
@@ -283,6 +326,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<EventEnvelope, ProtocolError> {
         1 | SCHEMA_VERSION => {
             if event.observation.is_some()
                 || event.question_birth.is_some()
+                || event.direct_question_owner.is_some()
                 || matches!(event.kind, EventKind::SourceRecovery { .. })
             {
                 return invalid("旧版协议不支持来源代次");
@@ -376,7 +420,11 @@ fn validate_recovery(event: &EventEnvelope) -> Result<(), ProtocolError> {
     };
     let max_ancestors = proof.generation.saturating_sub(1).min(128);
     if event.identity.source != Source::Deepseek
-        || proof.version != 1
+        || !matches!(
+            (proof.version, proof.first_live_sequence),
+            (1, None) | (2, Some(_))
+        )
+        || proof.live_start() < proof.recovered_event_count
         || proof.epoch_id != event.identity.instance_id
         || proof.generation == 0
         || proof.ancestors.len() as u64 != max_ancestors
@@ -395,7 +443,35 @@ fn validate_recovery(event: &EventEnvelope) -> Result<(), ProtocolError> {
         {
             return invalid("来源代次的前缀位置无效");
         }
+        if let Some(range) = &ancestor.verified_births {
+            let limit = proof
+                .ancestors
+                .get(index + 1)
+                .map_or(proof.recovered_event_count, |next| next.first_sequence);
+            if proof.version != 2
+                || range.first_sequence < ancestor.first_sequence
+                || range.event_count <= range.first_sequence
+                || range.event_count > limit
+            {
+                return invalid("来源代次的已证出生区间无效");
+            }
+        }
         last_sequence = ancestor.first_sequence;
+    }
+    if let Some(owner) = &event.direct_question_owner {
+        nonempty(owner)?;
+        if event.sequence.is_some()
+            || event.question_birth.is_some()
+            || !matches!(
+                event.kind,
+                EventKind::AttentionRequested {
+                    lifetime: RequestLifetime::UntilResolved,
+                    ..
+                } | EventKind::AttentionResolved { .. }
+            )
+        {
+            return invalid("直接提问审计需要无日志序号的精确请求");
+        }
     }
     match &event.kind {
         EventKind::SourceRecovery {
@@ -403,7 +479,7 @@ fn validate_recovery(event: &EventEnvelope) -> Result<(), ProtocolError> {
             running,
             timed,
         } => {
-            if *snapshot_event_count < proof.recovered_event_count
+            if *snapshot_event_count < proof.live_start()
                 || event.sequence != snapshot_event_count.checked_sub(1)
                 || *running != event.turn_id.is_some()
                 || event.question_birth.is_some()
@@ -443,9 +519,7 @@ fn validate_recovery(event: &EventEnvelope) -> Result<(), ProtocolError> {
         return invalid("来源证明未覆盖问题的出生位置");
     }
     if !matches!(event.kind, EventKind::SourceRecovery { .. })
-        && event
-            .sequence
-            .is_some_and(|seq| seq < proof.recovered_event_count)
+        && event.sequence.is_some_and(|seq| seq < proof.live_start())
     {
         return invalid("新代事件位于已恢复的前缀内");
     }
