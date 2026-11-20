@@ -479,6 +479,29 @@ fn rejects_source_directory_link_with_trailing_separator() {
     import_pet(&source.join(""), &destination).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn accepts_a_parent_directory_alias_and_still_keeps_the_source_separate() {
+    use std::os::unix::fs::symlink;
+
+    let (_temp, root) = sandbox();
+    let workspace = root.join("workspace");
+    let source = workspace.join("old");
+    let alias = root.join("alias");
+    legacy_png_package(&source, LEGACY_PNG);
+    symlink(&workspace, &alias).unwrap();
+
+    assert!(matches!(
+        import_pet(&alias.join("old"), &source.join("nested/new")),
+        Err(PetError::UnsafePath(_))
+    ));
+    assert!(!source.join("nested").exists());
+
+    let destination = workspace.join("pets/new");
+    let manifest = import_pet(&alias.join("old"), &destination).unwrap();
+    assert_eq!(load_pet(&alias.join("pets/new")).unwrap(), manifest);
+}
+
 #[test]
 fn existing_destination_is_untouched_even_when_empty() {
     let (_temp, root) = sandbox();

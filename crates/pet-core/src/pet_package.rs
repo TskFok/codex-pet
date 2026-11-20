@@ -459,28 +459,43 @@ impl PackageDirectory {
     fn open(path: &Path) -> Result<Self, PetError> {
         // 先移除尾部分隔符与当前目录段，以便检查实际选中的目录项。
         let path: PathBuf = path.components().collect();
-        require_directory(&path)?;
-        let path = path.canonicalize()?;
         #[cfg(unix)]
         {
             use rustix::fs::{CWD, openat};
-            let directory = openat(CWD, &path, directory_flags(), rustix::fs::Mode::empty())
-                .map_err(|error| package_open_error(&path, error.into()))?;
+            use std::os::unix::fs::MetadataExt;
+
+            let directory = File::from(
+                openat(CWD, &path, directory_flags(), rustix::fs::Mode::empty())
+                    .map_err(|error| package_open_error(&path, error.into()))?,
+            );
+            let opened = directory.metadata()?;
+            // 规范路径只用于冲突判断和诊断，包内文件始终相对此句柄打开。
+            let canonical = path.canonicalize()?;
+            let named = fs::symlink_metadata(&canonical)?;
+            if !opened.is_dir() || (opened.dev(), opened.ino()) != (named.dev(), named.ino()) {
+                return Err(PetError::UnsafePath(path));
+            }
             Ok(Self {
-                path,
-                directory: directory.into(),
+                path: canonical,
+                directory,
             })
         }
         #[cfg(windows)]
         {
             let directory = lock_directory(&path)?;
+            let path = directory_path(&directory)?;
             Ok(Self {
                 path,
                 _directory: directory,
             })
         }
         #[cfg(not(any(unix, windows)))]
-        Ok(Self { path })
+        {
+            require_directory(&path)?;
+            Ok(Self {
+                path: path.canonicalize()?,
+            })
+        }
     }
 
     fn read(&self, relative: &str) -> Result<Vec<u8>, PetError> {
@@ -573,10 +588,10 @@ fn lock_directory(path: &Path) -> Result<File, PetError> {
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
-        FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE,
     };
     let directory = OpenOptions::new()
-        .access_mode(FILE_READ_ATTRIBUTES)
+        .access_mode(FILE_READ_ATTRIBUTES | FILE_TRAVERSE)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)?;
@@ -585,6 +600,39 @@ fn lock_directory(path: &Path) -> Result<File, PetError> {
         return Err(PetError::UnsafePath(path.into()));
     }
     Ok(directory)
+}
+
+#[cfg(windows)]
+fn directory_path(directory: &File) -> io::Result<PathBuf> {
+    use std::{
+        ffi::OsString,
+        os::windows::{ffi::OsStringExt, io::AsRawHandle},
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW, VOLUME_NAME_DOS,
+    };
+
+    let flags = FILE_NAME_NORMALIZED | VOLUME_NAME_DOS;
+    let handle = directory.as_raw_handle();
+    // 长度查询使用空缓冲区；句柄由调用者持有。
+    let required = unsafe { GetFinalPathNameByHandleW(handle, std::ptr::null_mut(), 0, flags) };
+    if required == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut path = vec![0; required as usize];
+    // 缓冲区至少有 required 个可写的 UTF-16 代码单元。
+    let size = unsafe { GetFinalPathNameByHandleW(handle, path.as_mut_ptr(), required, flags) };
+    if size == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if size >= required {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "读取宠物包路径时长度发生变化",
+        ));
+    }
+    path.truncate(size as usize);
+    Ok(OsString::from_wide(&path).into())
 }
 
 #[derive(Clone, Copy)]
