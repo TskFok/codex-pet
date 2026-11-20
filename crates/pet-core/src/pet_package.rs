@@ -457,7 +457,9 @@ struct PackageDirectory {
 
 impl PackageDirectory {
     fn open(path: &Path) -> Result<Self, PetError> {
-        require_directory(path)?;
+        // 先移除尾部分隔符与当前目录段，以便检查实际选中的目录项。
+        let path: PathBuf = path.components().collect();
+        require_directory(&path)?;
         let path = path.canonicalize()?;
         #[cfg(unix)]
         {

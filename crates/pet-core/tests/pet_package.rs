@@ -458,6 +458,27 @@ fn refuses_placing_the_import_inside_its_source_directory() {
     assert!(!source.join("nested").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn rejects_source_directory_link_with_trailing_separator() {
+    use std::os::unix::fs::symlink;
+
+    let (_temp, root) = sandbox();
+    let source = root.join("old");
+    let destination = root.join("pets/new");
+    let linked = root.join("linked");
+    legacy_png_package(&source, LEGACY_PNG);
+    symlink(&source, &linked).unwrap();
+    for alias in [linked.join(""), linked.join(".")] {
+        assert!(matches!(
+            import_pet(&alias, &destination),
+            Err(PetError::UnsafePath(_))
+        ));
+        assert!(!destination.exists());
+    }
+    import_pet(&source.join(""), &destination).unwrap();
+}
+
 #[test]
 fn existing_destination_is_untouched_even_when_empty() {
     let (_temp, root) = sandbox();
