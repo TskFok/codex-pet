@@ -448,6 +448,205 @@ fn an_idle_snapshot_and_a_same_writer_end_agree_in_both_orders() {
 }
 
 #[test]
+fn idle_recovery_keeps_the_newer_turn_when_an_older_end_arrives() {
+    let mut store = SessionStore::default();
+    let start = event(value(
+        NEW,
+        "start-2",
+        Some("2"),
+        Some(10),
+        json!({"type":"turn_started"}),
+    ));
+    let earlier = |id| {
+        event(value(
+            NEW,
+            id,
+            Some("1"),
+            Some(7),
+            json!({"type":"turn_ended","outcome":"failed"}),
+        ))
+    };
+    let ended = event(value(
+        NEW,
+        "end-2",
+        Some("2"),
+        Some(20),
+        json!({"type":"turn_ended","outcome":"completed"}),
+    ));
+    store.apply(&start);
+    store.apply(&recovered(NEW, 21, None, None));
+    assert!(store.apply(&earlier("old-end")).should_notify);
+    let idle = store.snapshot();
+    assert_eq!(idle.sessions[0].turn_id.as_deref(), Some("2"));
+    assert_eq!(idle.sessions[0].status, SessionStatus::Unknown);
+    assert!(!store.apply(&earlier("old-end-alias")).should_notify);
+    assert!(store.apply(&ended).should_notify);
+    assert_eq!(store.snapshot().sessions[0].status, SessionStatus::Ended);
+    assert_eq!(store.snapshot().notifications.len(), 2);
+}
+
+#[test]
+fn legacy_idle_checkpoint_does_not_promote_history_without_a_turn_anchor() {
+    use pet_core::{AppPaths, JournalStore};
+    for already_ended in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&dir.path().canonicalize().unwrap().join("app"));
+        let turn = |id, turn, seq, kind| event(value(NEW, id, Some(turn), Some(seq), kind));
+        {
+            let mut journal = JournalStore::open_with_clock(paths.clone(), || 100).unwrap();
+            journal
+                .ingest(turn("start-2", "2", 10, json!({"type":"turn_started"})))
+                .unwrap();
+            if already_ended {
+                journal
+                    .ingest(turn(
+                        "end-2",
+                        "2",
+                        15,
+                        json!({"type":"turn_ended","outcome":"completed"}),
+                    ))
+                    .unwrap();
+            }
+            journal.ingest(recovered(NEW, 21, None, None)).unwrap();
+            journal.compact(100).unwrap();
+        }
+        let mut checkpoint: Value =
+            serde_json::from_slice(&std::fs::read(&paths.journal).unwrap()).unwrap();
+        let entry = &mut checkpoint["checkpoint"]["sessions"]["sessions"][0];
+        let observation = entry["observation"].as_object_mut().unwrap();
+        observation.remove("last_terminal_sequence");
+        observation.remove("idle_turn_floor");
+        if !already_ended {
+            // 旧归约器收到空闲切点时清掉了未完成回合的 ID。
+            observation.remove("snapshot_running");
+            entry["projection"]
+                .as_object_mut()
+                .unwrap()
+                .remove("turnId");
+        }
+        std::fs::write(&paths.journal, format!("{checkpoint}\n")).unwrap();
+        let mut journal = JournalStore::open_with_clock(paths, || 100).unwrap();
+        let expected = journal.snapshot();
+        assert_eq!(
+            expected.sessions[0].turn_id.as_deref(),
+            already_ended.then_some("2")
+        );
+        let outcome = json!({"type":"turn_ended","outcome":"failed"});
+        journal
+            .ingest(turn("late-1", "1", 7, outcome.clone()))
+            .unwrap();
+        journal
+            .ingest(turn("late-1-alias", "1", 7, outcome))
+            .unwrap();
+        let current = journal.snapshot();
+        assert_eq!(current.sessions[0].turn_id, expected.sessions[0].turn_id);
+        assert_eq!(current.sessions[0].status, expected.sessions[0].status);
+        assert_eq!(
+            current.notifications.len(),
+            expected.notifications.len() + 1
+        );
+    }
+}
+
+#[test]
+fn a_v1_direct_audit_leaves_other_owners_timed_births_and_old_unconfirmed_questions() {
+    let id = "question:11111111-1111-4111-8111-111111111111";
+    let requested = json!({"type":"attention_requested","requestId":id,"reason":"answer","lifetime":"until_resolved"});
+    let resolved = json!({"type":"attention_resolved","requestId":id});
+    for blocked_by in ["owner", "timed", "handoff"] {
+        let mut store = SessionStore::default();
+        let mut started = value(OLD, "requested", None, None, requested.clone());
+        if blocked_by == "owner" {
+            started["directQuestionOwner"] = json!("original-service");
+        }
+        if blocked_by == "timed" {
+            started["questionBirth"] = json!(4);
+        }
+        assert!(store.apply(&event(started)).should_notify);
+        if blocked_by == "handoff" {
+            store.apply(&recovered(NEW, 6, None, None));
+        }
+        let mut answer = value(OLD, "settled", None, None, resolved.clone());
+        answer["directQuestionOwner"] = json!("another-service");
+        assert!(!store.apply(&event(answer.clone())).changed);
+        if blocked_by == "handoff" {
+            let mut newer = value(NEW, "new-settled", None, None, resolved.clone());
+            newer["directQuestionOwner"] = answer["directQuestionOwner"].clone();
+            assert!(!store.apply(&event(newer)).changed);
+        }
+        assert_eq!(store.snapshot().sessions[0].pending[0].id, id);
+    }
+}
+
+#[test]
+#[ignore = "真实 Host 的 v1 观察器重载专项提供事件"]
+fn actual_v1_observer_reload_reopens_the_old_checkpoint() {
+    use pet_core::{AppPaths, JournalStore};
+    let path = std::env::var("PET_HARNESS_V1_RELOAD").unwrap();
+    let fixture: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let sample = |key: &str| -> Vec<_> {
+        fixture[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(event)
+            .collect()
+    };
+    let (old, current) = (sample("old"), sample("current"));
+    let old_request = old[1].clone();
+    let now = old
+        .iter()
+        .chain(&current)
+        .map(|event| event.occurred_at_ms)
+        .max()
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let paths = AppPaths::under(&dir.path().canonicalize().unwrap().join("app"));
+    {
+        let mut journal = JournalStore::open_with_clock(paths.clone(), move || now).unwrap();
+        for event in old {
+            journal.ingest(event).unwrap();
+        }
+        assert_eq!(journal.snapshot().sessions[0].pending.len(), 1);
+        journal.compact(now).unwrap();
+    }
+    let mut journal = JournalStore::open_with_clock(paths, move || now).unwrap();
+    for event in &current {
+        let ack = journal.ingest(event.clone()).unwrap();
+        if event.event_id == old_request.event_id {
+            assert!(ack.duplicate);
+        }
+    }
+    let snapshot = journal.snapshot();
+    let session = &snapshot.sessions[0];
+    assert_eq!(session.turn_id.as_deref(), Some("3"));
+    assert_eq!(session.status, SessionStatus::Running);
+    assert!(session.pending.is_empty());
+    assert_eq!(snapshot.notifications.len(), 2);
+    assert!(snapshot.notifications.iter().any(|note| {
+        note.id == old_request.event_id
+            && matches!(
+                note.kind,
+                pet_core::NotificationKind::Attention { resolved: true, .. }
+            )
+    }));
+    let mut delayed_request = old_request;
+    delayed_request.event_id = "old-request-alias".into();
+    journal.ingest(delayed_request).unwrap();
+    assert_eq!(journal.snapshot(), snapshot);
+    let mut unproved = serde_json::to_value(&current[0]).unwrap();
+    unproved["schemaVersion"] = json!(2);
+    unproved["eventId"] = json!("unproved-newer-end");
+    unproved["sequence"] = json!(100);
+    unproved["turnId"] = json!("3");
+    unproved["kind"] = json!({"type":"turn_ended","outcome":"failed"});
+    unproved.as_object_mut().unwrap().remove("observation");
+    journal.ingest(event(unproved)).unwrap();
+    assert_eq!(journal.snapshot(), snapshot);
+}
+
+#[test]
 #[ignore = "同一真实 Host 问题服务的跨代测试提供观察事件"]
 fn actual_direct_handoff_keeps_the_owner_match_after_compaction() {
     let path = std::env::var("PET_HARNESS_DIRECT_HANDOFF").expect("需要真实宿主直接提问事件");

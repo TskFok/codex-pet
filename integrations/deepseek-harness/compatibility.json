@@ -40,7 +40,7 @@
       "version": 2,
       "patch": "patches/session-observation-recovery.patch",
       "baseCommit": "c34aa26c7750c694fc9f075cfb30ec2fbaad63b4",
-      "patchTargetCommit": "608241fecc42f452abee0f6331c77ad71ae77cf5",
+      "patchTargetCommit": "c507c32525675737e487ef48e3d0bd2e99208b04",
       "scope": "agent_live_resume_from_existing_jsonl_with_verified_receipt",
       "maxAncestorEpochs": 128,
       "snapshot": [
@@ -50,8 +50,9 @@
       "directQuestions": "same_service_exact_old_epoch_audit_with_pending_owner_proof",
       "approvals": "continuous_native_log_events",
       "missingOrIncompatibleReceipt": "no_authoritative_takeover",
-      "verifiedBirths": "persisted_batch_witness_and_validated_prefix_digest",
-      "v1Receipt": "read_for_epoch_chain_without_inferred_birth_intervals"
+      "verifiedBirths": "persisted_candidate_birth_batch_witness_and_validated_prefix_digest",
+      "v1Receipt": "read_for_epoch_chain_without_inferred_birth_intervals",
+      "liveV1ObserverReload": "same_writer_turns_and_exact_questions_without_unproved_timed_scope"
     }
   },
   "loading": {

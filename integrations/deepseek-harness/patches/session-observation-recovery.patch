@@ -113,27 +113,27 @@ index d3fd945e7c..2c073784b5 100644
 +  /** Observation writer at the original ask, if the Session has durable recovery evidence. */
 +  readonly observationRecovery?: SessionObservationRecovery | undefined
 diff --git a/packages/session/session-persistence-jsonl/README.i18n.yaml b/packages/session/session-persistence-jsonl/README.i18n.yaml
-index d8f2314ebd..254e0c3a25 100644
+index d8f2314ebd..b47155ef27 100644
 --- a/packages/session/session-persistence-jsonl/README.i18n.yaml
 +++ b/packages/session/session-persistence-jsonl/README.i18n.yaml
 @@ -30,2 +30,2 @@
 -  en: 96498792672f6d50
 -  zh: d767a9c69dced889
-+  en: ddd9c0f8564dfdfb
-+  zh: c15df2d9d1d6caa6
++  en: ea833f9efb1ab6c0
++  zh: 3f525bf496f0cc0b
 diff --git a/packages/session/session-persistence-jsonl/README.md b/packages/session/session-persistence-jsonl/README.md
-index 2de63df367..1ca8c52bc4 100644
+index 2de63df367..dec3ce8a02 100644
 --- a/packages/session/session-persistence-jsonl/README.md
 +++ b/packages/session/session-persistence-jsonl/README.md
 @@ -78,0 +79,2 @@ A session is materialized lazily: `create(header)` writes nothing and returns th
-+When the Agent owner prepares an existing Session for live resume, its JSONL write handle publishes a durable version-2 observation receipt in its writer-owned directory. The live Session exposes the receipt through `observationRecovery` after normal resume preparation. The receipt identifies the writer epoch, the durable recovered prefix, the first position this owner can write, and up to 128 earlier owners. A separate synced witness records births only after the owner's main log batch commits. A successor verifies those intervals against the recovered prefix digest. Salvageable torn records and writes without a verified witness keep unknown birth ownership. Observer reloads leave the writer epoch unchanged. The receipt is separate from the session format. An absent or unverified receipt provides no observation continuity; a receipt failure leaves ordinary session reads and writes available.
++When the Agent owner prepares an existing Session for live resume, its JSONL write handle publishes a durable version-2 observation receipt in its writer-owned directory. The live Session exposes the receipt through `observationRecovery` after normal resume preparation. The receipt identifies the writer epoch, the durable recovered prefix, the first position this owner can write, and up to 128 earlier owners. The owner maintains an incremental prefix digest. It syncs a separate witness after a committed batch that can contain a timed question birth. A failed witness publication can be retried after a later committed batch. A successor verifies those intervals against the recovered prefix digest. Salvageable torn records and writes without a verified witness keep unknown birth ownership. Observer reloads leave the writer epoch unchanged. The receipt is separate from the session format. An absent or unverified receipt provides no observation continuity; a receipt failure leaves ordinary session reads and writes available.
 +
 diff --git a/packages/session/session-persistence-jsonl/README.zh.md b/packages/session/session-persistence-jsonl/README.zh.md
-index e5494de7d6..c034bfca93 100644
+index e5494de7d6..96ea6d5100 100644
 --- a/packages/session/session-persistence-jsonl/README.zh.md
 +++ b/packages/session/session-persistence-jsonl/README.zh.md
 @@ -78,0 +79,2 @@ kind: "package-reference"
-+Agent 所有者准备恢复现有会话时，其 JSONL 写句柄会在持有写锁的目录内持久发布版本 2 的观察凭证。会话完成常规恢复准备后，通过 `observationRecovery` 公开写代次、耐久恢复前缀、该所有者实际可写入的起点，以及最近至多 128 个旧写所有者。只有主日志批次提交后，当前所有者才会另行同步出生凭证。后继以恢复前缀摘要验证区间。撕裂帧的可读记录与缺少出生凭证的写入保留未知归属。观察器重载沿用原写代次。凭证独立于会话格式。凭证缺失或未经验证时，观察连续性未知，原会话读写可继续。
++Agent 所有者准备恢复现有会话时，其 JSONL 写句柄会在持有写锁的目录内持久发布版本 2 的观察凭证。会话完成常规恢复准备后，通过 `observationRecovery` 公开写代次、耐久恢复前缀、该所有者实际可写入的起点，以及最近至多 128 个旧写所有者。当前所有者增量计算前缀摘要，只在含可能定时提问出生的批次提交后另行同步出生凭证。凭证发布失败可在后续批次提交后重试。后继以恢复前缀摘要验证区间。撕裂帧的可读记录与缺少出生凭证的写入保留未知归属。观察器重载沿用原写代次。凭证独立于会话格式。凭证缺失或未经验证时，观察连续性未知，原会话读写可继续。
 +
 diff --git a/packages/session/session-persistence-jsonl/src/index.ts b/packages/session/session-persistence-jsonl/src/index.ts
 index f8351fa9ee..046b45f6c6 100644
@@ -175,10 +175,10 @@ index f8351fa9ee..046b45f6c6 100644
 +
 diff --git a/packages/session/session-persistence-jsonl/src/observation-recovery.ts b/packages/session/session-persistence-jsonl/src/observation-recovery.ts
 new file mode 100644
-index 0000000000..a9bc2fe5b6
+index 0000000000..b0ebb8d9c2
 --- /dev/null
 +++ b/packages/session/session-persistence-jsonl/src/observation-recovery.ts
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,219 @@
 +/** Observation receipts and durable birth evidence owned by the JSONL writer lease. */
 +import { createHash, randomUUID } from 'node:crypto'
 +import { lstat, open, readFile, readdir, rename, rm } from 'node:fs/promises'
@@ -293,6 +293,12 @@ index 0000000000..a9bc2fe5b6
 +  return join(directory, `.observation-births-v2-${generation}.json`)
 +}
 +
++function mayContainTimedBirth({ type, data }: { type: string; data: unknown }): boolean {
++  // Historical PTC dispatch records can carry the birth even when their start is absent.
++  return (type === 'tool/call' || type === 'tool/ptc-dispatch-start' || type === 'tool/ptc-dispatch')
++    && record(data) && data.name === 'ask_user_question'
++}
++
 +async function readBirths(
 +  directory: string,
 +  previous: Receipt,
@@ -373,16 +379,22 @@ index 0000000000..a9bc2fe5b6
 +  await publish(join(directory, `${RECEIPT_PREFIX}${generation}.json`), JSON.stringify(receipt) + '\n')
 +  for (const event of events.slice(recoveredEventCount)) hash.update(JSON.stringify(event, canonical) + '\n')
 +  let eventCount = recovery.firstLiveSequence
++  let witnessPending = false
 +  return {
 +    recovery,
 +    async recordBirths(batch) {
-+      for (const event of batch) hash.update(JSON.stringify(event, canonical) + '\n')
++      for (const event of batch) {
++        hash.update(JSON.stringify(event, canonical) + '\n')
++        witnessPending ||= mayContainTimedBirth(event)
++      }
 +      eventCount += batch.length
++      if (!witnessPending) return
 +      await writeBirthWitness(birthsPath(directory, generation), JSON.stringify({
 +        epochId: recovery.epochId,
 +        firstSequence: recovery.firstLiveSequence,
 +        eventCount, prefixSha256: hash.copy().digest('hex'),
 +      }) + '\n')
++      witnessPending = false
 +    },
 +  }
 +}
@@ -465,19 +477,21 @@ index 0000000000..23d56431e7
 +process.kill(process.pid, 'SIGKILL')
 diff --git a/packages/session/session-persistence-jsonl/tests/observation-births.spec.ts b/packages/session/session-persistence-jsonl/tests/observation-births.spec.ts
 new file mode 100644
-index 0000000000..297d68b159
+index 0000000000..ddafd2e59f
 --- /dev/null
 +++ b/packages/session/session-persistence-jsonl/tests/observation-births.spec.ts
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,167 @@
 +/** Observation ownership across a writable handoff whose metadata publication fails. */
-+import { mkdtemp, open, rm } from 'node:fs/promises'
++import { mkdtemp, open, readFile, rm } from 'node:fs/promises'
 +import type { FileHandle } from 'node:fs/promises'
 +import { tmpdir } from 'node:os'
-+import { join } from 'node:path'
++import { dirname, join } from 'node:path'
 +import { expect, it, onTestFinished, vi } from 'vitest'
 +import { Context } from '@deepseek-ai/cordis'
 +import { SESSION_FORMAT_VERSION, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
++import { ToolCallId, createAssistantMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 +import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
++import { publishObservationRecovery } from '../src/observation-recovery.ts'
 +
 +function turn(sequence: number, turnId: number): SessionEvent[] {
 +  return [
@@ -485,6 +499,102 @@ index 0000000000..297d68b159
 +    { type: 'turn/end', seq: SessionSeq(sequence + 1), time: sequence + 1, data: { turn: turnId, reason: { kind: 'completed' } } },
 +  ]
 +}
++
++function question(sequence: number, type: 'tool/call' | 'tool/ptc-dispatch-start' | 'tool/ptc-dispatch'): SessionEvent {
++  const common = { seq: SessionSeq(sequence), time: sequence }
++  const name = 'ask_user_question'
++  const callId = ToolCallId('question')
++  if (type === 'tool/call') return { ...common, type, data: { turn: 2, step: 1, callId, name, arguments: '{}' } }
++  const data = { rootCallId: ToolCallId('root'), parentCallId: ToolCallId('root'), subCallId: callId, name, arguments: {} }
++  if (type === 'tool/ptc-dispatch-start') return { ...common, type, data } as SessionEvent
++  return { ...common, type, data: { ...data, isError: false, content: [{ type: 'text', text: '{"pending":true}' }] } } as SessionEvent
++}
++
++it.each(['tool/call', 'tool/ptc-dispatch-start'] as const)(
++  'syncs the ordinary log alone and retries the witness for a durable %s birth', async (type) => {
++    const root = await mkdtemp(join(tmpdir(), 'dsh-observation-birth-'))
++    const ctx = new Context()
++    onTestFinished(async () => {
++      await ctx.fiber.dispose()
++      await rm(root, { recursive: true, force: true })
++    })
++    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
++    const id = SessionId('witness-on-birth')
++    const initial = await ctx.sessionPersistence.create({ version: SESSION_FORMAT_VERSION, id, createdAt: 100, isSeeded: false })
++    await initial.append(turn(0, 1))
++    await initial.close()
++    const path = (await ctx.sessionPersistence.stat(id))?.location
++    if (path?.kind !== 'jsonl') throw new Error('Expected JSONL storage')
++    const file = await open(path.path, 'r')
++    const prototype: Pick<FileHandle, 'sync'> = Object.getPrototypeOf(file)
++    await file.close()
++
++    const writer = await ctx.sessionPersistence.open(id, 'write')
++    const receipt = await writer.prepareObservationRecovery?.()
++    expect(receipt).toBeDefined()
++    const witness = join(dirname(path.path), '.observation-births-v2-1.json')
++    const sync = prototype.sync
++    const writes = vi.spyOn(prototype, 'sync')
++    try {
++      const rootCallId = ToolCallId('root')
++      const askCallId = ToolCallId('question')
++      const call = [{ type: 'tool-call' as const, id: rootCallId, name: 'read', arguments: '{}' }]
++      if (type === 'tool/call') call.push({ type: 'tool-call', id: askCallId, name: 'ask_user_question', arguments: '{}' })
++      await writer.append([
++        { type: 'turn/start', seq: SessionSeq(2), time: 2, data: { turn: 2 } },
++        { type: 'step/start', seq: SessionSeq(3), time: 3, data: { turn: 2, step: 1 } },
++        { type: 'assistant/message', seq: SessionSeq(4), time: 4, surfaceOp: 'append', data: {
++          turn: 2, step: 1, stream: [], message: createAssistantMessage({
++            source: { provider: 'fixture', model: 'offline' }, content: call,
++          }),
++        } },
++        { type: 'tool/call', seq: SessionSeq(5), time: 5, data: { turn: 2, step: 1, callId: rootCallId, name: 'read', arguments: '{}' } },
++      ])
++      expect(writes).toHaveBeenCalledTimes(1)
++      await expect(readFile(witness)).rejects.toMatchObject({ code: 'ENOENT' })
++      writes.mockClear()
++      writes.mockImplementationOnce(function (this: FileHandle) { return sync.call(this) })
++        .mockRejectedValueOnce(new Error('simulated witness sync failure'))
++      await expect(writer.append([question(6, type)])).resolves.toBeUndefined()
++      expect(writes).toHaveBeenCalledTimes(2)
++      await expect(readFile(witness)).rejects.toMatchObject({ code: 'ENOENT' })
++      writes.mockClear()
++      await writer.append([{ type: 'tool/result', seq: SessionSeq(7), time: 7, surfaceOp: 'append', data: {
++        turn: 2, step: 1, message: createToolResultMessage({ callId: rootCallId, content: [], isError: false }),
++      } }])
++      expect(writes).toHaveBeenCalledTimes(2)
++      const confirmed = await readFile(witness, 'utf8')
++      expect(JSON.parse(confirmed)).toMatchObject({ epochId: receipt?.epochId, firstSequence: 2, eventCount: 8 })
++      writes.mockClear()
++      await writer.append([{ type: 'request/header', seq: SessionSeq(8), time: 8, data: {
++        reason: 'initial', header: { config: { provider: 'fixture', model: 'offline' } },
++      } }])
++      expect(writes).toHaveBeenCalledTimes(1)
++      expect(await readFile(witness, 'utf8')).toBe(confirmed)
++    } finally {
++      writes.mockRestore()
++      await writer.close()
++    }
++    const successor = await ctx.sessionPersistence.open(id, 'write')
++    try {
++      expect(await successor.prepareObservationRecovery?.()).toMatchObject({
++        recoveredEventCount: 9,
++        ancestors: [{ epochId: receipt?.epochId, verifiedBirths: { firstSequence: 2, eventCount: 8 } }],
++      })
++    } finally {
++      await successor.close()
++    }
++  },
++)
++
++it('marks a legacy pending dispatch without a start as a potential birth', async () => {
++  const root = await mkdtemp(join(tmpdir(), 'dsh-legacy-dispatch-birth-'))
++  onTestFinished(() => rm(root, { recursive: true, force: true }))
++  const writer = await publishObservationRecovery(join(root, 'legacy.jsonl'), [], 0, async () => {})
++  await writer.recordBirths([question(0, 'tool/ptc-dispatch')])
++  const witness = JSON.parse(await readFile(join(root, '.observation-births-v2-1.json'), 'utf8'))
++  expect(witness).toMatchObject({ epochId: writer.recovery.epochId, firstSequence: 0, eventCount: 1 })
++})
 +
 +it('only attributes the proven birth interval when an unsealed writer appends before the next recovery', async () => {
 +  const root = await mkdtemp(join(tmpdir(), 'dsh-order-'))
@@ -502,7 +612,8 @@ index 0000000000..297d68b159
 +  const first = await ctx.sessionPersistence.open(id, 'write')
 +  const a = await first.prepareObservationRecovery?.()
 +  expect(a).toBeDefined()
-+  await first.append(turn(2, 2))
++  const withBirth = [turn(2, 2)[0]!, question(3, 'tool/ptc-dispatch-start'), question(4, 'tool/ptc-dispatch'), turn(4, 2)[1]!]
++  await first.append(withBirth)
 +  await first.close()
 +
 +  const next = await ctx.sessionPersistence.open(id, 'write')
@@ -522,16 +633,16 @@ index 0000000000..297d68b159
 +  } finally {
 +    failure.mockRestore()
 +  }
-+  await next.append(turn(4, 3))
++  await next.append(turn(6, 3))
 +  await next.close()
 +
 +  const last = await ctx.sessionPersistence.open(id, 'write')
 +  try {
-+    expect((await last.read()).events).toEqual([...turn(0, 1), ...turn(2, 2), ...turn(4, 3)])
++    expect((await last.read()).events).toEqual([...turn(0, 1), ...withBirth, ...turn(6, 3)])
 +    expect(await last.prepareObservationRecovery?.()).toMatchObject({
-+      version: 2, generation: 2, recoveredEventCount: 6, firstLiveSequence: 6,
++      version: 2, generation: 2, recoveredEventCount: 8, firstLiveSequence: 8,
 +      ancestors: [{ epochId: a?.epochId, generation: 1, firstSequence: 2,
-+        verifiedBirths: { firstSequence: 2, eventCount: 4 } }],
++        verifiedBirths: { firstSequence: 2, eventCount: 6 } }],
 +    })
 +  } finally {
 +    await last.close()
@@ -617,14 +728,25 @@ index 0000000000..4a7da3cd1c
 +  await uncertain.close()
 +})
 diff --git a/packages/session/session-persistence-jsonl/tests/zstd.spec.ts b/packages/session/session-persistence-jsonl/tests/zstd.spec.ts
-index 91cea44e31..641abdbd4f 100644
+index 91cea44e31..aef1b127d9 100644
 --- a/packages/session/session-persistence-jsonl/tests/zstd.spec.ts
 +++ b/packages/session/session-persistence-jsonl/tests/zstd.spec.ts
-@@ -716,0 +717,3 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
+@@ -9,0 +10 @@ import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
++import { ToolCallId } from '@deepseek-ai/dsh-llm'
+@@ -716,0 +718,3 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
 +    const first = await ctx.sessionPersistence.open(header.id, 'write')
 +    expect(await first.prepareObservationRecovery?.()).toBeDefined()
 +    await first.close()
-@@ -734 +737,17 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
+@@ -729,0 +734,4 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
++    const dispatch = {
++      rootCallId: ToolCallId('root'), parentCallId: ToolCallId('root'), subCallId: ToolCallId('question'),
++      name: 'ask_user_question', arguments: {},
++    }
+@@ -732 +740,2 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
+-      { type: 'turn/end', seq: SessionSeq(9), time: 10, data: { turn: 3, reason: { kind: 'completed' } } },
++      { type: 'tool/ptc-dispatch-start', seq: SessionSeq(9), time: 10, data: dispatch } as SessionEvent,
++      { type: 'turn/end', seq: SessionSeq(10), time: 11, data: { turn: 3, reason: { kind: 'completed' } } },
+@@ -734 +743,17 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
 -    await appendBatch(ctx.sessionPersistence, header.id, thirdTurn)
 +    const writer = await ctx.sessionPersistence.open(header.id, 'write')
 +    try {
@@ -639,7 +761,7 @@ index 91cea44e31..641abdbd4f 100644
 +    try {
 +      const proof = await later.prepareObservationRecovery?.()
 +      expect(proof?.ancestors[0]).not.toHaveProperty('verifiedBirths')
-+      expect(proof?.ancestors[1]).toMatchObject({ verifiedBirths: { firstSequence: 8, eventCount: 10 } })
++      expect(proof?.ancestors[1]).toMatchObject({ verifiedBirths: { firstSequence: 8, eventCount: 11 } })
 +    } finally {
 +      await later.close()
 +    }

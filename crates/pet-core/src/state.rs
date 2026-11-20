@@ -51,7 +51,17 @@ struct ObservedGeneration {
     #[serde(default)]
     snapshot_running: Option<bool>,
     #[serde(default)]
-    last_terminal_sequence: Option<u64>,
+    idle_turn_floor: Option<u64>,
+}
+
+impl ObservedGeneration {
+    fn snapshot_was_idle(&self, turn: Option<&str>) -> bool {
+        // 旧检查点的快照以空回合记录 idle，只有新检查点单独保存快照的状态。
+        self.snapshot_running.map_or_else(
+            || self.snapshot_event_count.is_some() && turn.is_none(),
+            |running| !running,
+        )
+    }
 }
 
 #[derive(Clone, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -74,6 +84,18 @@ impl DirectQuestionRef {
 
     fn matches_pending(&self, pending: &PendingRequest) -> bool {
         self.turn == pending.turn_id && self.request == pending.id
+    }
+
+    fn has_host_request_uuid(&self) -> bool {
+        self.request.strip_prefix("question:").is_some_and(|id| {
+            id.len() == 36
+                && id.bytes().enumerate().all(|(index, byte)| match index {
+                    8 | 13 | 18 | 23 => byte == b'-',
+                    14 => byte == b'4',
+                    19 => matches!(byte, b'8' | b'9' | b'a' | b'b'),
+                    _ => byte.is_ascii_hexdigit(),
+                })
+        })
     }
 }
 
@@ -121,6 +143,26 @@ impl SessionEntry {
         !self
             .uncertain_pending
             .contains(&(request.turn_id.clone(), request.id.clone()))
+    }
+
+    fn legacy_direct_is_pending(&self, question: &DirectQuestionRef) -> bool {
+        self.observation
+            .as_ref()
+            .is_some_and(|generation| generation.proof.version == 1)
+            && question.has_host_request_uuid()
+            && self.projection.pending.iter().any(|pending| {
+                pending.lifetime == RequestLifetime::UntilResolved
+                    && question.matches_pending(pending)
+                    && self.pending_is_confirmed(pending)
+            })
+            && !self
+                .direct_questions
+                .iter()
+                .any(|known| known.turn == question.turn && known.request == question.request)
+            && !self
+                .timed_births
+                .iter()
+                .any(|birth| birth.turn_id == question.turn && birth.request_id == question.request)
     }
 
     fn comparable_sequence(&self, event: &EventEnvelope) -> Option<std::cmp::Ordering> {
@@ -274,11 +316,11 @@ impl SessionStore {
         let current = self
             .sessions
             .get(&key)
-            .and_then(|entry| entry.observation.as_ref());
+            .and_then(|entry| entry.observation.as_ref().map(|proof| (entry, proof)));
         let Some(proof) = &event.observation else {
             return current.is_none();
         };
-        if let Some(current) = current {
+        if let Some((entry, current)) = current {
             if current.proof.stream_id != proof.stream_id
                 || proof.generation < current.proof.generation
             {
@@ -294,7 +336,9 @@ impl SessionStore {
                 return !below_snapshot
                     || match event.kind {
                         EventKind::TurnStarted => false,
-                        EventKind::TurnEnded { .. } => current.snapshot_running == Some(false),
+                        EventKind::TurnEnded { .. } => {
+                            current.snapshot_was_idle(entry.projection.turn_id.as_deref())
+                        }
                         _ => true,
                     };
             }
@@ -342,7 +386,7 @@ impl SessionStore {
             timed_event_count: None,
             confirmed_ends: HashSet::new(),
             snapshot_running: None,
-            last_terminal_sequence: None,
+            idle_turn_floor: None,
         });
         self.sessions.insert(key, entry);
         true
@@ -366,10 +410,22 @@ impl SessionStore {
             .is_none_or(|previous| cut > previous)
             && entry.sequence.is_none_or(|seq| seq < cut)
         {
-            if running || !entry.terminal {
+            if running || !entry.has_turn_fact {
                 entry.projection.turn_id.clone_from(&event.turn_id);
                 entry.terminal = false;
                 entry.terminal_status = None;
+            }
+            if !running {
+                let live_start = generation.proof.live_start();
+                // 快照的 cut 是观察范围，不是宿主回合事实的位置。旧检查点只剩 cut 时只补历史。
+                generation.idle_turn_floor = Some(match generation.snapshot_event_count {
+                    Some(previous) if entry.sequence.is_none_or(|seq| seq < previous) => {
+                        generation.idle_turn_floor.unwrap_or(previous)
+                    }
+                    _ => entry.sequence.unwrap_or(live_start),
+                });
+            } else {
+                generation.idle_turn_floor = None;
             }
             entry.running_known = running;
             entry.has_turn_fact = true;
@@ -483,7 +539,17 @@ impl SessionStore {
                 return;
             }
         }
-        if exact {
+        // 前版 v1 观察器记录同一宿主 UUID，但未记录服务 owner。恢复快照中的相同开始会被持久去重。
+        let legacy_exact = accepted && !exact && entry.legacy_direct_is_pending(&question);
+        if legacy_exact {
+            self.scoped_resolved.insert((
+                key.clone(),
+                question.epoch.clone(),
+                question.turn.clone(),
+                question.request.clone(),
+            ));
+        }
+        if exact || legacy_exact {
             entry
                 .projection
                 .pending
@@ -514,7 +580,7 @@ impl SessionStore {
         let entry = self.sessions.get_mut(&key)?;
         let generation = entry.observation.as_mut()?;
         let cut = generation.snapshot_event_count?;
-        if generation.snapshot_running != Some(false) || seq >= cut {
+        if !generation.snapshot_was_idle(entry.projection.turn_id.as_deref()) || seq >= cut {
             return None;
         }
         if !generation.confirmed_ends.insert(turn.clone()) {
@@ -525,14 +591,12 @@ impl SessionStore {
         });
         if !entry.running_known
             && entry.sequence.is_none_or(|latest| latest < cut)
-            && generation
-                .last_terminal_sequence
-                .is_none_or(|last| seq >= last)
+            && seq >= generation.idle_turn_floor.unwrap_or(cut)
         {
             entry.projection.turn_id.clone_from(&event.turn_id);
             entry.terminal = true;
             entry.terminal_status = Some(status_for_outcome(*outcome));
-            generation.last_terminal_sequence = Some(seq);
+            generation.idle_turn_floor = Some(seq);
             entry.known_turns.insert(event.turn_id.clone());
         }
         let epoch = generation.proof.epoch_id.clone();
@@ -760,9 +824,6 @@ impl SessionStore {
                 }
                 entry.terminal = true;
                 entry.terminal_status = Some(status_for_outcome(*outcome));
-                if let Some(generation) = &mut entry.observation {
-                    generation.last_terminal_sequence = event.sequence;
-                }
                 entry.projection.status = status_for_outcome(*outcome);
                 entry
                     .projection

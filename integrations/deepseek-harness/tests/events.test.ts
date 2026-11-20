@@ -67,9 +67,20 @@ it('只把已证旧批次和首条新写之后的出生归给对应写者', () =
     ancestors: [{ epochId: 'old', generation: 1, firstSequence: 2,
       verifiedBirths: { firstSequence: 2, eventCount: 4 } }],
   };
-  expect(timedRequestId(proof, 'call', 1)).toBe('question:call');
-  expect(timedRequestId(proof, 'call', 3)).toBe('question:old:3:call');
-  expect(timedRequestId(proof, 'call', 4)).toBeUndefined();
-  expect(timedRequestId(proof, 'call', 9)).toBeUndefined();
-  expect(timedRequestId(proof, 'call', 10)).toBe('question:new:10:call');
+  expect(timedRequestId(proof, 'call', 1, 10)).toBe('question:call');
+  expect(timedRequestId(proof, 'call', 3, 10)).toBe('question:old:3:call');
+  expect(timedRequestId(proof, 'call', 4, 10)).toBeUndefined();
+  expect(timedRequestId(proof, 'call', 9, 10)).toBeUndefined();
+  expect(timedRequestId(proof, 'call', 10, 10)).toBe('question:new:10:call');
+});
+
+it('v1 沿用本代实时问题标识，祖先和撕裂尾归属保留未知', () => {
+  const proof = {
+    version: 1 as const, streamId: 'session', epochId: 'live', generation: 2, recoveredEventCount: 8,
+    ancestors: [{ epochId: 'old', generation: 1, firstSequence: 2 }],
+  };
+  expect(timedRequestId(proof, 'call', 1, 10)).toBe('question:call');
+  expect(timedRequestId(proof, 'call', 3, 10)).toBeUndefined();
+  expect(timedRequestId(proof, 'call', 9, 10)).toBeUndefined();
+  expect(timedRequestId(proof, 'call', 10, 10)).toBe('question:live:10:call');
 });

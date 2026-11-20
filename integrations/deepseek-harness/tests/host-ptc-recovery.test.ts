@@ -8,7 +8,7 @@ import type { HarnessObservation } from '../src/events.js';
 const host = process.env.PET_HARNESS_PATCHED_HOST;
 const epochId = '22222222-2222-4222-8222-222222222222';
 
-it.skipIf(host === undefined)('纯 PTC 的原前台问题、超时后重载和迟答共用同一日志出生标识', async () => {
+it.skipIf(host === undefined).each([1, 2] as const)('凭证 v%i 下纯 PTC 的前台问题、重载和迟答共用日志出生标识', async version => {
   const load = (path: string) => import(/* @vite-ignore */ pathToFileURL(join(host!, path, 'lib/index.js')).href);
   const [
     { Context }, { default: Sessions, SessionId, SESSION_FORMAT_VERSION, SessionLogOffset },
@@ -30,7 +30,8 @@ it.skipIf(host === undefined)('纯 PTC 的原前台问题、超时后重载和�
       seed: [], eventState: 'detached', inheritedEventCount: SessionLogOffset(0),
       meta: { version: SESSION_FORMAT_VERSION, id, createdAt: 100, isSeeded: false },
       observationRecovery: {
-        version: 2, firstLiveSequence: 0, streamId: '11111111-1111-4111-8111-111111111111', epochId,
+        ...(version === 1 ? { version } : { version, firstLiveSequence: 0 }),
+        streamId: '11111111-1111-4111-8111-111111111111', epochId,
         generation: 1, recoveredEventCount: 0, ancestors: [],
       },
     });
