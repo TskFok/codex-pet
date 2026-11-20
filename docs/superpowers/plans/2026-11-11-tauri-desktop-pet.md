@@ -173,11 +173,13 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 **接口：** `import_pet(source: &Path, destination: &Path) -> Result<PetManifest, PetError>`；`PetManifest { version: u16, id: String, name: String, atlas: Atlas, animations: BTreeMap<String, Animation>, look_directions: Option<Vec<FrameRect>> }`；Atlas 包含图像相对路径、宽高、格子宽高；Animation 包含 `frames: Vec<AnimationFrame>` 和 `loop_start: Option<usize>`；AnimationFrame 包含 FrameRect 与 `duration_ms: u32`；FrameRect 为整数 x/y/width/height。
 
-- [ ] **1. 写失败测试。** v1 1536×1872、v2 1536×2288 导入后九状态帧数为 `[6,8,8,4,5,8,6,6,6]`，v2 的 16 个方向不混入普通动画；内部格式能接受超过 8 帧动作。拒绝无效解码、20 MiB 以上文件、超过 4096×4096 的图像、越界格子、零时长、路径逃逸；导入前后原包字节不变。
-- [ ] **2. 运行并确认失败。** `cargo test -p pet-core --test pet_package`。
-- [ ] **3. 实现。** JSON 元数据和 PNG/WebP 解码分别验证；导入复制到应用数据目录，以内部显式帧矩形和时间表示，文档固定时间单位。旧待机使用基础时长 `[280,110,110,140,140,320]`，不沿用 Codex 的额外 6 倍延时；其他动作沿用已核查基础时长。
-- [ ] **4. 验证。** 重跑测试并导入本仓库至少一个 v1、一个 v2 包；检查九状态与方向联系表，确认新包与原包独立且清空历史不会删除素材。
-- [ ] **5. 提交。** `git commit -m "添加旧宠物包导入与独立动画格式"`。
+- [x] **1. 写失败测试。** v1 1536×1872、v2 1536×2288 导入后九状态帧数为 `[6,8,8,4,5,8,6,6,6]`，v2 的 16 个方向不混入普通动画；内部格式能接受超过 8 帧动作。拒绝无效解码、20 MiB 以上文件、超过 4096×4096 的图像、越界格子、零时长、路径逃逸；导入前后原包字节不变。
+- [x] **2. 运行并确认失败。** `cargo test -p pet-core --test pet_package`。
+- [x] **3. 实现。** JSON 元数据和 PNG/WebP 解码分别验证；导入复制到应用数据目录，以内部显式帧矩形和时间表示，文档固定时间单位。旧待机使用基础时长 `[280,110,110,140,140,320]`，不沿用 Codex 的额外 6 倍延时；其他动作沿用已核查基础时长。
+- [x] **4. 验证。** 重跑测试并导入本仓库至少一个 v1、一个 v2 包；检查九状态与方向联系表，确认新包与原包独立且清空历史不会删除素材。
+- [x] **5. 提交。** `git commit -m "添加旧宠物包导入与独立动画格式"`。
+
+实现及独立复审通过，最终提交 `611415d`。月影 v1、大肥鱼 v2 导入后可重载，清空历史保留两套素材，原包 SHA-256 一致。Windows x64 交叉检查通过，Windows 原生导入留待平台验收。
 
 ### Task 8:Canvas 播放器与可见性生命周期
 
