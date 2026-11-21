@@ -103,23 +103,78 @@ pub(crate) fn save(paths: &AppPaths, value: &WindowPlacement) -> Result<(), Stor
     paths::sync_directory(&paths.root)
 }
 
-pub(crate) struct PlacementState(std::sync::Mutex<WindowPlacement>);
+struct StoredPlacement {
+    current: WindowPlacement,
+    dirty: bool,
+}
+pub(crate) struct PlacementState(std::sync::Mutex<StoredPlacement>);
+
+fn persist(value: &WindowPlacement) -> Result<(), StorageError> {
+    crate::notification_paths().and_then(|paths| save(&paths, value))
+}
 
 impl PlacementState {
     pub fn new(value: WindowPlacement) -> Self {
-        Self(std::sync::Mutex::new(value))
+        Self(std::sync::Mutex::new(StoredPlacement {
+            current: value,
+            dirty: false,
+        }))
     }
     pub fn current(&self) -> WindowPlacement {
-        self.0.lock().unwrap().clone()
+        self.0.lock().unwrap().current.clone()
     }
     pub fn remember(&self, value: WindowPlacement) {
-        let mut current = self.0.lock().unwrap();
-        if *current == value {
-            return;
+        self.remember_with(value, persist);
+    }
+    fn remember_with(
+        &self,
+        value: WindowPlacement,
+        write: impl FnOnce(&WindowPlacement) -> Result<(), StorageError>,
+    ) {
+        let mut placement = self.0.lock().unwrap();
+        if placement.current != value {
+            placement.current = value;
+            placement.dirty = true;
         }
-        *current = value;
-        if let Err(error) = crate::notification_paths().and_then(|paths| save(&paths, &current)) {
-            eprintln!("保存桌宠位置失败：{error}");
+        placement.flush(write);
+    }
+    pub fn retry_write(&self) {
+        self.0.lock().unwrap().flush(persist);
+    }
+}
+
+impl StoredPlacement {
+    fn flush(&mut self, write: impl FnOnce(&WindowPlacement) -> Result<(), StorageError>) {
+        if self.dirty {
+            match write(&self.current) {
+                Ok(()) => self.dirty = false,
+                Err(error) => eprintln!("保存桌宠位置失败：{error}"),
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+
+    #[test]
+    fn same_position_is_retried_after_failed_atomic_publish() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&temp.path().canonicalize().unwrap().join("app"));
+        paths.prepare_root().unwrap();
+        let state = PlacementState::new(WindowPlacement::default());
+        let target = WindowPlacement {
+            x: 85.,
+            ..WindowPlacement::default()
+        };
+        let path = paths.root.join("placement.json");
+        std::fs::create_dir(&path).unwrap();
+        let write = |value: &WindowPlacement| save(&paths, value);
+        state.remember_with(target.clone(), write);
+        assert_eq!(state.current(), target);
+        std::fs::remove_dir(&path).unwrap();
+        state.remember_with(target.clone(), write);
+        assert_eq!(load(&paths).unwrap(), target);
     }
 }

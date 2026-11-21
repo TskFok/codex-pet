@@ -68,6 +68,7 @@ pub(crate) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::
 
 /// 操作整个桌宠窗口组，调用者不能只隐藏 macOS 的 Canvas 子窗。
 pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<()> {
+    flush_placement(app);
     if visible {
         restore_placement(app)?;
     }
@@ -75,7 +76,11 @@ pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<(
     {
         macos::set_visible(visible)?;
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    if let Some(window) = app.get_webview_window("pet") {
+        windows::set_visible(&window, visible)?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("pet") {
@@ -95,6 +100,16 @@ pub fn set_pet_visible(app: &tauri::AppHandle, visible: bool) -> tauri::Result<(
 pub(crate) fn shutdown_input() {
     macos_power::shutdown();
     macos::shutdown_input();
+}
+
+pub(crate) fn flush_placement(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    if macos_power::take_pending_move() {
+        finish_drag(app);
+    }
+    if let Some(state) = app.try_state::<crate::placement::PlacementState>() {
+        state.retry_write();
+    }
 }
 
 pub(crate) fn restore_placement(app: &tauri::AppHandle) -> tauri::Result<()> {

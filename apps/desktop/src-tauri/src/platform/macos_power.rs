@@ -7,7 +7,7 @@ use objc2_app_kit::{
 use objc2_foundation::{
     NSNotification, NSNotificationCenter, NSObject, NSObjectNSDelayedPerforming,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -21,6 +21,8 @@ define_class!(
         }
         #[unsafe(method(petDidMove:))]
         fn did_move(&self,_notification:&NSNotification) {
+            if !super::macos::is_visible() { return; }
+            PENDING_MOVE.set(true);
             // WindowServer 接管拖动后 mouseUp 不一定送达。只在一批移动通知结束时保存。
             unsafe {
                 NSObject::cancelPreviousPerformRequestsWithTarget_selector_object(self,sel!(petSave:),None);
@@ -28,7 +30,9 @@ define_class!(
             }
         }
         #[unsafe(method(petSave:))]
-        fn save_position(&self,_unused:Option<&NSObject>) {super::finish_drag(self.ivars());}
+        fn save_position(&self, _unused:Option<&NSObject>) {
+            if take_pending_move() { super::finish_drag(self.ivars()); }
+        }
 
         #[unsafe(method(petWillSleep:))]
         fn will_sleep(&self, _notification: &NSNotification) {
@@ -59,6 +63,7 @@ impl Drop for PowerWatch {
 }
 
 thread_local! {
+    static PENDING_MOVE: Cell<bool> = const { Cell::new(false) };
     static WATCH: RefCell<Option<PowerWatch>> = const { RefCell::new(None) };
 }
 
@@ -115,4 +120,8 @@ pub(super) fn watch_position(app: &tauri::AppHandle, proxy: &NSWindow) {
         );
     }
     POSITION.with(|watch| *watch.borrow_mut() = Some(PowerWatch { center, observer }));
+}
+
+pub(super) fn take_pending_move() -> bool {
+    PENDING_MOVE.replace(false)
 }

@@ -22,6 +22,15 @@ struct Rect {
 
 #[link(name = "user32")]
 unsafe extern "system" {
+    fn SetWindowPos(
+        window: *mut c_void,
+        insert_after: *mut c_void,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        flags: u32,
+    ) -> i32;
     fn GetClientRect(window: *mut c_void, rect: *mut Rect) -> i32;
     fn GetWindowRect(window: *mut c_void, rect: *mut Rect) -> i32;
     fn ClientToScreen(window: *mut c_void, point: *mut Point) -> i32;
@@ -32,6 +41,30 @@ unsafe extern "system" {
     fn ExtCreateRegion(transform: *const c_void, bytes: u32, data: *const i32) -> *mut c_void;
     fn CreateRectRgn(left: i32, top: i32, right: i32, bottom: i32) -> *mut c_void;
     fn DeleteObject(object: *mut c_void) -> i32;
+}
+
+/// 首显和托盘恢复都保持前台 HWND，并保留当前层顺序、尺寸与位置。
+pub(super) fn set_visible(window: &tauri::WebviewWindow, visible: bool) -> tauri::Result<()> {
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOZORDER: u32 = 0x0004;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    const SWP_SHOWWINDOW: u32 = 0x0040;
+    const SWP_HIDEWINDOW: u32 = 0x0080;
+    let flags = SWP_NOSIZE
+        | SWP_NOMOVE
+        | SWP_NOZORDER
+        | SWP_NOACTIVATE
+        | if visible {
+            SWP_SHOWWINDOW
+        } else {
+            SWP_HIDEWINDOW
+        };
+    // SAFETY: 由 Tauri 持有的 HWND，有 NOZORDER/NOMOVE/NOSIZE 时其余参数均被忽略。
+    if unsafe { SetWindowPos(window.hwnd()?.0, std::ptr::null_mut(), 0, 0, 0, 0, flags) } == 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    Ok(())
 }
 
 #[derive(Default)]

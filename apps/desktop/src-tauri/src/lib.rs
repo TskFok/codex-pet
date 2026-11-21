@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 use tauri::{Emitter, Manager};
-use tokio::sync::{Notify, broadcast};
+use tokio::sync::{broadcast, watch};
 
 const INITIAL_START_RETRY: Duration = Duration::from_secs(2);
 const MAX_START_RETRY: Duration = Duration::from_secs(30);
@@ -26,7 +26,7 @@ struct DiagnosticState(Mutex<()>);
 #[derive(Default)]
 struct NotificationRuntime {
     connection: RwLock<NotificationConnection>,
-    exit: Notify,
+    exit: watch::Sender<bool>,
     worker: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
@@ -61,20 +61,38 @@ impl NotificationRuntime {
     }
 
     async fn wait_for_broker(&self, paths: AppPaths) -> Option<BrokerHandle> {
+        self.wait_for_broker_with(paths, BrokerStartup::attempt)
+            .await
+    }
+
+    async fn wait_for_broker_with(
+        &self,
+        paths: AppPaths,
+        attempt: impl Fn(&mut BrokerStartup) -> Result<BrokerHandle, StorageError>
+        + Clone
+        + Send
+        + 'static,
+    ) -> Option<BrokerHandle> {
         let mut startup = BrokerStartup::new(paths);
         let mut retry_delay = INITIAL_START_RETRY;
         let mut last_failure = None;
+        let mut exit = self.exit.subscribe();
         loop {
-            let started = tokio::select! {
-                biased;
-                _ = self.exit.notified() => return None,
-                result = async {
-                    tokio::task::spawn_blocking(move || {
-                        let result = startup.attempt();
-                        (startup, result)
-                    }).await
-                } => result,
-            };
+            if *exit.borrow() {
+                return None;
+            }
+            let attempt = attempt.clone();
+            // 已派发的启动任务可能正持有日志锁或发布发现文件，退出必须等它返回。
+            let started = tokio::task::spawn_blocking(move || {
+                let result = attempt(&mut startup);
+                (startup, result)
+            })
+            .await;
+            if *exit.borrow() {
+                // 析构 BrokerHandle 可能等待 HTTP 与日志线程。退出等待也覆盖此回收。
+                let _ = tokio::task::spawn_blocking(move || drop(started)).await;
+                return None;
+            }
             let (pending, result) = match started {
                 Ok(result) => result,
                 Err(error) => {
@@ -95,7 +113,7 @@ impl NotificationRuntime {
             }
             tokio::select! {
                 biased;
-                _ = self.exit.notified() => return None,
+                _ = exit.wait_for(|stopped| *stopped) => return None,
                 _ = tokio::time::sleep(retry_delay) => {}
             }
             retry_delay = (retry_delay * 2).min(MAX_START_RETRY);
@@ -141,13 +159,14 @@ fn start_notifications(app: tauri::AppHandle) {
             return;
         };
         let mut updates = broker.subscribe();
+        let mut exit = state.exit.subscribe();
         *state.connection.write().unwrap() = NotificationConnection::Ready(broker.view());
         let initial = broker.snapshot();
         let mut last_revision = initial.revision;
         let _ = app.emit_to("pet", "pet:snapshot", initial);
         loop {
             let snapshot = tokio::select! {
-                _ = state.exit.notified() => break,
+                _ = exit.wait_for(|stopped| *stopped) => break,
                 update = updates.recv() => match update {
                     Ok(snapshot) => snapshot,
                     Err(broadcast::error::RecvError::Lagged(_)) => broker.snapshot(),
@@ -338,9 +357,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("桌宠窗口启动失败");
     app.run(|app, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            platform::flush_placement(app);
+        }
         if matches!(event, tauri::RunEvent::Exit) {
             let state = app.state::<NotificationRuntime>();
-            state.exit.notify_one();
+            state.exit.send_replace(true);
             let worker = state.worker.lock().unwrap().take();
             if let Some(worker) = worker {
                 let _ = tauri::async_runtime::block_on(worker);
@@ -355,6 +380,66 @@ pub fn run() {
 mod notification_runtime_tests {
     use super::*;
     use pet_core::{JournalStore, StorageError};
+
+    #[tokio::test]
+    async fn exit_joins_inflight_start_and_releases_published_broker_or_pending_writer() {
+        use std::sync::{Arc, Barrier};
+        for publish_fails in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let paths = AppPaths::under(&directory.path().canonicalize().unwrap().join("app"));
+            if publish_fails {
+                paths.prepare_root().unwrap();
+                fs::create_dir(&paths.discovery).unwrap();
+            }
+            let state = Arc::new(NotificationRuntime::default());
+            let runtime = state.clone();
+            let root = paths.clone();
+            let (started, mut entered) = tokio::sync::mpsc::unbounded_channel();
+            let release = Arc::new(Barrier::new(2));
+            let gate = release.clone();
+            let mut worker = tokio::spawn(async move {
+                runtime
+                    .wait_for_broker_with(root, move |startup| {
+                        let result = startup.attempt();
+                        started.send(result.is_ok()).unwrap();
+                        gate.wait();
+                        result
+                    })
+                    .await
+            });
+            let success = entered.recv().await.unwrap();
+            let published = paths.discovery.is_file();
+            let locked = matches!(
+                JournalStore::open(paths.clone()),
+                Err(StorageError::WriterBusy)
+            );
+            state.exit.send_replace(true);
+            let early = tokio::time::timeout(Duration::from_millis(100), &mut worker).await;
+            release.wait();
+            assert_eq!(success, !publish_fails);
+            assert_eq!(published, !publish_fails);
+            assert!(locked, "处于启动屏障的线程必须保有写锁");
+            assert!(early.is_err(), "退出越过了持锁的启动线程");
+            assert!(worker.await.unwrap().is_none());
+            assert!(!paths.discovery.is_file());
+            assert!(JournalStore::open(paths).is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn preexisting_exit_does_not_dispatch_startup() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&temp.path().canonicalize().unwrap().join("app"));
+        let runtime = NotificationRuntime::default();
+        runtime.exit.send_replace(true);
+        assert!(
+            runtime
+                .wait_for_broker_with(paths.clone(), |_| panic!("不应派发启动操作"))
+                .await
+                .is_none()
+        );
+        assert!(!paths.root.exists());
+    }
 
     #[tokio::test]
     async fn discovery_retry_keeps_the_buffered_running_state_and_one_restart() {
@@ -434,7 +519,7 @@ mod notification_runtime_tests {
         .await
         .expect("未观察到写锁故障");
 
-        runtime.exit.notify_one();
+        runtime.exit.send_replace(true);
         assert!(
             tokio::time::timeout(Duration::from_millis(300), starting)
                 .await

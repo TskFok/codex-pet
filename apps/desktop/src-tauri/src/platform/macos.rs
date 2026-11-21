@@ -127,6 +127,15 @@ pub(super) fn install_input(window: &tauri::WebviewWindow) -> tauri::Result<()> 
     Ok(())
 }
 
+pub(super) fn is_visible() -> bool {
+    PROXY.with(|state| {
+        state
+            .borrow()
+            .as_ref()
+            .is_some_and(|pair| pair.proxy.isVisible())
+    })
+}
+
 pub(super) fn set_visible(visible: bool) -> tauri::Result<()> {
     if MainThreadMarker::new().is_none() {
         return Err(std::io::Error::other("窗口组显隐必须在主线程操作").into());
