@@ -152,20 +152,21 @@ pub(crate) fn update_hit_region(
     window: &tauri::WebviewWindow,
     frame: &pet_core::pet_package::FrameRect,
     mask: crate::windows::AlphaMask,
+    bubble_input: Option<crate::windows::BubbleInput>,
 ) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     {
         let _ = window;
-        macos::update_hit_region(frame, mask)
+        macos::update_hit_region(frame, mask, bubble_input)
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = frame;
+        let _ = (frame, bubble_input);
         windows::update_hit_region(window, mask)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (window, frame, mask);
+        let _ = (window, frame, mask, bubble_input);
         Ok(())
     }
 }

@@ -1,3 +1,7 @@
+#[cfg(any(windows, target_os = "macos"))]
+mod harness;
+pub(crate) mod system;
+
 use pet_core::{SessionKey, Source};
 use serde::{Deserialize, Serialize};
 use std::{

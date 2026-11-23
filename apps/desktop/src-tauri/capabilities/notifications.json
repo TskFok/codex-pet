@@ -9,6 +9,8 @@
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "allow-get-snapshot",
+    "allow-open-session",
+    "allow-copy-session-id",
     "allow-mark-read",
     "allow-clear-history"
   ]

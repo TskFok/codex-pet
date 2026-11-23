@@ -1,9 +1,7 @@
 import './styles.css';
 import { mountNotifications } from './components/notifications';
 import { mountSettings } from './components/settings';
-import { bindReminder } from './components/pet-bindings';
-import type { FrameRect } from './types';
-import type { AlphaMask } from './animation/hit-mask';
+import { bindReminder, type InputPose } from './components/pet-bindings';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { mountPet, PetVisibility, type PlaybackSignal } from './components/pet';
@@ -54,7 +52,7 @@ async function start(): Promise<void> {
   let fps: 30 | 60 = runtime.validationFps === 60 ? 60 : 30;
   const staticFrame = runtime.phase === 'idle';
   // IPC 顺序固定。原生线程忙时合并为最新姿态；单次失败后也能恢复静止帧。
-  let pendingMask: {mask: AlphaMask; frame: FrameRect} | undefined;
+  let pendingMask: InputPose | undefined;
   let updating = false;
   let retry: number | undefined;
   async function updateRegion(): Promise<void> {

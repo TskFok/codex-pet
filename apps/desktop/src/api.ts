@@ -3,6 +3,8 @@ import { listen } from '@tauri-apps/api/event';
 import type {
   InstallReport,
   IntegrationStatus,
+  OpenIntent,
+  OpenOutcome,
   PetAsset,
   PetChoice,
   PetManifest,
@@ -49,6 +51,9 @@ export const api = {
   snapshots: event<PetSnapshot>('pet:snapshot'),
   markRead: (key: SessionKey): Promise<PetSnapshot> => invoke('mark_read', { key }),
   clear: (): Promise<PetSnapshot> => invoke('clear_history'),
+  openSession: (key: SessionKey, intent: OpenIntent): Promise<OpenOutcome> =>
+    invoke('open_session', { key, intent }),
+  copySession: (key: SessionKey): Promise<void> => invoke('copy_session_id', { key }),
   settings: (): Promise<Settings> => invoke('get_settings'),
   settingsEvents: event<Settings>('pet:settings'),
   update: (patch: SettingsPatch): Promise<Settings> => invoke('update_settings', { patch }),

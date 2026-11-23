@@ -1,12 +1,13 @@
 import type { AlphaMask } from '../animation/hit-mask';
 import { reasonName, sourceName, historyName } from '../locales/zh-CN';
 import { keyId } from './notifications';
-import type { FrameRect, NotificationRecord, PetSnapshot, SessionProjection, Source } from '../types';
+import type { FrameRect, NotificationRecord, PetSnapshot, SessionKey, SessionProjection, Source } from '../types';
 
 interface Presentation {
   state: string;
   title?: string;
   detail?: string;
+  key?: SessionKey;
 }
 export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Presentation {
   const ends = new Map<string, NotificationRecord>();
@@ -53,6 +54,7 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
     const reason = only ? reasonName[only.reason] : '有待处理请求';
     return {
       state,
+      key: best.key,
       title,
       detail: [reason, only?.summary].filter(Boolean).join(' · '),
     };
@@ -60,6 +62,7 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
   if (rank === 4 && !best.unread && !end) return { state };
   return {
     state,
+    key: best.key,
     title,
     detail: [
       end ? historyName(end.kind) : rank === 4 ? '回合失败' : '收到回合结束提醒',

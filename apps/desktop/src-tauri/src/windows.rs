@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Deserialize)]
 pub struct AlphaMask {
@@ -84,5 +84,87 @@ mod tests {
                 .validate()
             );
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum BubbleAction {
+    Session,
+    Application,
+    Copy,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BubbleInput {
+    #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+    stamp: u32,
+    buttons: Vec<BubbleButton>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BubbleButton {
+    #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+    action: BubbleAction,
+    rect: ButtonRect,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ButtonRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+impl BubbleInput {
+    pub(crate) fn validate(&self, mask: &AlphaMask) -> bool {
+        (1..=3).contains(&self.buttons.len())
+            && self.buttons.iter().all(|button| {
+                let r = &button.rect;
+                r.x >= 0.0
+                    && r.y >= 0.0
+                    && r.width > 0.0
+                    && r.height > 0.0
+                    && r.x + r.width <= f64::from(mask.width)
+                    && r.y + r.height <= f64::from(mask.height)
+            })
+    }
+
+    #[cfg(any(test, target_os = "macos"))]
+    pub(crate) fn action_at(&self, x: f64, y: f64) -> Option<(u32, BubbleAction)> {
+        self.buttons.iter().find_map(|button| {
+            let r = &button.rect;
+            (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
+                .then_some((self.stamp, button.action))
+        })
+    }
+}
+
+#[cfg(test)]
+mod bubble_tests {
+    use super::*;
+
+    #[test]
+    fn bubble_uses_local_scaled_button_bounds_and_excludes_right_bottom() {
+        let input: BubbleInput = serde_json::from_value(serde_json::json!({
+            "stamp": 7,
+            "buttons": [{"action":"copy","rect":{"x":10.5,"y":22.0,"width":48.0,"height":16.0}}]
+        }))
+        .unwrap();
+        let mask = AlphaMask {
+            width: 320,
+            height: 360,
+            runs: vec![],
+        };
+        assert!(input.validate(&mask));
+        assert_eq!(input.action_at(11.0, 22.0), Some((7, BubbleAction::Copy)));
+        assert_eq!(input.action_at(58.5, 22.0), None);
+        assert_eq!(input.action_at(11.0, 38.0), None);
+        let outside = AlphaMask { width: 40, ..mask };
+        assert!(!input.validate(&outside));
     }
 }

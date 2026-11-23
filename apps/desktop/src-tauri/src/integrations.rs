@@ -1,5 +1,6 @@
 use crate::{
     commands::{CommandError, Result},
+    navigation::{Registration, system},
     notification_paths,
 };
 use pet_bridge::hook_install::{
@@ -207,8 +208,8 @@ fn caps(items: &[(&'static str, Level)]) -> Vec<Capability> {
         .map(|&(name, status)| Capability { name, status })
         .collect()
 }
-fn codex_status(loc: &Locations, [cli, desktop]: [Option<String>; 2]) -> Vec<IntegrationStatus> {
-    let evidence = read_optional(&loc.config).and_then(|bytes| {
+fn codex_evidence(loc: &Locations) -> Result<(Option<String>, usize, bool)> {
+    read_optional(&loc.config).and_then(|bytes| {
         let bytes = bytes.unwrap_or_default();
         let (id, mut rows) = inspect_hook_entries(&bytes).map_err(failure)?;
         let complete = if id.is_some() {
@@ -222,7 +223,10 @@ fn codex_status(loc: &Locations, [cli, desktop]: [Option<String>; 2]) -> Vec<Int
             false
         };
         Ok((id, rows.len(), complete))
-    });
+    })
+}
+fn codex_status(loc: &Locations, [cli, desktop]: [Option<String>; 2]) -> Vec<IntegrationStatus> {
+    let evidence = codex_evidence(loc);
     let (id, count, complete, problem) = match evidence {
         Ok((id, count, complete)) => (id, count, complete, None),
         Err(e) => (None, 0, false, Some(e.message)),
@@ -293,7 +297,7 @@ fn installation_id(row: &Value) -> Option<String> {
         .and_then(|s| uuid::Uuid::parse_str(s).ok())
         .map(|id| id.to_string())
 }
-fn harness_status(loc: &Locations) -> Result<IntegrationStatus> {
+fn harness_registration(loc: &Locations) -> Result<(Option<String>, Value)> {
     let profile = read_json(&loc.profile.join("package.json"))?.unwrap_or(Value::Null);
     let selected = profile
         .pointer("/dsh/profile/bundles")
@@ -312,6 +316,11 @@ fn harness_status(loc: &Locations) -> Result<IntegrationStatus> {
     } else {
         None
     };
+    Ok((id, profile))
+}
+
+fn harness_status(loc: &Locations) -> Result<IntegrationStatus> {
+    let (id, profile) = harness_registration(loc)?;
     // 这里能证实 profile 中选中的真实配置包；运行期启用和 Fiber 状态须在宿主检查。
     let installed = id.is_some();
     let hint = if installed {
@@ -494,6 +503,30 @@ fn harness_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
     result
 }
 
+/// 已登记的 Hooks 或已由桌面 profile 选择的 Harness 包才提供安装身份。
+pub(crate) fn navigation_registration(
+    app: &tauri::AppHandle,
+    source: Source,
+    expected_id: &str,
+) -> Result<Option<Registration>> {
+    let lock = app.state::<IntegrationLock>();
+    let _guard = lock.0.lock().unwrap();
+    let loc = Locations::new(app)?;
+    let id = match source {
+        Source::Codex => {
+            let (id, _, complete) = codex_evidence(&loc)?;
+            id.filter(|_| complete)
+        }
+        Source::Deepseek => harness_registration(&loc)?.0,
+    };
+    Ok(id
+        .filter(|id| id == expected_id)
+        .map(|installation_id| Registration {
+            desktop: system::desktop(source),
+            installation_id,
+            source,
+        }))
+}
 #[tauri::command]
 pub async fn integration_status(app: tauri::AppHandle) -> Result<Vec<IntegrationStatus>> {
     tauri::async_runtime::spawn_blocking(move || {

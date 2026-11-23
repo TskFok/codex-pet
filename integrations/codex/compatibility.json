@@ -129,5 +129,19 @@
   "eventSchemaVersion": 2,
   "legacyEventSchemaVersionsRead": [
     1
-  ]
+  ],
+  "navigation": {
+    "localThreadUrl": "codex://threads/<thread-id>",
+    "requiresRegisteredHooksInstallation": true,
+    "macosOfficialBundleId": "com.openai.codex",
+    "macosSigningTeam": "2DC432GLL2",
+    "windowsProtocolPackageFamily": "OpenAI.Codex_2p2nqsd0c76g0",
+    "sharedHooksDesktopAffinity": "unknown_attempt_on_explicit_user_action",
+    "applicationOnlyRequiresExplicitAction": true,
+    "requestedConfirmsOnly": "os_dispatch",
+    "realSessionsVerified": {
+      "macos": 0,
+      "windows": 0
+    }
+  }
 }

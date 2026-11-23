@@ -311,11 +311,17 @@ fn update_hit_region(
     window: tauri::WebviewWindow,
     frame: pet_core::pet_package::FrameRect,
     mask: windows::AlphaMask,
+    bubble_input: Option<windows::BubbleInput>,
 ) -> Result<(), String> {
-    if window.label() != "pet" || !mask.validate() {
+    if window.label() != "pet"
+        || !mask.validate()
+        || bubble_input
+            .as_ref()
+            .is_some_and(|input| !input.validate(&mask))
+    {
         return Err("无效的桌宠命中区域".into());
     }
-    platform::update_hit_region(&window, &frame, mask).map_err(|e| e.to_string())
+    platform::update_hit_region(&window, &frame, mask, bubble_input).map_err(|e| e.to_string())
 }
 
 pub fn run() {
@@ -347,6 +353,8 @@ pub fn run() {
             commands::get_snapshot,
             commands::mark_read,
             commands::clear_history,
+            commands::open_session,
+            commands::copy_session_id,
             commands::get_settings,
             commands::update_settings,
             commands::import_pet_package,

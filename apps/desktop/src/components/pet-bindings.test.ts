@@ -2,11 +2,19 @@ import { parseHTML } from 'linkedom';
 import { expect, it, vi } from 'vitest';
 import { api } from '../api';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { bindReminder } from './pet-bindings';
 import type { mountPet } from './pet';
 import type { PetSnapshot, Settings } from '../types';
 import fixture from '../../../../tests/fixtures/events/child-folding.json';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+
+function deliverBubbleAction(stamp: number, action: string) {
+  const handler = vi.mocked(listen).mock.lastCall?.[1];
+  if (!handler) throw new Error('缺少气泡输入监听');
+  handler({ event: 'pet:bubble-action', id: 1, payload: { stamp, action } });
+}
 
 it('设置读取失败或晚到时，连续快照也不泄露已静音的项目或摘要', async () => {
   const { document } = parseHTML('<html><body><canvas></canvas></body></html>');
@@ -72,6 +80,57 @@ it('设置读取失败或晚到时，连续快照也不泄露已静音的项目�
     receive({ ...prefs, revision: 4, mutedSources: [] });
     expect(bubble.hidden).toBe(false);
     expect(bubble.textContent).toContain('私有项目');
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('按气泡真实按钮位置发布命中，并忽略上一会话晚到的原生点击', async () => {
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 160, 180);
+    if (this.localName === 'aside') return rect(2, 2, 156, 60);
+    return this.dataset.action === 'session' ? rect(8, 34, 66, 20) : rect(78, 34, 56, 20);
+  });
+  let update!: (value: PetSnapshot) => void;
+  const snapshot = structuredClone(fixture.expected) as PetSnapshot;
+  const prefs: Settings = {
+    revision: 3, fps: 30, sound: false, autostart: false, mutedSources: [], petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshots').mockImplementation(async (receive) => { update = receive; return () => {}; });
+  vi.spyOn(api, 'snapshot').mockResolvedValue(snapshot);
+  const navigate = vi.spyOn(api, 'openSession').mockResolvedValue({ status: 'requested' });
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 320;
+  canvas.height = 360;
+  const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
+  const renderer = { setState: vi.fn(), setFps: vi.fn() };
+  const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
+  try {
+    handle.pose({ width: 320, height: 360, runs: [] }, { x: 0, y: 0, width: 160, height: 180 });
+    await vi.waitFor(() => expect(poses.mock.lastCall?.[0].bubbleInput?.buttons[0]).toEqual(
+      { action: 'session', rect: { x: 16, y: 68, width: 132, height: 40 } },
+    ));
+    const before = poses.mock.lastCall![0].bubbleInput!.stamp;
+    const changed = structuredClone(snapshot);
+    changed.revision++;
+    changed.sessions[0].key.sessionId = '新会话';
+    update(changed);
+    const after = poses.mock.lastCall![0].bubbleInput!.stamp;
+    expect(after).toBeGreaterThan(before);
+    deliverBubbleAction(before, 'session');
+    expect(navigate).not.toHaveBeenCalled();
+    deliverBubbleAction(after, 'session');
+    expect(navigate).toHaveBeenCalledWith(changed.sessions[0].key, 'session');
+    await vi.waitFor(() => expect(document.querySelector('aside')?.textContent).toContain('已发送打开请求'));
   } finally {
     handle.stop();
     vi.restoreAllMocks();

@@ -1,6 +1,7 @@
 use crate::{
     NotificationConnection, NotificationRuntime,
     broker::{BrokerView, HistoryAction},
+    navigation::{self, OpenIntent, OpenOutcome},
     notification_paths,
     placement::{PlacementState, WindowPlacement},
     platform,
@@ -71,6 +72,53 @@ pub async fn mark_read(
 pub async fn clear_history(state: State<'_, NotificationRuntime>) -> Result<PetSnapshot> {
     Ok(broker(&state)?.history(HistoryAction::Clear).await?)
 }
+fn known_session(state: &NotificationRuntime, key: &SessionKey) -> Result<()> {
+    let snapshot = broker(state)?.snapshot();
+    if snapshot.sessions.iter().any(|session| &session.key == key)
+        || snapshot
+            .notifications
+            .iter()
+            .any(|notification| &notification.key == key)
+    {
+        return Ok(());
+    }
+    Err(CommandError::new("navigation", "未找到该会话的本机通知"))
+}
+
+#[tauri::command]
+pub async fn open_session(
+    app: tauri::AppHandle,
+    state: State<'_, NotificationRuntime>,
+    key: SessionKey,
+    intent: OpenIntent,
+) -> Result<OpenOutcome> {
+    known_session(&state, &key)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let registration =
+            crate::integrations::navigation_registration(&app, key.source, &key.installation_id)?;
+        navigation::open_session(&key, registration.as_ref(), intent, |path, url| {
+            navigation::system::dispatch(key.source, path, url)
+        })
+        .map_err(|error| CommandError::new("navigation", error))
+    })
+    .await
+    .map_err(|_| CommandError::new("navigation", "打开请求中断，请重试"))?
+}
+
+#[tauri::command]
+pub fn copy_session_id(
+    window: tauri::WebviewWindow,
+    state: State<'_, NotificationRuntime>,
+    key: SessionKey,
+) -> Result<()> {
+    known_session(&state, &key)?;
+    if key.session_id.contains('\0') {
+        return Err(CommandError::new("clipboard", "会话标识含无效字符"));
+    }
+    navigation::system::copy(&window, &key.session_id)
+        .map_err(|_| CommandError::new("clipboard", "无法写入系统剪贴板，请重试"))
+}
+
 #[tauri::command]
 pub fn get_playback(state: State<'_, platform::Playback>) -> platform::PlaybackSignal {
     state.snapshot()

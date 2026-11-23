@@ -43,3 +43,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 
 持续请求使用 `RequestLifetime::UntilResolved`（JSON `until_resolved`），普通请求默认 `Turn` 且省略默认字段。持续请求保留原始出生回合，跨回合结束、新回合和普通快照替换保留，只有精确解除事实移除；存在持续请求时聚合显示待处理，解除后恢复可证的活动/终态，活动因果未知时仍为 Unknown。Task5必须持久化完整重放事件或全部私有墓碑、已知终态、活动事实及延后请求，公开快照本身不足以恢复因果。
+
+## 从通知打开会话
+
+点击桌宠气泡的「打开会话」，或在托盘「通知」中展开会话并点击「尝试打开会话」。桌宠检查本机登记的来源安装，并通过系统入口发送对应请求。「已发送打开请求」表示系统已接受请求。请在来源应用确认是否定位到原会话。也可以在气泡或通知面板复制会话 ID。
+
+Codex 使用官方会话链接。旧版共用 Hooks 的通知可能来自 CLI，系统接受链接时仍可能找不到对应的桌面会话。Harness 需要桌面 profile 已选用配套插件，并且系统注册的 0.2.2-rc.1 桌面包带有会话深链补丁。仅支持唤起时，界面提供独立的「打开应用」按钮。[Codex 兼容表](integrations/codex/compatibility.json) · [Harness 兼容表](integrations/deepseek-harness/compatibility.json)

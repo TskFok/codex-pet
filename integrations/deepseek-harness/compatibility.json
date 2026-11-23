@@ -71,7 +71,15 @@
     "parserQueueAndIpc": "unit_tested",
     "macosNativeExactSession": "unverified",
     "windowsNativeExactSession": "unverified",
-    "wakeOnlyIsExact": false
+    "wakeOnlyIsExact": false,
+    "requiresSelectedDesktopProfileBundle": true,
+    "sessionUrl": "dsh://session/<encoded-id>",
+    "applicationUrl": "dsh://open",
+    "macosBundleId": "com.deepseek.harness",
+    "windowsRegistry": "current_dsh_protocol_electron_executable",
+    "patchEvidence": "registered_desktop_0.2.2-rc.1_archive_main_and_preload_session_ipc",
+    "applicationOnlyRequiresExplicitAction": true,
+    "requestedConfirmsOnly": "os_dispatch"
   },
   "package": {
     "codePackage": "library",

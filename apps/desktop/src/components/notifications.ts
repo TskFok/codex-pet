@@ -1,14 +1,20 @@
 import { confirmChange } from './confirmation';
+import { createNavigation, type NavigationActions } from './navigation';
 import { api, message, observeSnapshot } from '../api';
 import { historyName, reasonName, sourceName, statusName } from '../locales/zh-CN';
 import type { NotificationRecord, PetSnapshot, SessionKey, SessionProjection } from '../types';
 
 export const keyId = (key: SessionKey) => JSON.stringify([key.source, key.installationId, key.sessionId]);
-type Actions = { markRead: (key: SessionKey) => void; clear: () => void };
+type Actions = NavigationActions & { markRead: (key: SessionKey) => void; clear: () => void };
 export function renderNotifications(root: HTMLElement, snapshot: PetSnapshot, actions: Actions): void {
   const doc = root.ownerDocument;
   const opened = new Set(
     Array.from(root.querySelectorAll<HTMLDetailsElement>('details[open]'), (d) => d.dataset.key),
+  );
+  const navigation = new Map(
+    Array.from(root.querySelectorAll<HTMLElement>('[data-navigation-key]'), (item) => [
+      item.dataset.navigationKey, item,
+    ]),
   );
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = '') => {
     const node = doc.createElement(tag);
@@ -57,7 +63,9 @@ export function renderNotifications(root: HTMLElement, snapshot: PetSnapshot, ac
       summary.append(badge);
     }
     if (s) summary.append(el('small', statusName(s)));
-    d.append(summary, el('p', '会话 ' + key.sessionId));
+    const controls = navigation.get(id) ?? createNavigation(doc, key, actions);
+    controls.dataset.navigationKey = id;
+    d.append(summary, el('p', '会话 ' + key.sessionId), controls);
     if (s?.summary) d.append(el('p', s.summary));
     for (const p of s?.pending || [])
       d.append(
@@ -117,6 +125,8 @@ export async function mountNotifications(root: HTMLElement): Promise<() => void>
     error.textContent = '';
     renderNotifications(content, s, {
       markRead: (key) => run(api.markRead(key)),
+      open: api.openSession,
+      copy: api.copySession,
       clear: () => {
         void confirmChange(root, '清空通知历史？仍待处理的请求会保留。', '确认清空')
           .then((confirmed) => {

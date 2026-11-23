@@ -131,3 +131,9 @@ export interface InstallReport {
   warnings: string[];
   bundlePath?: string | null;
 }
+
+export type OpenIntent = 'session' | 'application';
+export type OpenOutcome =
+  | { status: 'requested' }
+  | { status: 'application_only'; opened: boolean }
+  | { status: 'unavailable' };

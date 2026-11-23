@@ -175,3 +175,23 @@ dialog {
 }
 dialog p { white-space: pre-line; overflow-wrap: anywhere; }
 dialog::backdrop { background: rgb(0 0 0 / 35%); }
+.bubble .actions {
+  gap: 3px;
+  margin-top: 3px;
+}
+.bubble button {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 1px 3px;
+  color: #222629;
+  background: #f3eee1;
+  border-color: #a49f91;
+}
+.bubble [role='status'] {
+  margin: 3px 0 0;
+  padding: 0;
+  border: 0;
+}
+.bubble [role='status']:empty {
+  display: none;
+}

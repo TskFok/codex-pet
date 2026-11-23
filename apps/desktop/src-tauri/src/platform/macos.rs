@@ -1,5 +1,5 @@
 use crate::placement::{HEIGHT, WIDTH, WindowPlacement, WorkArea, clamp_placement};
-use crate::windows::AlphaMask;
+use crate::windows::{AlphaMask, BubbleAction, BubbleInput};
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained};
 use objc2_app_kit::{
     NSBackingStoreType, NSColor, NSCompositingOperation, NSEvent, NSRectFillList,
@@ -7,8 +7,10 @@ use objc2_app_kit::{
     NSWindowStyleMask,
 };
 use objc2_foundation::{MainThreadMarker, NSNumber, NSObject, NSPoint, NSRect, NSSize, NSString};
-use std::cell::RefCell;
-use tauri::{Manager, WebviewWindowBuilder, Wry, utils::config::BackgroundThrottlingPolicy};
+use std::cell::{Cell, RefCell};
+use tauri::{
+    Emitter, Manager, WebviewWindowBuilder, Wry, utils::config::BackgroundThrottlingPolicy,
+};
 
 pub(super) fn configure(
     builder: WebviewWindowBuilder<'_, Wry, tauri::AppHandle>,
@@ -31,10 +33,17 @@ define_class!(
     }
 );
 
+struct PetInput {
+    app: tauri::AppHandle,
+    mask: RefCell<AlphaMask>,
+    bubble: RefCell<Option<BubbleInput>>,
+    pressed: Cell<Option<(u32, BubbleAction)>>,
+}
+
 define_class!(
     #[unsafe(super(NSView, NSResponder, NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[ivars = RefCell<AlphaMask>]
+    #[ivars = PetInput]
     struct PetInputView;
     impl PetInputView {
         #[unsafe(method(isFlipped))]
@@ -45,7 +54,7 @@ define_class!(
         fn draw_rect(&self, _rect: NSRect) {
             NSColor::clearColor().setFill();
             NSRectFillUsingOperation(self.bounds(), NSCompositingOperation::Copy);
-            let mask = self.ivars().borrow();
+            let mask = self.ivars().mask.borrow();
             if mask.runs.is_empty() { return; }
             let sx = self.bounds().size.width / f64::from(mask.width);
             let sy = self.bounds().size.height / f64::from(mask.height);
@@ -63,6 +72,9 @@ define_class!(
         }
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
+            let action = self.bubble_action(event);
+            self.ivars().pressed.set(action);
+            if action.is_some() { return; }
             if let Some(window) = self.window() {
                 #[cfg(debug_assertions)]
                 if std::env::var_os("PET_DIAGNOSTICS_DIR").is_some() {
@@ -72,8 +84,31 @@ define_class!(
                 window.performWindowDragWithEvent(event);
             }
         }
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, event: &NSEvent) {
+            if let Some((stamp, action)) = self.ivars().pressed.take()
+                && self.bubble_action(event) == Some((stamp, action))
+            {
+                let _ = self.ivars().app.emit_to("pet", "pet:bubble-action",
+                    serde_json::json!({"stamp":stamp,"action":action}));
+            }
+        }
     }
 );
+
+impl PetInputView {
+    fn bubble_action(&self, event: &NSEvent) -> Option<(u32, BubbleAction)> {
+        let bubble = self.ivars().bubble.borrow();
+        let bubble = bubble.as_ref()?;
+        let point = self.convertPoint_fromView(event.locationInWindow(), None);
+        let bounds = self.bounds().size;
+        let mask = self.ivars().mask.borrow();
+        bubble.action_at(
+            point.x * f64::from(mask.width) / bounds.width,
+            point.y * f64::from(mask.height) / bounds.height,
+        )
+    }
+}
 
 struct ProxyPair {
     proxy: Retained<PetProxyWindow>,
@@ -106,8 +141,14 @@ pub(super) fn install_input(window: &tauri::WebviewWindow) -> tauri::Result<()> 
     proxy.setBackgroundColor(Some(&NSColor::clearColor()));
     proxy.setHasShadow(false);
     proxy.setLevel(native.level());
+    let input = PetInput {
+        app: window.app_handle().clone(),
+        mask: RefCell::default(),
+        bubble: RefCell::default(),
+        pressed: Cell::default(),
+    };
     let view: Retained<PetInputView> = unsafe {
-        msg_send![super(PetInputView::alloc(mtm).set_ivars(RefCell::default())), initWithFrame:NSRect::new(NSPoint::new(0.0,0.0),native.frame().size)]
+        msg_send![super(PetInputView::alloc(mtm).set_ivars(input)), initWithFrame:NSRect::new(NSPoint::new(0.0,0.0),native.frame().size)]
     };
     proxy.setContentView(Some(&view));
     native.setIgnoresMouseEvents(true);
@@ -167,7 +208,7 @@ pub(super) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::
         let corner=NSPoint::new(frame.origin.x+5.0,frame.origin.y+frame.size.height-5.0);
         let query=|point,below|NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(point,below,mtm);
         let report=serde_json::json!({
-            "pose":pair.frame,"runCount":pair.view.ivars().borrow().runs.len(),"rendererWindow":native.windowNumber(),"proxyWindow":pair.proxy.windowNumber(),
+            "pose":pair.frame,"runCount":pair.view.ivars().mask.borrow().runs.len(),"rendererWindow":native.windowNumber(),"proxyWindow":pair.proxy.windowNumber(),
             "rendererParent":native.parentWindow().map(|p|p.windowNumber()),
             "bodyPoint":{"x":body.x,"y":body.y},"cornerPoint":{"x":corner.x,"y":corner.y},
             "bodyWindow":query(body,0),"cornerWindow":query(corner,0),
@@ -183,13 +224,15 @@ pub(super) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::
 pub(super) fn update_hit_region(
     frame: &pet_core::pet_package::FrameRect,
     mask: AlphaMask,
+    bubble_input: Option<BubbleInput>,
 ) -> tauri::Result<()> {
     let view = PROXY
         .with(|state| {
             let mut state = state.borrow_mut();
             let pair = state.as_mut()?;
             pair.frame = Some(*frame);
-            *pair.view.ivars().borrow_mut() = mask;
+            *pair.view.ivars().mask.borrow_mut() = mask;
+            *pair.view.ivars().bubble.borrow_mut() = bubble_input;
             Some(pair.view.clone())
         })
         .ok_or_else(|| std::io::Error::other("桌宠代理不可用"))?;
