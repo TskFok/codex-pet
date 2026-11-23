@@ -435,8 +435,7 @@ fn harness_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
     let saved = read_optional(&id_file)?
         .map(|bytes| String::from_utf8(bytes).map_err(failure))
         .transpose()?;
-    if saved.is_none()
-        && status.installation_id.is_none()
+    if status.installation_id.is_none()
         && read_json(&loc.profile.join("package.json"))?
             .is_some_and(|p| p["dependencies"].get(PACKAGE).is_some())
     {
@@ -605,9 +604,65 @@ mod tests {
                 .join("integrations/harness/installation-id")
                 .exists()
         );
+        let saved = loc.paths.root.join("integrations/harness/installation-id");
+        fs::write(&saved, "12345678-1234-4234-8234-123456789012").unwrap();
+        let error = harness_apply(&loc, Action::Install)
+            .err()
+            .expect("旧 plain 依赖身份不可确认");
+        assert!(
+            error.message.contains("现有同名依赖的安装 ID 未确认"),
+            "{}",
+            error.message
+        );
+        assert_eq!(
+            fs::read_to_string(saved).unwrap(),
+            "12345678-1234-4234-8234-123456789012"
+        );
         assert_eq!(
             fs::read(loc.profile.join("package.json")).unwrap(),
             original
+        );
+    }
+    #[test]
+    fn matching_registered_bundle_retains_identity_on_upgrade() {
+        let temp = tempfile::tempdir().unwrap();
+        let loc = locations(&temp);
+        let id = "12345678-1234-4234-8234-123456789012";
+        let host_bundle = loc.profile.join("node_modules").join(PACKAGE);
+        fs::create_dir_all(&host_bundle).unwrap();
+        let manifest = json!({"name":PACKAGE,"dsh":{"bundle":{"patch":"./cordis.patch.json"}}});
+        let row = json!([{"insert":[{"name":PACKAGE,"id":"desktop-pet-notify","config":{"installationId":id,"bridgePath":loc.bridge}}]}]);
+        fs::write(host_bundle.join("package.json"), manifest.to_string()).unwrap();
+        fs::write(host_bundle.join("cordis.patch.json"), row.to_string()).unwrap();
+        fs::write(
+            loc.profile.join("package.json"),
+            json!({"dependencies":{PACKAGE:"file:bundle"},"dsh":{"profile":{"bundles":[PACKAGE]}}})
+                .to_string(),
+        )
+        .unwrap();
+        let root = loc.paths.root.join("integrations/harness");
+        paths::prepare_directory(&root).unwrap();
+        fs::write(root.join("installation-id"), id).unwrap();
+        fs::create_dir_all(loc.template.join("dist")).unwrap();
+        for name in ["README.md", "compatibility.json", "dist/index.js"] {
+            fs::write(loc.template.join(name), "").unwrap();
+        }
+        fs::write(loc.template.join("package.json"), manifest.to_string()).unwrap();
+        fs::write(loc.template.join("cordis.patch.json"), row.to_string()).unwrap();
+        assert!(harness_status(&loc).unwrap().installed);
+        let generated = harness_apply(&loc, Action::Install)
+            .unwrap()
+            .bundle_path
+            .unwrap();
+        let patch = read_json(&generated.join("cordis.patch.json"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(installation_id(&patch).as_deref(), Some(id));
+        assert_eq!(
+            read_json(&host_bundle.join("cordis.patch.json"))
+                .unwrap()
+                .unwrap(),
+            row
         );
     }
 }

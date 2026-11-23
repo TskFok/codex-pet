@@ -58,7 +58,7 @@ export function bindReminder(
   }
   function sync() {
     if (!snapshot) return;
-    const result = presentation(snapshot, settings?.mutedSources || []);
+    const result = presentation(snapshot, settings?.mutedSources);
     pet.renderer.setState(validationState || result.state, performance.now());
     bubble.hidden = !result.detail;
     title.textContent = result.title || '';

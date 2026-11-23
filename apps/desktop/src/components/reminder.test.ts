@@ -32,3 +32,46 @@ it('气泡只扩展实际矩形，不填充两者之间的透明空隙', () => {
     [2, 2, 3],
   ]);
 });
+
+it('已确认的上回合未读结束在下一回合运行时仍显示，处理后消失', () => {
+  const key = { source: 'deepseek' as const, installationId: 'fixture', sessionId: 'original' };
+  const s = {
+    key,
+    status: 'running' as const,
+    summary: '新回合摘要',
+    unread: true,
+    lastEventAtMs: 1,
+    pending: [],
+  };
+  const snap = {
+    revision: 2,
+    sessions: [s, { ...s, key: { ...key, sessionId: 'newer' }, lastEventAtMs: 2 }],
+    notifications: [],
+    importedUnreadEnds: [key],
+  };
+  expect(presentation(snap, []).detail).toContain('结束');
+  expect(presentation(snap, []).title).toContain('original');
+  expect(presentation(snap, []).detail).not.toContain('新回合摘要');
+  expect(presentation({ ...snap, importedUnreadEnds: [] }, []).detail).toBeUndefined();
+  expect(presentation(snap, ['deepseek']).detail).toBeUndefined();
+});
+
+it('更高优先级来源被静音时，保留其动作，气泡展示另一个来源已确认的上一回合结束', () => {
+  const snap = structuredClone(fixture.expected) as PetSnapshot;
+  const key = { source: 'deepseek' as const, installationId: 'other', sessionId: 'prior-turn' };
+  snap.sessions.push({ key, status: 'running', unread: true, pending: [], lastEventAtMs: 200 });
+  snap.importedUnreadEnds = [key];
+  const result = presentation(snap, ['codex']);
+  expect(result.state).toBe('review');
+  expect(result.title).toContain('prior-turn');
+  expect(result.detail).toContain('结束');
+});
+it('来源设置未知或静音时隐藏提醒内容，保持已确认的审批动画', () => {
+  const snap = structuredClone(fixture.expected) as PetSnapshot;
+  for (const muted of [undefined, ['codex'] as const]) {
+    const result = presentation(snap, muted ? [...muted] : undefined);
+    expect(result.state).toBe('review');
+    expect(result.title).toBeUndefined();
+    expect(result.detail).toBeUndefined();
+  }
+});

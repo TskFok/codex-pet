@@ -2,7 +2,7 @@ use crate::{
     NotificationConnection, NotificationRuntime,
     broker::{BrokerView, HistoryAction},
     notification_paths,
-    placement::PlacementState,
+    placement::{PlacementState, WindowPlacement},
     platform,
     settings::{DEFAULT_PET, Preferences, Settings, SettingsPatch},
 };
@@ -76,14 +76,38 @@ pub fn get_playback(state: State<'_, platform::Playback>) -> platform::PlaybackS
     state.snapshot()
 }
 
-fn settings(app: &tauri::AppHandle, mut prefs: Preferences) -> Result<Settings> {
-    prefs.autostart = app
-        .autolaunch()
-        .is_enabled()
-        .map_err(|e| CommandError::new("autostart", e))?;
+trait SettingsHost {
+    fn autostart(&self) -> Result<bool>;
+    fn set_autostart(&self, value: bool) -> Result<()>;
+    fn placement(&self) -> WindowPlacement;
+    fn apply_placement(&self, value: WindowPlacement) -> Result<()>;
+    fn publish(&self, settings: &Settings);
+}
+impl SettingsHost for tauri::AppHandle {
+    fn autostart(&self) -> Result<bool> {
+        self.autolaunch()
+            .is_enabled()
+            .map_err(|e| CommandError::new("autostart", e))
+    }
+    fn set_autostart(&self, value: bool) -> Result<()> {
+        set_autostart(self, value)
+    }
+    fn placement(&self) -> WindowPlacement {
+        self.state::<PlacementState>().current()
+    }
+    fn apply_placement(&self, value: WindowPlacement) -> Result<()> {
+        platform::apply_placement(self, value).map_err(|e| CommandError::new("placement", e))
+    }
+    fn publish(&self, settings: &Settings) {
+        let _ = self.emit("pet:settings", settings);
+    }
+}
+
+fn settings(host: &impl SettingsHost, mut prefs: Preferences) -> Result<Settings> {
+    prefs.autostart = host.autostart()?;
     Ok(Settings {
         preferences: prefs,
-        placement: app.state::<PlacementState>().current(),
+        placement: host.placement(),
     })
 }
 #[tauri::command]
@@ -121,13 +145,20 @@ pub fn update_settings(
     patch: SettingsPatch,
 ) -> Result<Settings> {
     let _guard = gate.0.lock().unwrap();
-    let paths = notification_paths()?;
-    let current = Preferences::load(&paths)?;
+    commit_settings(&app, &notification_paths()?, patch)
+}
+
+fn commit_settings(
+    host: &impl SettingsHost,
+    paths: &AppPaths,
+    patch: SettingsPatch,
+) -> Result<Settings> {
+    let current = Preferences::load(paths)?;
     let next = current.patched(&patch)?;
     if patch.pet_id.is_some() && next.pet_id != DEFAULT_PET {
-        verified_pet(&paths, &next.pet_id)?;
+        verified_pet(paths, &next.pet_id)?;
     }
-    let previous_placement = app.state::<PlacementState>().current();
+    let previous_placement = host.placement();
     let target_placement = patch
         .placement
         .as_ref()
@@ -135,42 +166,33 @@ pub fn update_settings(
     let placement_changed = target_placement
         .as_ref()
         .is_some_and(|p| p != &previous_placement);
-    let mut previous_autostart = None;
-    if let Some(value) = patch.autostart {
-        let old = app
-            .autolaunch()
-            .is_enabled()
-            .map_err(|e| CommandError::new("autostart", e))?;
-        if old != value {
-            previous_autostart = Some(old);
-        }
-    }
+    // 在产生副作用之前获取本次响应需要的系统状态。显式设置时，平台实现负责验证写入结果。
+    let original_autostart = host.autostart()?;
+    let requested_autostart = patch.autostart.unwrap_or(original_autostart);
+    let change_autostart = requested_autostart != original_autostart;
     let result = (|| {
-        if previous_autostart.is_some() {
-            set_autostart(&app, next.autostart)?;
+        if change_autostart {
+            host.set_autostart(requested_autostart)?;
         }
         if let Some(target) = target_placement
             && placement_changed
         {
-            platform::apply_placement(&app, target)
-                .map_err(|e| CommandError::new("placement", e))?;
-            if crate::placement::load(&paths)? != app.state::<PlacementState>().current() {
+            host.apply_placement(target)?;
+            if crate::placement::load(paths)? != host.placement() {
                 return Err(CommandError::new("placement", "未能保存桌宠位置，请重试"));
             }
         }
         if next != current {
-            next.save(&paths)?;
+            next.save(paths)?;
         }
         Ok(())
     })();
     if let Err(mut error) = result {
         let mut rollback = Vec::new();
-        if placement_changed && let Err(e) = platform::apply_placement(&app, previous_placement) {
-            rollback.push(e.to_string());
+        if placement_changed && let Err(e) = host.apply_placement(previous_placement) {
+            rollback.push(e.message);
         }
-        if let Some(old) = previous_autostart
-            && let Err(e) = set_autostart(&app, old)
-        {
+        if change_autostart && let Err(e) = host.set_autostart(original_autostart) {
             rollback.push(e.message);
         }
         if !rollback.is_empty() {
@@ -180,8 +202,14 @@ pub fn update_settings(
         }
         return Err(error);
     }
-    let result = settings(&app, next)?;
-    let _ = app.emit("pet:settings", &result);
+    let result = Settings {
+        preferences: Preferences {
+            autostart: requested_autostart,
+            ..next
+        },
+        placement: host.placement(),
+    };
+    host.publish(&result);
     Ok(result)
 }
 
@@ -324,4 +352,86 @@ pub fn play_alert(source: pet_core::Source) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod settings_commit_tests {
+    use super::*;
+    use std::cell::{Cell, RefCell};
+    #[derive(Default)]
+    struct Host {
+        reads: Cell<u32>,
+        fail_at: Cell<u32>,
+        enabled: Cell<bool>,
+        writes: Cell<u32>,
+        events: RefCell<Vec<Settings>>,
+    }
+    impl SettingsHost for Host {
+        fn autostart(&self) -> Result<bool> {
+            self.reads.set(self.reads.get() + 1);
+            if self.reads.get() == self.fail_at.get() {
+                Err(CommandError::new("autostart", "读取失败"))
+            } else {
+                Ok(self.enabled.get())
+            }
+        }
+        fn set_autostart(&self, value: bool) -> Result<()> {
+            self.enabled.set(value);
+            self.writes.set(self.writes.get() + 1);
+            Ok(())
+        }
+        fn placement(&self) -> WindowPlacement {
+            WindowPlacement::default()
+        }
+        fn apply_placement(&self, _: WindowPlacement) -> Result<()> {
+            panic!("未请求位置修改")
+        }
+        fn publish(&self, value: &Settings) {
+            self.events.borrow_mut().push(value.clone());
+        }
+    }
+    #[test]
+    fn preference_read_failure_precedes_all_side_effects() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&dir.path().canonicalize().unwrap().join("app"));
+        let host = Host::default();
+        host.fail_at.set(1);
+        let result = commit_settings(
+            &host,
+            &paths,
+            SettingsPatch {
+                fps: Some(60),
+                ..Default::default()
+            },
+        );
+        assert!(result.is_err());
+        assert!(!paths.settings.exists());
+        assert_eq!(host.writes.get(), 0);
+        assert!(host.events.borrow().is_empty());
+    }
+    #[test]
+    fn confirmed_login_change_publishes_and_does_not_requery_after_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&dir.path().canonicalize().unwrap().join("app"));
+        let host = Host::default();
+        host.fail_at.set(2);
+        let result = commit_settings(
+            &host,
+            &paths,
+            SettingsPatch {
+                fps: Some(60),
+                autostart: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(host.reads.get(), 1);
+        assert_eq!(host.writes.get(), 1);
+        assert!(host.enabled.get());
+        assert_eq!(host.events.borrow().len(), 1);
+        assert_eq!(result.preferences, Preferences::load(&paths).unwrap());
+        assert_eq!(host.events.borrow()[0].preferences, result.preferences);
+        assert_eq!(result.preferences.fps, 60);
+        assert!(result.preferences.autostart);
+    }
 }

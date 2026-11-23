@@ -8,28 +8,41 @@ interface Presentation {
   title?: string;
   detail?: string;
 }
-export function presentation(snap: PetSnapshot, muted: Source[]): Presentation {
+export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Presentation {
   const ends = new Map<string, NotificationRecord>();
   for (const n of snap.notifications) if (!n.read && n.kind.type === 'turn_ended') ends.set(keyId(n.key), n);
+  const importedEnds = new Set(snap.importedUnreadEnds?.map(keyId));
   const priority = (s: SessionProjection) => {
     if (s.status === 'needs_attention') return 5;
     if (s.status === 'failed') return 4;
-    if (ends.has(keyId(s.key)) || (s.unread && ['ended', 'unknown', 'interrupted'].includes(s.status)))
+    if (
+      importedEnds.has(keyId(s.key)) ||
+      ends.has(keyId(s.key)) ||
+      (s.unread && ['ended', 'unknown', 'interrupted'].includes(s.status))
+    )
       return 3;
     return s.status === 'running' ? 2 : 0;
   };
-  let best: SessionProjection | undefined,
+  let animation: SessionProjection | undefined, best: SessionProjection | undefined;
+  let animationRank = 0,
     rank = 0;
   for (const s of snap.sessions) {
-    if (muted.includes(s.key.source)) continue;
     const value = priority(s);
-    if (value && (value > rank || (value === rank && s.lastEventAtMs > best!.lastEventAtMs))) {
-      rank = value;
+    if (!value) continue;
+    if (value > animationRank || (value === animationRank && s.lastEventAtMs > animation!.lastEventAtMs)) {
+      animation = s;
+      animationRank = value;
+    }
+    if (!muted || muted.includes(s.key.source)) continue;
+    if (value > rank || (value === rank && s.lastEventAtMs > best!.lastEventAtMs)) {
       best = s;
+      rank = value;
     }
   }
-  if (!best) return { state: 'idle' };
-  if (rank === 2) return { state: 'running' };
+  const defaultStates = ['idle', 'idle', 'running', 'waving', 'failed', 'waiting'];
+  const singleApproval = animation?.pending.length === 1 && animation.pending[0].reason === 'approval';
+  const state = animationRank === 5 && singleApproval ? 'review' : defaultStates[animationRank];
+  if (!best || rank === 2) return { state };
   const end = ends.get(keyId(best.key));
   const title = [
     sourceName[best.key.source],
@@ -39,19 +52,18 @@ export function presentation(snap: PetSnapshot, muted: Source[]): Presentation {
     const only = best.pending.length === 1 ? best.pending[0] : undefined;
     const reason = only ? reasonName[only.reason] : '有待处理请求';
     return {
-      state: only?.reason === 'approval' ? 'review' : 'waiting',
+      state,
       title,
       detail: [reason, only?.summary].filter(Boolean).join(' · '),
     };
   }
-  const state = rank === 4 ? 'failed' : 'waving';
   if (rank === 4 && !best.unread && !end) return { state };
   return {
     state,
     title,
     detail: [
       end ? historyName(end.kind) : rank === 4 ? '回合失败' : '收到回合结束提醒',
-      end?.summary || best.summary,
+      end?.summary || (best.status === 'running' ? undefined : best.summary),
     ]
       .filter(Boolean)
       .join(' · '),

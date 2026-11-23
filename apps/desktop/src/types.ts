@@ -85,6 +85,7 @@ export interface PetSnapshot {
   revision: number;
   sessions: SessionProjection[];
   notifications: NotificationRecord[];
+  importedUnreadEnds?: SessionKey[];
   active?: SessionKey;
 }
 export interface Placement {

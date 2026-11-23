@@ -1,3 +1,4 @@
+import { confirmChange } from './confirmation';
 import { api, message, observeSnapshot } from '../api';
 import { levelName, sourceName } from '../locales/zh-CN';
 import type { IntegrationStatus, Settings, SettingsPatch, Source } from '../types';
@@ -210,13 +211,15 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
             void work(async () => {
               if (
                 source === 'codex' &&
-                !window.confirm(
+                !(await confirmChange(
+                  root,
                   (action === 'install'
                     ? '将备份配置并安装桌宠生命周期 Hooks'
                     : '将按安装清单撤销桌宠自有 Hooks') +
                     '。\n' +
                     s.target,
-                )
+                  action === 'install' ? '确认安装' : '确认撤销',
+                ))
               )
                 return;
               const result = await api.integrate(source, action);

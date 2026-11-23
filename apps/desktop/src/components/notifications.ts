@@ -1,3 +1,4 @@
+import { confirmChange } from './confirmation';
 import { api, message, observeSnapshot } from '../api';
 import { historyName, reasonName, sourceName, statusName } from '../locales/zh-CN';
 import type { NotificationRecord, PetSnapshot, SessionKey, SessionProjection } from '../types';
@@ -117,7 +118,11 @@ export async function mountNotifications(root: HTMLElement): Promise<() => void>
     renderNotifications(content, s, {
       markRead: (key) => run(api.markRead(key)),
       clear: () => {
-        if (window.confirm('清空通知历史？仍待处理的请求会保留。')) run(api.clear());
+        void confirmChange(root, '清空通知历史？仍待处理的请求会保留。', '确认清空')
+          .then((confirmed) => {
+            if (confirmed) run(api.clear());
+          })
+          .catch(showError);
       },
     });
   };

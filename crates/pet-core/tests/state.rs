@@ -635,6 +635,11 @@ fn new_turn_snapshot_preserves_imported_unread_end_until_user_clears_it() {
             "{action}: 未读结束不能被新回合快照清除"
         );
         assert!(snapshot.notifications.is_empty());
+        assert_eq!(
+            serde_json::to_value(&snapshot).unwrap()["importedUnreadEnds"],
+            json!([key()]),
+            "展示应能按来源过滤已确认的未读结束"
+        );
 
         let mut competing = started("competing", Some("other-turn"), Some(1)).with_session("other");
         competing.occurred_at_ms = 200;
@@ -661,6 +666,12 @@ fn new_turn_snapshot_preserves_imported_unread_end_until_user_clears_it() {
                 .unread
         );
         assert_eq!(snapshot.active, Some(competing.session_key()));
+        assert!(
+            serde_json::to_value(&snapshot)
+                .unwrap()
+                .get("importedUnreadEnds")
+                .is_none()
+        );
 
         projection.turn_id = Some("t3".into());
         store.apply(&event(

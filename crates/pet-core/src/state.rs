@@ -1263,7 +1263,14 @@ impl SessionStore {
                     .then_with(|| b.projection.key.cmp(&a.projection.key))
             })
             .map(|entry| entry.projection.key.clone());
+        let imported_unread_ends = self
+            .sessions
+            .values()
+            .filter(|entry| !entry.audit_only && entry.external_unread_end)
+            .map(|entry| entry.projection.key.clone())
+            .collect();
         PetSnapshot {
+            imported_unread_ends,
             revision: self.revision,
             sessions,
             notifications: self.notifications.clone(),

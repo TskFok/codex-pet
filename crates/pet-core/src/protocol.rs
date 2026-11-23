@@ -303,6 +303,9 @@ pub struct PetSnapshot {
     pub revision: u64,
     pub sessions: Vec<SessionProjection>,
     pub notifications: Vec<NotificationRecord>,
+    /// 来源快照确认、仍未被用户清除的结束提醒；可独立于当前回合状态。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub imported_unread_ends: Vec<SessionKey>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active: Option<SessionKey>,
 }
