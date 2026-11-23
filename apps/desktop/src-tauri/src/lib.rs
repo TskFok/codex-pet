@@ -1,6 +1,7 @@
 pub mod broker;
 mod commands;
 mod integrations;
+pub mod navigation;
 pub mod placement;
 pub mod platform;
 pub mod settings;
