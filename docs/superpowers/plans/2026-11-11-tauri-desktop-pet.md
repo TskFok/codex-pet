@@ -217,11 +217,13 @@ Rust 协议使用 serde 的 camelCase JSON 字段，枚举值为 snake_case，Ev
 
 IntegrationStatus 在本任务定义为 source、installation_id、可选 version、installed、capabilities、可选 problem；每项能力包含名称和 Verified/Unsupported/Unverified 状态。InstallReport 包含 changed、可选 backup_path、owned_entry_ids、warnings。SettingsPatch 的字段均为 Settings 对应字段的可选更新；Tauri command 的存储/安装错误返回结构化错误，不返回虚假成功值。get_snapshot 通过 broker 获取状态，mark_read/clear_history 通过单写入者持久化后再广播。
 
-- [ ] **1. 写失败测试。** DOM 用真实 fixture 断言来源/项目/摘要、未读标记和待处理自动解除；先订阅再取快照，较旧 revision 不覆盖较新状态。设置原子保存，非法 FPS 被拒绝；清空历史保留宠物和去重索引，mark_read 不解除仍未解决的审批。
-- [ ] **2. 运行并确认失败。** `pnpm --filter @codex-pet/desktop test -- components api`、`cargo test -p pet-desktop --test settings`。
-- [ ] **3. 实现。** 仅展示业务信息和可恢复错误；来源卡片展示版本、能力和安装/撤销状态。声音与开机启动默认关闭，安装来源和导入包由明确 UI 动作触发。前端只允许必要的本地资源和受限 Tauri 命令，后台事件不得调用 window focus。
+- [x] **1. 写失败测试。** DOM 用真实 fixture 断言来源/项目/摘要、未读标记和待处理自动解除；先订阅再取快照，较旧 revision 不覆盖较新状态。设置原子保存，非法 FPS 被拒绝；清空历史保留宠物和去重索引，mark_read 不解除仍未解决的审批。
+- [x] **2. 运行并确认失败。** `pnpm --filter @codex-pet/desktop test -- components api`、`cargo test -p pet-desktop --test settings`。
+- [x] **3. 实现。** 仅展示业务信息和可恢复错误；来源卡片展示版本、能力和安装/撤销状态。声音与开机启动默认关闭，安装来源和导入包由明确 UI 动作触发。前端只允许必要的本地资源和受限 Tauri 命令，后台事件不得调用 window focus。
 - [ ] **4. 验证。** 重跑相关测试、`pnpm typecheck`；两平台实际安装/撤销来源、静音、切宠物、30/60 切换、重启恢复，文案不出现“任务成功”替代未知结束。
-- [ ] **5. 提交。** `git commit -m "添加桌宠通知管理与设置界面"`。
+- [x] **5. 提交。** `git commit -m "添加桌宠通知管理与设置界面"`。
+
+实现及独立复审通过（`c8272c5`）。macOS 隔离窗口验证提醒不抢焦点、真实确认与取消、导入/换宠、重启恢复、持久已读和清空。Codex 临时 Hook 配置和 Harness 的独立 CLI profile 安装/撤销有证据。Windows 原生、真实 Harness 桌面插件页、物理目录选择和登录启动留待平台验收。
 
 ### Task 11:来源导航与完整通知点击链路
 
