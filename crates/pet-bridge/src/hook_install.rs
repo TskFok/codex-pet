@@ -108,16 +108,17 @@ fn group(
     )
 }
 
-pub fn plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, InstallError> {
-    if !bridge.is_absolute() {
-        return Err("桥接程序必须使用绝对路径".into());
-    }
-    let bridge = bridge.to_str().ok_or("桥接路径不是有效 Unicode")?;
-    if bridge.contains(['\0', '\r', '\n']) {
-        return Err("桥接路径包含控制字符".into());
-    }
-    let mut root = parse(existing)?;
-    let hooks = root["hooks"].as_object_mut().expect("已验证对象");
+/// 识别和安装使用同一个精确的自有条目匹配器。
+pub fn inspect_hook_entries(
+    existing: &[u8],
+) -> Result<(Option<String>, Vec<String>), InstallError> {
+    let root = parse(existing)?;
+    recognized_entries(root["hooks"].as_object().expect("已验证对象"))
+}
+
+fn recognized_entries(
+    hooks: &serde_json::Map<String, Value>,
+) -> Result<(Option<String>, Vec<String>), InstallError> {
     let mut installation_id = None;
     let mut previous_entries = Vec::new();
     // 仅识别完整匹配的自有条目。标记相同但内容改过时拒绝覆盖。
@@ -161,6 +162,20 @@ pub fn plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, In
             }
         }
     }
+    Ok((installation_id, previous_entries))
+}
+
+pub fn plan_hook_install(existing: &[u8], bridge: &Path) -> Result<HookPatch, InstallError> {
+    if !bridge.is_absolute() {
+        return Err("桥接程序必须使用绝对路径".into());
+    }
+    let bridge = bridge.to_str().ok_or("桥接路径不是有效 Unicode")?;
+    if bridge.contains(['\0', '\r', '\n']) {
+        return Err("桥接路径包含控制字符".into());
+    }
+    let mut root = parse(existing)?;
+    let hooks = root["hooks"].as_object_mut().expect("已验证对象");
+    let (installation_id, previous_entries) = recognized_entries(hooks)?;
     let id = installation_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let owned = group(bridge, &id, true)?;
     let mut owned_entry_ids = Vec::new();
@@ -233,6 +248,13 @@ impl Drop for Lock {
 }
 
 pub fn apply_hook_patch(path: &Path, patch: &HookPatch) -> Result<(), InstallError> {
+    apply_hook_patch_with_backup(path, patch).map(|_| ())
+}
+
+pub fn apply_hook_patch_with_backup(
+    path: &Path,
+    patch: &HookPatch,
+) -> Result<Option<PathBuf>, InstallError> {
     // 同一安装器互斥；外部编辑在提交前再次检查。拒绝符号链接目标。
     if fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink() || !meta.is_file())
     {
@@ -257,11 +279,12 @@ pub fn apply_hook_patch(path: &Path, patch: &HookPatch) -> Result<(), InstallErr
     }
     parse(&patch.after_bytes)?;
     if before == patch.after_bytes {
-        return Ok(());
+        return Ok(None);
     }
     let transaction = uuid::Uuid::new_v4();
     let prefix = format!(".{filename}.pet-bridge.{transaction}");
-    write_new(&parent.join(format!("{prefix}.backup.json")), &before)?;
+    let backup = parent.join(format!("{prefix}.backup.json"));
+    write_new(&backup, &before)?;
     write_new(
         &parent.join(format!("{prefix}.manifest.json")),
         &serde_json::to_vec_pretty(patch).map_err(|_| "清单序列化失败")?,
@@ -282,5 +305,5 @@ pub fn apply_hook_patch(path: &Path, patch: &HookPatch) -> Result<(), InstallErr
         Ok(())
     })();
     let _ = fs::remove_file(staging);
-    result
+    result.map(|_| Some(backup))
 }

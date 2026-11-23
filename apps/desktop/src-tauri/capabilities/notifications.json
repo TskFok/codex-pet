@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notifications-window",
+  "description": "通知历史的查询与管理",
+  "windows": [
+    "notifications"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-get-snapshot",
+    "allow-mark-read",
+    "allow-clear-history"
+  ]
+}

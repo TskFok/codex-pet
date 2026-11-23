@@ -11,7 +11,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.client.json --noEmit && node build-client.mjs && node verify-artifacts.mjs",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.client.json --noEmit && node build-client.mjs && node verify-artifacts.mjs && node prepare-template.mjs",
     "create-install": "node create-install.mjs"
   },
   "peerDependencies": {

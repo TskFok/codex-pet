@@ -21,6 +21,10 @@ axum = { version = "=0.8.8", default-features = false, features = ["http1", "jso
 notify = "=8.2.0"
 subtle = "=2.6.1"
 tokio = { version = "1.54.1", features = ["rt", "net", "sync", "time", "macros"] }
+tauri-plugin-autostart = { version = "2", default-features = false }
+rfd = { version = "0.16.0", default-features = false }
+uuid = { version = "1", default-features = false, features = ["v4"] }
+base64 = "0.22.1"
 
 [dev-dependencies]
 tempfile = "3.26.0"

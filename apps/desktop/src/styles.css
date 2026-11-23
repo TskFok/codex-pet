@@ -1,0 +1,166 @@
+:root {
+  font-family: system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color-scheme: light dark;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+body.pet {
+  background: transparent;
+  overflow: hidden;
+}
+#pet {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+.panel {
+  background: Canvas;
+  color: CanvasText;
+  line-height: 1.55;
+  padding: 20px 24px 28px;
+}
+main {
+  max-width: 46rem;
+  margin: auto;
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0 0 0.6em;
+}
+h1 {
+  font-size: 1.45rem;
+  font-weight: 680;
+}
+h2 {
+  font-size: 1.08rem;
+  margin: 1.2em 0 0.55em;
+}
+h3 {
+  font-size: 0.98rem;
+}
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+button,
+select {
+  font: inherit;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid color-mix(in srgb, CanvasText 25%, Canvas);
+  background: Canvas;
+  color: CanvasText;
+  border-radius: 0.35rem;
+}
+button:hover {
+  background: color-mix(in srgb, Highlight 8%, Canvas);
+}
+button:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.38em 0;
+  gap: 1rem;
+}
+input[type='checkbox'] {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.session,
+.source {
+  border-top: 1px solid color-mix(in srgb, CanvasText 18%, Canvas);
+  padding: 0.75rem 0;
+  overflow-wrap: anywhere;
+}
+summary {
+  cursor: pointer;
+}
+summary > * {
+  margin-right: 0.6em;
+}
+small,
+.history,
+.source p,
+code {
+  font-size: 0.83rem;
+}
+.unread {
+  font-weight: bold;
+  color: LinkText;
+}
+.session[open] > summary {
+  margin-bottom: 0.45em;
+}
+.session .session {
+  margin: 0.55rem 0 0 1rem;
+}
+dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2em 0.8rem;
+  font-size: 0.87rem;
+}
+dd {
+  margin: 0;
+}
+dd[data-level='verified'] {
+  font-weight: 650;
+}
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  flex-wrap: wrap;
+}
+[role='status'],
+[role='alert'],
+code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+[role='status']:not(:empty),
+[role='alert']:not(:empty) {
+  margin: 0.7rem 0;
+  padding: 0.6rem;
+  border-left: 3px solid Highlight;
+}
+.bubble {
+  position: fixed;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  background: #fcfaf3;
+  color: #222629;
+  border: 1px solid #687976;
+  padding: 4px 6px;
+  font-size: 11px;
+  line-height: 1.28;
+  overflow: hidden;
+  pointer-events: none;
+}
+.bubble strong,
+.bubble span {
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}

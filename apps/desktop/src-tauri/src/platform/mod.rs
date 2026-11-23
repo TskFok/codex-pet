@@ -114,6 +114,13 @@ pub(crate) fn flush_placement(app: &tauri::AppHandle) {
 
 pub(crate) fn restore_placement(app: &tauri::AppHandle) -> tauri::Result<()> {
     let saved = app.state::<crate::placement::PlacementState>().current();
+    apply_placement(app, saved)
+}
+
+pub(crate) fn apply_placement(
+    app: &tauri::AppHandle,
+    saved: crate::placement::WindowPlacement,
+) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     let position = macos::position(Some(saved))?;
     #[cfg(target_os = "windows")]

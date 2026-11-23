@@ -1,0 +1,66 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import type {
+  InstallReport,
+  IntegrationStatus,
+  PetAsset,
+  PetChoice,
+  PetManifest,
+  PetSnapshot,
+  SessionKey,
+  Settings,
+  SettingsPatch,
+  Source,
+} from './types';
+
+type Subscribe<T> = (apply: (value: T) => void) => Promise<() => void>;
+
+/** 初值和事件走同一个修订门。初始请求失败时，后台服务稍后的广播仍能恢复。 */
+export async function observeSnapshot<T extends { revision: number }>(
+  subscribe: Subscribe<T>,
+  get: () => Promise<T>,
+  render: (value: T) => void,
+  error?: (e: unknown) => void,
+): Promise<() => void> {
+  let latest = -1;
+  const apply = (value: T) => {
+    if (value.revision <= latest) return;
+    latest = value.revision;
+    render(value);
+  };
+  const stop = await subscribe(apply);
+  try {
+    apply(await get());
+  } catch (e) {
+    if (latest < 0 && !error) {
+      stop();
+      throw e;
+    }
+    if (latest < 0) error?.(e);
+  }
+  return stop;
+}
+
+function event<T>(name: string): Subscribe<T> {
+  return (apply) => listen<T>(name, (e) => apply(e.payload));
+}
+export const api = {
+  snapshot: (): Promise<PetSnapshot> => invoke('get_snapshot'),
+  snapshots: event<PetSnapshot>('pet:snapshot'),
+  markRead: (key: SessionKey): Promise<PetSnapshot> => invoke('mark_read', { key }),
+  clear: (): Promise<PetSnapshot> => invoke('clear_history'),
+  settings: (): Promise<Settings> => invoke('get_settings'),
+  settingsEvents: event<Settings>('pet:settings'),
+  update: (patch: SettingsPatch): Promise<Settings> => invoke('update_settings', { patch }),
+  pets: (): Promise<PetChoice[]> => invoke('list_pets'),
+  chooseDirectory: (): Promise<string | null> => invoke('choose_pet_directory'),
+  importPet: (path: string): Promise<PetManifest> => invoke('import_pet_package', { path }),
+  asset: (id: string): Promise<PetAsset> => invoke('get_pet_asset', { id }),
+  integrations: (): Promise<IntegrationStatus[]> => invoke('integration_status'),
+  integrate: (source: Source, action: 'install' | 'remove'): Promise<InstallReport> =>
+    invoke('apply_integration', { source, action }),
+};
+export function message(error: unknown): string {
+  if (typeof error === 'object' && error && 'message' in error) return String(error.message);
+  return String(error);
+}

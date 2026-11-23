@@ -1,3 +1,7 @@
+import './styles.css';
+import { mountNotifications } from './components/notifications';
+import { mountSettings } from './components/settings';
+import { bindReminder } from './components/pet-bindings';
 import type { FrameRect } from './types';
 import type { AlphaMask } from './animation/hit-mask';
 import { invoke } from '@tauri-apps/api/core';
@@ -42,9 +46,12 @@ async function start(): Promise<void> {
     return;
   }
   unlisten = listener;
-  const runtime = await runtimeInfo();
+  const runtime = await runtimeInfo().catch(async () => ({
+    os: /windows/i.test(navigator.userAgent) ? 'windows' : 'macos', phase: 'animation',
+    playback: await invoke<PlaybackSignal>('get_playback'), validationState: undefined, validationFps: undefined,
+  }));
   if (stopped) return;
-  const fps = runtime.validationFps === 60 ? 60 : 30;
+  let fps: 30 | 60 = runtime.validationFps === 60 ? 60 : 30;
   const staticFrame = runtime.phase === 'idle';
   // IPC 顺序固定。原生线程忙时合并为最新姿态；单次失败后也能恢复静止帧。
   let pendingMask: {mask: AlphaMask; frame: FrameRect} | undefined;
@@ -67,13 +74,13 @@ async function start(): Promise<void> {
     }
     updating = false;
   }
+  let reminder: ReturnType<typeof bindReminder> | undefined;
   const pet = mountPet(canvas, {
     state: runtime.validationState,
     fps,
     staticFrame,
     onPose: (mask, frame) => {
-      pendingMask = { mask, frame };
-      if (retry === undefined) void updateRegion();
+      reminder?.pose(mask, frame);
     },
     onDraw: (timestamp, state, sample) => {
       drawCount += 1;
@@ -85,6 +92,8 @@ async function start(): Promise<void> {
       }
     },
   });
+  reminder = bindReminder(canvas,pet,pose => {pendingMask=pose; if (retry===undefined) void updateRegion();},
+    value => {fps=value;},runtime.validationState,runtime.validationFps);
   visibility = new PetVisibility(
     (visible, now) => pet.renderer.setVisible(visible, now),
     () => meter.breakContinuity(),
@@ -113,6 +122,7 @@ async function start(): Promise<void> {
     document.removeEventListener('visibilitychange', documentVisibility);
     canvas.removeEventListener('pointerdown', pointerDown);
     observer.disconnect();
+    reminder?.stop();
     density.removeEventListener('change', onDensityChange);
     window.clearTimeout(retry);
     pet.renderer.dispose();
@@ -136,10 +146,10 @@ window.addEventListener('pagehide', () => {
 const panelTitle = { '#notifications': '通知', '#settings': '设置' }[window.location.hash];
 if (panelTitle) {
   document.title = panelTitle;
-  const heading = document.createElement('h1');
-  heading.textContent = panelTitle;
-  document.body.style.cssText = 'margin:24px;font:16px system-ui;color:CanvasText;background:Canvas';
-  canvas.replaceWith(heading);
+  document.body.className = 'panel';
+  const root = document.createElement('main'); canvas.replaceWith(root);
+  const mount = window.location.hash === '#notifications' ? mountNotifications : mountSettings;
+  void mount(root).then(stop => { if (stopped) stop(); else dispose = stop; }).catch(e => { root.textContent = String(e); });
 } else {
   void start().catch(console.error);
 }

@@ -32,7 +32,7 @@ export class PetRenderer {
 
   constructor(private readonly options: RendererOptions) {}
 
-  mount(canvas: HTMLCanvasElement, manifest: PetManifest): Promise<void> {
+  mount(canvas: HTMLCanvasElement, manifest: PetManifest, atlasUrl?: string): Promise<void> {
     if (this.mounted?.canvas === canvas && this.mounted.manifest === manifest) {
       return this.mounted.ready;
     }
@@ -46,7 +46,7 @@ export class PetRenderer {
     }
     this.animationStartedAt = performance.now();
     this.cadence = new FrameCadence(this.fps);
-    const ready = this.atlas(this.options.resolveAtlasUrl(manifest.atlas)).then((image) => {
+    const ready = this.atlas(atlasUrl ?? this.options.resolveAtlasUrl(manifest.atlas)).then((image) => {
       if (this.mounted !== mount) return;
       mount.image = image;
       this.scheduleFrame();
@@ -114,6 +114,8 @@ export class PetRenderer {
       if (this.atlases.get(url) === decoded) this.atlases.delete(url);
       throw error;
     });
+    // 私有图集的 data URL 可能较大。缓存仅保留当前和上一个图集。
+    if (this.atlases.size >= 2) this.atlases.delete(this.atlases.keys().next().value!);
     this.atlases.set(url, decoded);
     return decoded;
   }

@@ -56,7 +56,7 @@ export function mountPet(
     onPose: (mask: AlphaMask, frame: FrameRect) => void;
     onDraw: (timestamp: number, state: string, sample: AnimationSample) => void;
   },
-): { renderer: PetRenderer; ready: Promise<void> } {
+): { renderer: PetRenderer; ready: Promise<void>; mountDefault: () => Promise<void> } {
   if (defaultManifest.version !== 1) throw new Error('不支持此默认桌宠清单版本');
   const manifest: PetManifest = { ...defaultManifest, version: defaultManifest.version };
   canvas.width = Math.round(canvas.clientWidth * window.devicePixelRatio);
@@ -66,5 +66,5 @@ export function mountPet(
   const ready = renderer.mount(canvas, manifest);
   renderer.setFps(options.fps);
   if (options.state) renderer.setState(options.state, performance.now());
-  return { renderer, ready };
+  return { renderer, ready, mountDefault: () => renderer.mount(canvas, manifest) };
 }

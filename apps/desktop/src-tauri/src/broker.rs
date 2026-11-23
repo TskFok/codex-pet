@@ -12,8 +12,8 @@ use pet_bridge::{
     outbox::Outbox,
 };
 use pet_core::{
-    AppPaths, EventEnvelope, IngestAck, JournalStore, MAX_EVENT_BYTES, PetSnapshot, StorageError,
-    decode_event, paths::wall_clock_ms,
+    AppPaths, EventEnvelope, IngestAck, JournalStore, MAX_EVENT_BYTES, PetSnapshot, SessionKey,
+    StorageError, decode_event, paths::wall_clock_ms,
 };
 use std::{
     fs, io,
@@ -46,6 +46,7 @@ pub struct BrokerHandle {
 pub(crate) struct BrokerView(Arc<Shared>);
 
 struct Shared {
+    commands: SyncSender<Work>,
     latest: RwLock<PetSnapshot>,
     faults: RwLock<Vec<FaultStage>>,
     updates: broadcast::Sender<PetSnapshot>,
@@ -73,8 +74,9 @@ impl FaultStage {
 }
 
 impl BrokerView {
-    fn new() -> Self {
+    fn new(commands: SyncSender<Work>) -> Self {
         Self(Arc::new(Shared {
+            commands,
             latest: RwLock::new(PetSnapshot::default()),
             faults: RwLock::new(Vec::new()),
             updates: broadcast::channel(32).0,
@@ -83,6 +85,17 @@ impl BrokerView {
 
     pub(crate) fn snapshot(&self) -> PetSnapshot {
         self.0.latest.read().unwrap().clone()
+    }
+
+    pub(crate) async fn history(&self, action: HistoryAction) -> Result<PetSnapshot, BrokerError> {
+        let (reply, result) = oneshot::channel();
+        self.0
+            .commands
+            .try_send(Work::History(action, reply))
+            .map_err(|_| io::Error::other("通知服务忙或已停止，请重试"))?;
+        result
+            .await
+            .map_err(|_| io::Error::other("通知写入线程已停止"))?
     }
 
     pub(crate) fn fault(&self) -> Option<&'static str> {
@@ -167,7 +180,7 @@ impl BrokerStartup {
                 None
             }
         };
-        let view = BrokerView::new();
+        let view = BrokerView::new(commands.clone());
         writer.drain(None, &view)?;
         *view.0.latest.write().unwrap() = writer.journal.snapshot();
 
@@ -258,6 +271,10 @@ impl BrokerHandle {
         self.view.0.updates.subscribe()
     }
 
+    pub async fn history(&self, action: HistoryAction) -> Result<PetSnapshot, BrokerError> {
+        self.view.history(action).await
+    }
+
     pub fn rescan(&self) {
         let _ = self.commands.try_send(Work::Rescan);
     }
@@ -282,7 +299,16 @@ impl Drop for BrokerHandle {
     }
 }
 
+pub enum HistoryAction {
+    MarkRead(SessionKey),
+    Clear,
+}
+
 enum Work {
+    History(
+        HistoryAction,
+        oneshot::Sender<Result<PetSnapshot, BrokerError>>,
+    ),
     Ingest(
         Box<EventEnvelope>,
         oneshot::Sender<Result<IngestAck, BrokerError>>,
@@ -323,6 +349,16 @@ impl Writer {
             let deadline = next_scan.min(next_compact);
             match jobs.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
                 Ok(Work::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Ok(Work::History(action, reply)) => {
+                    let result = match action {
+                        HistoryAction::MarkRead(key) => self.journal.mark_read(&key),
+                        HistoryAction::Clear => self.journal.clear_history(),
+                    };
+                    if let Ok(snapshot) = &result {
+                        view.publish(snapshot.clone());
+                    }
+                    let _ = reply.send(result);
+                }
                 Ok(Work::Rescan) => {
                     self.process(None, &view).ok();
                 }
@@ -483,7 +519,7 @@ mod tests {
         let paths = AppPaths::under(&root.path().canonicalize().unwrap().join("app"));
         let mut journal = JournalStore::open(paths.clone()).unwrap();
         journal.recover(wall_clock_ms()).unwrap();
-        let view = BrokerView::new();
+        let view = BrokerView::new(mpsc::sync_channel(1).0);
         let writer = Writer::new(journal, Outbox::new(paths.clone()).unwrap());
         (root, paths, writer, view)
     }

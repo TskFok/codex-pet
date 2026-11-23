@@ -176,8 +176,37 @@ fn legacy_v1() -> u16 {
 
 /// 将旧格式转换并发布到确切的包目录，通常是 `AppPaths::pets` 下的新子目录。
 pub fn import_pet(source: &Path, destination: &Path) -> Result<PetManifest, PetError> {
+    import_into(source, destination, None)
+}
+
+/// 使用经验证的清单 ID 作为私有图库目录名。
+pub fn import_pet_to_library(
+    source: &Path,
+    library: &Path,
+    builtin_id: &str,
+) -> Result<PetManifest, PetError> {
+    import_into(source, library, Some(builtin_id))
+}
+
+fn import_into(
+    source: &Path,
+    target: &Path,
+    builtin_id: Option<&str>,
+) -> Result<PetManifest, PetError> {
     let source = PackageDirectory::open(source)?;
-    let destination = std::path::absolute(destination)?;
+    let legacy: LegacyManifest = serde_json::from_slice(&source.read(MANIFEST_FILE)?)?;
+    if !portable_component(&legacy.id) {
+        return Err(PetError::InvalidManifest("宠物标识无效"));
+    }
+    let target = if let Some(builtin_id) = builtin_id {
+        if legacy.id.eq_ignore_ascii_case(builtin_id) {
+            return Err(PetError::InvalidManifest("此标识已由内置桌宠使用"));
+        }
+        target.join(&legacy.id)
+    } else {
+        target.to_owned()
+    };
+    let destination = std::path::absolute(target)?;
     let parent = destination
         .parent()
         .ok_or_else(|| PetError::UnsafePath(destination.clone()))?;
@@ -194,7 +223,6 @@ pub fn import_pet(source: &Path, destination: &Path) -> Result<PetManifest, PetE
     }
     check_destination(&source.path, &destination)?;
 
-    let legacy: LegacyManifest = serde_json::from_slice(&source.read(MANIFEST_FILE)?)?;
     let (height, has_look) = match legacy.sprite_version_number {
         1 => (1872, false),
         2 => (2288, true),
@@ -266,13 +294,28 @@ pub fn import_pet(source: &Path, destination: &Path) -> Result<PetManifest, PetE
 
 /// 读取并校验应用自己的动画包，含图集实际尺寸和像素数据。
 pub fn load_pet(package: &Path) -> Result<PetManifest, PetError> {
+    load_pet_with_atlas(package).map(|(manifest, _)| manifest)
+}
+
+/// 列表只需要元数据。实际挂载时再次验证图集。
+pub fn describe_pet(package: &Path) -> Result<PetManifest, PetError> {
     let package = PackageDirectory::open(package)?;
+    read_manifest(&package)
+}
+
+fn read_manifest(package: &PackageDirectory) -> Result<PetManifest, PetError> {
     let manifest: PetManifest = serde_json::from_slice(&package.read(MANIFEST_FILE)?)?;
     manifest.validate()?;
+    Ok(manifest)
+}
+
+pub fn load_pet_with_atlas(package: &Path) -> Result<(PetManifest, Vec<u8>), PetError> {
+    let package = PackageDirectory::open(package)?;
+    let manifest = read_manifest(&package)?;
     let image = package.read(&manifest.atlas.path)?;
     let format = AtlasFormat::from_path(&manifest.atlas.path)?;
     validate_image(&image, format, &manifest.atlas)?;
-    Ok(manifest)
+    Ok((manifest, image))
 }
 
 impl PetManifest {
@@ -404,6 +447,10 @@ fn check_destination(source: &Path, destination: &Path) -> Result<(), PetError> 
         }
     }
     Ok(())
+}
+
+pub fn valid_pet_id(name: &str) -> bool {
+    portable_component(name)
 }
 
 fn portable_component(name: &str) -> bool {

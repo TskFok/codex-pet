@@ -1,6 +1,9 @@
 pub mod broker;
+mod commands;
+mod integrations;
 pub mod placement;
 pub mod platform;
+pub mod settings;
 mod tray;
 mod windows;
 
@@ -163,7 +166,7 @@ fn start_notifications(app: tauri::AppHandle) {
         *state.connection.write().unwrap() = NotificationConnection::Ready(broker.view());
         let initial = broker.snapshot();
         let mut last_revision = initial.revision;
-        let _ = app.emit_to("pet", "pet:snapshot", initial);
+        let _ = app.emit("pet:snapshot", initial);
         loop {
             let snapshot = tokio::select! {
                 _ = exit.wait_for(|stopped| *stopped) => break,
@@ -175,7 +178,7 @@ fn start_notifications(app: tauri::AppHandle) {
             };
             if snapshot.revision > last_revision {
                 last_revision = snapshot.revision;
-                let _ = app.emit_to("pet", "pet:snapshot", snapshot);
+                let _ = app.emit("pet:snapshot", snapshot);
             }
         }
         // 回收日志线程可能需要完成正在进行的落盘，交给后台线程。
@@ -315,7 +318,7 @@ fn update_hit_region(
 }
 
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(tauri_plugin_autostart::Builder::new().build());
     #[cfg(target_os = "macos")]
     let builder = builder.activate_ignoring_other_apps(false);
     let builder = builder.on_window_event(|window, event| {
@@ -330,6 +333,8 @@ pub fn run() {
     });
     let app = builder
         .manage(DiagnosticState::default())
+        .manage(commands::SettingsLock::default())
+        .manage(integrations::IntegrationLock::default())
         .manage(Playback::default())
         .manage(NotificationRuntime::default())
         .invoke_handler(tauri::generate_handler![
@@ -337,7 +342,20 @@ pub fn run() {
             record_diagnostic,
             pointer_input,
             update_hit_region,
-            pet_snapshot
+            pet_snapshot,
+            commands::get_snapshot,
+            commands::mark_read,
+            commands::clear_history,
+            commands::get_settings,
+            commands::update_settings,
+            commands::import_pet_package,
+            commands::choose_pet_directory,
+            commands::list_pets,
+            commands::get_pet_asset,
+            commands::get_playback,
+            commands::play_alert,
+            integrations::integration_status,
+            integrations::apply_integration
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
