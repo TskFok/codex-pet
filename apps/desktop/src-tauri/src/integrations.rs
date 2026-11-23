@@ -301,7 +301,8 @@ fn harness_status(loc: &Locations) -> Result<IntegrationStatus> {
         .is_some_and(|layers| layers.iter().any(|v| v == PACKAGE));
     let package = loc.profile.join("node_modules").join(PACKAGE);
     let metadata = read_json(&package.join("package.json"))?.unwrap_or(Value::Null);
-    let id = if metadata["name"] == PACKAGE
+    let id = if selected
+        && metadata["name"] == PACKAGE
         && metadata
             .pointer("/dsh/bundle/patch")
             .and_then(Value::as_str)
@@ -312,7 +313,7 @@ fn harness_status(loc: &Locations) -> Result<IntegrationStatus> {
         None
     };
     // 这里能证实 profile 中选中的真实配置包；运行期启用和 Fiber 状态须在宿主检查。
-    let installed = selected && id.is_some();
+    let installed = id.is_some();
     let hint = if installed {
         "已在桌面 profile 选择配置包。运行状态请在宿主插件页核对。"
     } else if !profile.is_null() && profile["dependencies"].get(PACKAGE).is_some() {
@@ -623,11 +624,7 @@ mod tests {
             original
         );
     }
-    #[test]
-    fn matching_registered_bundle_retains_identity_on_upgrade() {
-        let temp = tempfile::tempdir().unwrap();
-        let loc = locations(&temp);
-        let id = "12345678-1234-4234-8234-123456789012";
+    fn harness_bundle_fixture(loc: &Locations, id: &str, layers: &[&str]) -> Value {
         let host_bundle = loc.profile.join("node_modules").join(PACKAGE);
         fs::create_dir_all(&host_bundle).unwrap();
         let manifest = json!({"name":PACKAGE,"dsh":{"bundle":{"patch":"./cordis.patch.json"}}});
@@ -636,19 +633,64 @@ mod tests {
         fs::write(host_bundle.join("cordis.patch.json"), row.to_string()).unwrap();
         fs::write(
             loc.profile.join("package.json"),
-            json!({"dependencies":{PACKAGE:"file:bundle"},"dsh":{"profile":{"bundles":[PACKAGE]}}})
+            json!({"dependencies":{PACKAGE:"file:bundle"},"dsh":{"profile":{"bundles":layers}}})
                 .to_string(),
         )
         .unwrap();
-        let root = loc.paths.root.join("integrations/harness");
-        paths::prepare_directory(&root).unwrap();
-        fs::write(root.join("installation-id"), id).unwrap();
         fs::create_dir_all(loc.template.join("dist")).unwrap();
         for name in ["README.md", "compatibility.json", "dist/index.js"] {
             fs::write(loc.template.join(name), "").unwrap();
         }
         fs::write(loc.template.join("package.json"), manifest.to_string()).unwrap();
         fs::write(loc.template.join("cordis.patch.json"), row.to_string()).unwrap();
+        row
+    }
+
+    #[test]
+    fn unselected_replacement_bundle_cannot_supply_the_host_identity() {
+        let bundle_id = "12345678-1234-4234-8234-123456789012";
+        for cached in [None, Some("abcdef12-1234-4234-8234-123456789012")] {
+            let temp = tempfile::tempdir().unwrap();
+            let loc = locations(&temp);
+            harness_bundle_fixture(&loc, bundle_id, &["base", "web"]);
+            let root = loc.paths.root.join("integrations/harness");
+            paths::prepare_directory(&root).unwrap();
+            let identity = root.join("installation-id");
+            if let Some(previous) = cached {
+                fs::write(&identity, previous).unwrap();
+            }
+            let error = harness_apply(&loc, Action::Install)
+                .err()
+                .expect("未选择替换包的 profile 必须先核对原安装 ID");
+            assert!(
+                error.message.contains("现有同名依赖的安装 ID 未确认"),
+                "{}",
+                error.message
+            );
+            let status = harness_status(&loc).unwrap();
+            assert!(!status.installed);
+            assert!(status.installation_id.is_none());
+            assert_eq!(
+                read_optional(&identity).unwrap().as_deref(),
+                cached.map(str::as_bytes)
+            );
+            assert_eq!(
+                fs::read_dir(&root).unwrap().count(),
+                usize::from(cached.is_some())
+            );
+        }
+    }
+
+    #[test]
+    fn matching_registered_bundle_retains_identity_on_upgrade() {
+        let temp = tempfile::tempdir().unwrap();
+        let loc = locations(&temp);
+        let id = "12345678-1234-4234-8234-123456789012";
+        let row = harness_bundle_fixture(&loc, id, &[PACKAGE]);
+        let host_bundle = loc.profile.join("node_modules").join(PACKAGE);
+        let root = loc.paths.root.join("integrations/harness");
+        paths::prepare_directory(&root).unwrap();
+        fs::write(root.join("installation-id"), id).unwrap();
         assert!(harness_status(&loc).unwrap().installed);
         let generated = harness_apply(&loc, Action::Install)
             .unwrap()
