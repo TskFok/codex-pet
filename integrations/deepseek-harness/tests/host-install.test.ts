@@ -20,6 +20,9 @@ it('离线生成可解析bundle：中文空格新路径、精确构建文件、�
   const manifest=JSON.parse(await readFile(join(output,'package.json'),'utf8'));const patch=JSON.parse(await readFile(join(output,manifest.dsh.bundle.patch),'utf8'));
   expect(patch[0].insert[0].config.installationId).toBe(id);expect(result.installationId).toBe(id);
   expect(manifest.exports['.']).toBe('./dist/index.js');
+  expect(manifest.engines.dsh).toBe('>=0.2.2-rc.1 <0.3.0-0');
+  expect(manifest.peerDependencies['@deepseek-ai/cordis']).toBe('^4.1.0 || ^4.2.0-alpha.1');
+  expect(manifest.peerDependencies['@deepseek-ai/dsh-session']).toBe('^0.2.2-rc.1 || ^0.2.3-alpha.1');
   expect(Object.values({...manifest.dependencies,...manifest.peerDependencies}).every(value=>typeof value==='string'&&!/^(?:file:|link:|workspace:|\/)/.test(value))).toBe(true);
   expect(await readFile(join(output,'dist/index.js'),'utf8')).toBe(await readFile(new URL('../dist/index.js',import.meta.url),'utf8'));
   let factory: {id:string;factory:(require:(name:string)=>never)=>{apply:unknown}}|undefined;
