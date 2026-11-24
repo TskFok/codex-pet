@@ -41,6 +41,17 @@ pnpm --filter @codex-pet/desktop tauri build --target x86_64-pc-windows-msvc --b
 pnpm validate:release --artifacts <产物目录> --reports <报告目录>
 ```
 
+## 发布
+
+```sh
+pnpm release            # 默认递增 patch，例如 0.1.0 → 0.1.1
+pnpm release 0.2.0      # 发布指定的更高稳定版本（同样支持 pnpm release -- 0.2.0）
+pnpm release --current  # 强制重打并推送当前版本标签（同样支持 pnpm release -- --current）
+pnpm run test:release   # 运行发布脚本单元测试
+```
+
+发布前必须保持工作区干净，且当前分支与 `origin` 上的同名分支完全同步。`release` 会校验所有版本源一致性，依次运行发布脚本测试、前端/脚本测试、类型检查、构建以及 Rust `fmt` / `clippy` / `test`；全部通过后同步更新 `package.json`、`apps/desktop/package.json`、`integrations/deepseek-harness/package.json`、`apps/desktop/src-tauri/tauri.conf.json`、`apps/desktop/src-tauri/Cargo.toml`、`crates/pet-core/Cargo.toml`、`crates/pet-bridge/Cargo.toml` 和 `Cargo.lock`，以中文提交版本变更并推送当前分支与 `vX.Y.Z` 标签。`--current` 保持版本号不变，强制将当前版本的本地和远程标签指向当前提交，适用于重新触发发布。
+
 ## 目录与模块
 
 - `crates/pet-core`：统一事件协议（生产协议 v2/v3，兼容读取旧 v1/v2）、可重放多会话状态机（`SessionStore`）、持久化日志与去重存储（`JournalStore`）、旧 v1/v2 宠物包导入与独立动画格式（`pet_package`）。无 GUI 或宿主依赖。

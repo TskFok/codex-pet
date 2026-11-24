@@ -63,6 +63,21 @@ async function resolveOrBuildBridge({ repoRoot, target, explicitBridge, profile 
   throw new Error(`构建 pet-bridge 后未找到目标产物：${targetCandidate}`);
 }
 
+function resolvePnpmInvocation(args) {
+  if (process.platform !== 'win32') return { command: 'pnpm', args };
+  const npmExecPath = process.env.npm_execpath;
+  if (npmExecPath) {
+    const lower = npmExecPath.toLowerCase();
+    if (lower.endsWith('.js') || lower.endsWith('.cjs') || lower.endsWith('.mjs')) {
+      return { command: process.execPath, args: [npmExecPath, ...args] };
+    }
+    if (lower.endsWith('.exe') || lower.endsWith('.com')) {
+      return { command: npmExecPath, args };
+    }
+  }
+  return { command: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', 'pnpm', ...args] };
+}
+
 async function resolveOrBuildHarnessTemplate({ repoRoot, explicitTemplate }) {
   if (explicitTemplate) {
     const abs = resolve(explicitTemplate);
@@ -75,7 +90,8 @@ async function resolveOrBuildHarnessTemplate({ repoRoot, explicitTemplate }) {
   const integrationDir = join(repoRoot, 'integrations/deepseek-harness');
   const distIndex = join(integrationDir, 'dist/index.js');
   if (!(await pathExists(distIndex))) {
-    execFileSync('pnpm', ['--filter', '@codex-pet/deepseek-integration', 'build'], {
+    const invocation = resolvePnpmInvocation(['--filter', '@codex-pet/deepseek-integration', 'build']);
+    execFileSync(invocation.command, invocation.args, {
       cwd: repoRoot,
       stdio: 'inherit',
     });
