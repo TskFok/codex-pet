@@ -122,6 +122,9 @@ async function createFakeCompleteRelease(baseDir, opts = {}) {
 
   if (opts.mutateSourcePetOutput) {
     await writeFile(join(petOutput, 'yueying-cape-dancer/package/pet.json'), '{"mutated":true}');
+  } else if (opts.crlfSourcePetJson) {
+    const crlfBytes = Buffer.from(petJsonBytes.toString('utf8').replace(/\r?\n/g, '\r\n'), 'utf8');
+    await writeFile(join(petOutput, 'yueying-cape-dancer/package/pet.json'), crlfBytes);
   }
 
   if (!opts.omitCompatReports) {
@@ -223,6 +226,7 @@ test('validate-release 分别拒绝缺转发器、错架构、缺 GUI 报告、�
       ['缺 Windows 真实 GUI 报告', { windowsGuiPending: true }, /windowsX64|Windows/],
       ['缺兼容版本报告', { omitCompatReports: true }, /兼容/],
       ['源码素材被覆盖', { mutateSourcePetOutput: true }, /pet-output|校验|哈希/],
+      ['源素材被转换为 CRLF', { crlfSourcePetJson: true }, /CRLF.*\.gitattributes/],
     ];
     for (const [label, opts, pattern] of failureCases) {
       const caseDir = join(base, label.replace(/\s+/g, '-'));
@@ -304,4 +308,11 @@ test('prepare-resources 只复制发行所需素材到构建目录，校验转�
   } finally {
     await rm(base, { recursive: true, force: true });
   }
+});
+
+test('.gitattributes 保护 pet-output 源素材不被 Windows core.autocrlf 转换换行符', async () => {
+  const attrs = await readFile(join(repoRoot, '.gitattributes'), 'utf8');
+  assert.match(attrs, /^pet-output\/\*\*\s+.*-text\b/m);
+  const petJsonBytes = await readFile(join(repoRoot, 'pet-output/yueying-cape-dancer/package/pet.json'));
+  assert.equal(petJsonBytes.includes(0x0d), false, 'pet.json 必须保持 LF 原字节');
 });

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -49,6 +50,13 @@ async function readJsonSafe(filePath) {
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+async function matchesHashAfterCrlfNormalization(filePath, expectedHash) {
+  const raw = await readFile(filePath);
+  if (!raw.includes(0x0d)) return false;
+  const normalized = Buffer.from(raw.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+  return createHash('sha256').update(normalized).digest('hex') === expectedHash;
 }
 
 async function listEntriesRecursive(dir, maxDepth = 3, depth = 0, prefix = '') {
@@ -177,7 +185,12 @@ async function validateTargetArtifacts(targetTriple, artifactsRoot, petOutputDir
       } else {
         const diskHash = await sha256File(actualSrc);
         if (diskHash !== expectedImmutableHash || diskHash !== sourceChecksums[rel]) {
-          errors.push(`检测到源素材 pet-output/${rel} 被覆盖或修改（哈希不匹配）`);
+          const crlfHint =
+            rel.endsWith('.json') &&
+            (await matchesHashAfterCrlfNormalization(actualSrc, expectedImmutableHash))
+              ? '（检测到换行符被转换为 CRLF，请按 .gitattributes 以 LF 重新检出）'
+              : '';
+          errors.push(`检测到源素材 pet-output/${rel} 被覆盖或修改（哈希不匹配）${crlfHint}`);
         }
       }
     }
