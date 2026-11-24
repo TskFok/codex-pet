@@ -204,14 +204,21 @@ pub(super) fn position(
         return Ok(None);
     };
     let (x, y) = area.position(&fit);
-    let position = PhysicalPosition::new(x.round() as i32, y.round() as i32);
-    if current != position {
-        window.set_position(position)?;
-    }
     let size = PhysicalSize::new(
         (WIDTH * fit.scale * area.scale_factor).round() as u32,
         (HEIGHT * fit.scale * area.scale_factor).round() as u32,
     );
+    let min_x = area.x.ceil() as i32;
+    let min_y = area.y.ceil() as i32;
+    let max_x = ((area.x + area.width).floor() as i32 - size.width as i32).max(min_x);
+    let max_y = ((area.y + area.height).floor() as i32 - size.height as i32).max(min_y);
+    let position = PhysicalPosition::new(
+        (x.round() as i32).clamp(min_x, max_x),
+        (y.round() as i32).clamp(min_y, max_y),
+    );
+    if current != position {
+        window.set_position(position)?;
+    }
     if window.inner_size()? != size {
         window.set_size(size)?;
     }

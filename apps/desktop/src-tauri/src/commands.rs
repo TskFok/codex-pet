@@ -141,6 +141,7 @@ impl SettingsHost for tauri::AppHandle {
         set_autostart(self, value)
     }
     fn placement(&self) -> WindowPlacement {
+        platform::flush_placement(self);
         self.state::<PlacementState>().current()
     }
     fn apply_placement(&self, value: WindowPlacement) -> Result<()> {

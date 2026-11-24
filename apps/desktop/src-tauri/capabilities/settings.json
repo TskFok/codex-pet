@@ -11,7 +11,6 @@
     "allow-get-settings",
     "allow-update-settings",
     "allow-list-pets",
-    "allow-get-pet-asset",
     "allow-choose-pet-directory",
     "allow-import-pet-package",
     "allow-integration-status",

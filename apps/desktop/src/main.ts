@@ -21,7 +21,7 @@ let stopped = false;
 
 function report(): void {
   const boundary = performance.now() - startedAt;
-  void recordReport(meter, startedAt, drawCount, animation, segmentStartedElapsedMs).catch(console.error);
+  void recordReport(meter, startedAt, drawCount, animation, segmentStartedElapsedMs, boundary).catch(console.error);
   segmentStartedElapsedMs = boundary;
 }
 

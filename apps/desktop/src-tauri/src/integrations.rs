@@ -287,17 +287,22 @@ fn codex_status(loc: &Locations, [cli, desktop]: [Option<String>; 2]) -> Vec<Int
         })
         .collect()
 }
-fn installation_id(row: &Value) -> Option<String> {
+fn installation_entry(row: &Value) -> Option<&Value> {
     row.get(0)?
         .get("insert")?
         .as_array()?
         .iter()
         .find(|r| r["id"] == "desktop-pet-notify" && r["name"] == PACKAGE)
-        .and_then(|r| r["config"]["installationId"].as_str())
+}
+fn installation_id(row: &Value) -> Option<String> {
+    installation_entry(row)?
+        .get("config")?
+        .get("installationId")?
+        .as_str()
         .and_then(|s| uuid::Uuid::parse_str(s).ok())
         .map(|id| id.to_string())
 }
-fn harness_registration(loc: &Locations) -> Result<(Option<String>, Value)> {
+fn harness_registration(loc: &Locations) -> Result<(Option<String>, Option<PathBuf>, Value)> {
     let profile = read_json(&loc.profile.join("package.json"))?.unwrap_or(Value::Null);
     let selected = profile
         .pointer("/dsh/profile/bundles")
@@ -305,25 +310,40 @@ fn harness_registration(loc: &Locations) -> Result<(Option<String>, Value)> {
         .is_some_and(|layers| layers.iter().any(|v| v == PACKAGE));
     let package = loc.profile.join("node_modules").join(PACKAGE);
     let metadata = read_json(&package.join("package.json"))?.unwrap_or(Value::Null);
-    let id = if selected
+    let (id, bridge_path) = if selected
         && metadata["name"] == PACKAGE
         && metadata
             .pointer("/dsh/bundle/patch")
             .and_then(Value::as_str)
             == Some("./cordis.patch.json")
     {
-        read_json(&package.join("cordis.patch.json"))?.and_then(|row| installation_id(&row))
+        match read_json(&package.join("cordis.patch.json"))? {
+            Some(row) => {
+                let id = installation_id(&row);
+                let bridge = installation_entry(&row)
+                    .and_then(|entry| entry["config"]["bridgePath"].as_str())
+                    .map(PathBuf::from);
+                (id, bridge)
+            }
+            None => (None, None),
+        }
     } else {
-        None
+        (None, None)
     };
-    Ok((id, profile))
+    Ok((id, bridge_path, profile))
 }
 
 fn harness_status(loc: &Locations) -> Result<IntegrationStatus> {
-    let (id, profile) = harness_registration(loc)?;
+    let (id, bridge_path, profile) = harness_registration(loc)?;
     // 这里能证实 profile 中选中的真实配置包；运行期启用和 Fiber 状态须在宿主检查。
     let installed = id.is_some();
-    let hint = if installed {
+    let bridge_missing = installed
+        && !bridge_path
+            .as_deref()
+            .is_some_and(|path| path.is_absolute() && path.is_file());
+    let hint = if installed && bridge_missing {
+        "已在桌面 profile 选择配置包，但其中配置的 bridgePath 在磁盘上不存在，请重新生成并在宿主更新。"
+    } else if installed {
         "已在桌面 profile 选择配置包。运行状态请在宿主插件页核对。"
     } else if !profile.is_null() && profile["dependencies"].get(PACKAGE).is_some() {
         "同名依赖已存在但未确认有效配置层。迁移旧 plain 库前，请在宿主插件页保留安装 ID 并移除自有旧层。"
@@ -738,6 +758,24 @@ mod tests {
                 .unwrap()
                 .unwrap(),
             row
+        );
+    }
+
+    #[test]
+    fn selected_bundle_with_missing_bridge_warns_in_status() {
+        let temp = tempfile::tempdir().unwrap();
+        let loc = locations(&temp);
+        let id = "12345678-1234-4234-8234-123456789012";
+        harness_bundle_fixture(&loc, id, &[PACKAGE]);
+        fs::remove_file(&loc.bridge).unwrap();
+        let status = harness_status(&loc).unwrap();
+        assert!(status.installed);
+        assert_eq!(status.installation_id.as_deref(), Some(id));
+        assert!(
+            status
+                .problem
+                .as_deref()
+                .is_some_and(|text| text.contains("bridgePath 在磁盘上不存在"))
         );
     }
 }

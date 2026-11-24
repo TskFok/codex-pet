@@ -30,10 +30,11 @@ export async function recordReport(
   drawCount: number,
   animation?: { state: string; frameIndex: number; fps: 30 | 60 },
   segmentStartedElapsedMs = 0,
+  elapsedMs = performance.now() - startedAt,
 ): Promise<void> {
   const report = {
     recordedAt: new Date().toISOString(),
-    elapsedMs: performance.now() - startedAt,
+    elapsedMs,
     segmentStartedElapsedMs,
     userAgent: navigator.userAgent,
     dependencies: { ...desktopPackage.dependencies, ...desktopPackage.devDependencies },
