@@ -118,6 +118,8 @@ fn invalid_or_unregistered_input_never_dispatches() {
     for path in [
         std::env::temp_dir().join("病\n例"),
         PathBuf::from("relative.exe"),
+        PathBuf::from("/Applications/../bin/sh"),
+        PathBuf::from(r"\\server\share\Codex.exe"),
     ] {
         let mut target = target(Source::Codex, true);
         target.desktop.as_mut().unwrap().path = path;

@@ -6,7 +6,13 @@ export type NavigationActions = {
   copy: (key: SessionKey) => Promise<void>;
 };
 
-export function createNavigation(doc: Document, key: SessionKey, actions: NavigationActions, compact = false) {
+export function createNavigation(
+  doc: Document,
+  key: SessionKey,
+  actions: NavigationActions,
+  compact = false,
+  onLayoutChange?: () => void,
+) {
   const root = doc.createElement('div');
   const row = doc.createElement('div');
   row.className = 'actions';
@@ -17,6 +23,7 @@ export function createNavigation(doc: Document, key: SessionKey, actions: Naviga
   const copy = button(compact ? '复制 ID' : '复制会话 ID', 'copy', async () => {
     await actions.copy(key);
     status.textContent = '已复制会话 ID';
+    onLayoutChange?.();
   });
   app.hidden = true;
   row.append(open, app, copy);
@@ -29,7 +36,10 @@ export function createNavigation(doc: Document, key: SessionKey, actions: Naviga
     element.textContent = label;
     element.onclick = () => {
       if (element.disabled) return;
-      void run().catch((error) => { status.textContent = message(error); });
+      void run().catch((error) => {
+        status.textContent = message(error);
+        onLayoutChange?.();
+      });
     };
     return element;
   }
@@ -48,6 +58,7 @@ export function createNavigation(doc: Document, key: SessionKey, actions: Naviga
       } else {
         status.textContent = '未找到可用的桌面入口，可复制会话 ID';
       }
+      onLayoutChange?.();
     } finally {
       open.disabled = false;
       app.disabled = false;

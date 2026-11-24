@@ -30,6 +30,7 @@ export function bindReminder(
   document.body.append(bubble);
   let base: Pose | undefined,
     rect: FrameRect | undefined,
+    measuredSize: { width: number; height: number } | undefined,
     merged = new WeakMap<AlphaMask, AlphaMask>();
   let input: BubbleInput | undefined;
   let stamp = 0;
@@ -53,25 +54,53 @@ export function bindReminder(
     merged.set(mask, shape);
     sendPose({ mask: shape, frame, bubbleInput: input });
   }
-  function measure() {
+  function measure(forceQueue = false) {
     const c = canvas.getBoundingClientRect();
-    if (!c) return;
-    const sx = canvas.width / c.width, sy = canvas.height / c.height;
+    if (!c) {
+      if (forceQueue) queue();
+      return;
+    }
+    const targetWidth = base?.mask.width ?? canvas.width;
+    const targetHeight = base?.mask.height ?? canvas.height;
+    const sx = c.width ? targetWidth / c.width : 0,
+      sy = c.height ? targetHeight / c.height : 0;
     const bounds = (b: DOMRect): FrameRect => ({
-      x: (b.left - c.left) * sx, y: (b.top - c.top) * sy,
-      width: b.width * sx, height: b.height * sy,
+      x: (b.left - c.left) * sx,
+      y: (b.top - c.top) * sy,
+      width: b.width * sx,
+      height: b.height * sy,
     });
-    const showing = !bubble.hidden && !!c.width && !!c.height;
+    const clampButton = (b: DOMRect): FrameRect => {
+      const raw = bounds(b);
+      const x1 = Math.max(0, Math.min(targetWidth, raw.x));
+      const y1 = Math.max(0, Math.min(targetHeight, raw.y));
+      const x2 = Math.max(0, Math.min(targetWidth, raw.x + raw.width));
+      const y2 = Math.max(0, Math.min(targetHeight, raw.y + raw.height));
+      return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+    };
+    const showing = !bubble.hidden && !!c.width && !!c.height && targetWidth > 0 && targetHeight > 0;
     const next = showing ? bounds(bubble.getBoundingClientRect()) : undefined;
-    const buttons = showing ? Array.from(controls.querySelectorAll<HTMLButtonElement>('button:not([hidden])'))
-      .map((button) => ({ action: button.dataset.action as BubbleAction, rect: bounds(button.getBoundingClientRect()) }))
-      .filter((button) => button.rect.width > 0 && button.rect.height > 0) : [];
+    const buttons = showing
+      ? Array.from(controls.querySelectorAll<HTMLButtonElement>('button:not([hidden])'))
+          .map((button) => ({
+            action: button.dataset.action as BubbleAction,
+            rect: clampButton(button.getBoundingClientRect()),
+          }))
+          .filter((button) => button.rect.width > 0 && button.rect.height > 0)
+      : [];
+    const sizeChanged =
+      base !== undefined &&
+      (!measuredSize || measuredSize.width !== targetWidth || measuredSize.height !== targetHeight);
     const shapeChanged = JSON.stringify(next) !== JSON.stringify(rect);
     const buttonsChanged = JSON.stringify(buttons) !== JSON.stringify(input?.buttons ?? []);
-    if (!shapeChanged && !buttonsChanged && !targetChanged) return;
+    if (base) measuredSize = { width: targetWidth, height: targetHeight };
+    if (!shapeChanged && !buttonsChanged && !targetChanged && !sizeChanged) {
+      if (forceQueue) queue();
+      return;
+    }
     targetChanged = false;
     rect = next;
-    if (shapeChanged) merged = new WeakMap();
+    if (shapeChanged || sizeChanged) merged = new WeakMap();
     input = buttons.length ? { stamp: ++stamp, buttons } : undefined;
     queue();
   }
@@ -81,9 +110,19 @@ export function bindReminder(
     target = id;
     ++stamp;
     targetChanged = true;
-    controls.replaceChildren(...(next ? [
-      createNavigation(document, next, { open: api.openSession, copy: api.copySession }, true),
-    ] : []));
+    controls.replaceChildren(
+      ...(next
+        ? [
+            createNavigation(
+              document,
+              next,
+              { open: api.openSession, copy: api.copySession },
+              true,
+              () => measure(),
+            ),
+          ]
+        : []),
+    );
   }
   function sync() {
     if (!snapshot) return;
@@ -180,13 +219,16 @@ export function bindReminder(
       if (button && !button.hidden) button.click();
     }),
   );
-  const observer = new ResizeObserver(measure);
+  const observer = new ResizeObserver(() => measure());
   observer.observe(canvas);
   observer.observe(bubble);
   return {
     pose(mask: AlphaMask, frame: FrameRect) {
+      const sizeChanged =
+        !measuredSize || measuredSize.width !== mask.width || measuredSize.height !== mask.height;
       base = { mask, frame };
-      queue();
+      if (!bubble.hidden && sizeChanged) measure(true);
+      else queue();
     },
     stop() {
       stopped = true;

@@ -92,7 +92,10 @@ fn valid_path(path: &Path) -> bool {
     path.is_absolute()
         && path
             .to_str()
-            .is_some_and(|value| !value.chars().any(char::is_control))
+            .is_some_and(|value| !value.chars().any(char::is_control) && !value.starts_with(r"\\"))
+        && !path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
 }
 
 fn session_url(key: &SessionKey) -> Result<String, NavigationError> {

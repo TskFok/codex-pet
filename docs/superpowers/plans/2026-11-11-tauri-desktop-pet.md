@@ -231,11 +231,13 @@ IntegrationStatus 在本任务定义为 source、installation_id、可选 versio
 
 **接口：** `open_session(key: SessionKey) -> Result<OpenOutcome, NavigationError>`；OpenOutcome 为 Requested、ApplicationOnly 或 Unavailable。Rust 根据已登记的来源安装信息构造链接/调用经过验证的 Harness 入口；不执行事件中任意提供的命令或 URL。系统接收深链只返回 Requested，不能宣称已确认来源界面加载成功。
 
-- [ ] **1. 写失败测试。** 不支持版本、未知安装 ID、恶意 scheme、带控制字符 ID、已卸载宿主、CLI 无桌面对应身份分别返回准确结果；命令形态不经过 shell 拼接。点击 Requested 展示“已发送打开请求”，ApplicationOnly 明示“打开应用”，失败保留通知及复制会话 ID 操作。
-- [ ] **2. 运行并确认失败。** `cargo test -p pet-desktop --test navigation`、`pnpm --filter @codex-pet/desktop test -- notifications`。
-- [ ] **3. 实现。** 复用任务 3/4 已验证的路径，URI 参数编码、来源安装信息验证和冷启动处理各自归适配器所有；不添加批准、回答或取消任务的接口。
+- [x] **1. 写失败测试。** 不支持版本、未知安装 ID、恶意 scheme、带控制字符 ID、已卸载宿主、CLI 无桌面对应身份分别返回准确结果；命令形态不经过 shell 拼接。点击 Requested 展示“已发送打开请求”，ApplicationOnly 明示“打开应用”，失败保留通知及复制会话 ID 操作。
+- [x] **2. 运行并确认失败。** `cargo test -p pet-desktop --test navigation`、`pnpm --filter @codex-pet/desktop test -- notifications`。
+- [x] **3. 实现。** 复用任务 3/4 已验证的路径，URI 参数编码、来源安装信息验证和冷启动处理各自归适配器所有；不添加批准、回答或取消任务的接口。
 - [ ] **4. 验证。** 两平台每来源至少 3 个会话，混合正在运行、等待审批、已结束状态；从气泡和历史点击，实际目标会话均正确。CLI 降级清晰，原应用处理请求后桌宠解除提示；验证接入真实链路而非仅调用 mocked opener。
-- [ ] **5. 提交。** `git commit -m "接通通知点击与原会话精确定位"`。
+- [x] **5. 提交。** `git commit -m "接通通知点击与原会话精确定位"`。
+
+实现及独立复审修正已完成（`1c17c21` 及复审修复）。修复了缩放/DPI 变化时气泡按钮坐标与掩码尺寸失步、气泡外框不变时降级显示「打开应用」漏推原生区域两项问题，并收紧了路径校验。macOS 隔离验证覆盖原生气泡按钮点击、历史面板导航和解除隐藏；双平台每来源 3 个真实宿主会话定位及 Windows 真机点击仍留待发行验收。
 
 ### Task 12:双平台安装包、故障演练与发行验收
 
