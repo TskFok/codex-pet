@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "platforms": {
+    "macosArm64": { "status": "unverified" },
+    "macosX64": { "status": "unverified" },
+    "windowsX64": { "status": "unverified" }
+  },
+  "hosts": {
+    "codex": { "macosRealSessions": 0, "windowsRealSessions": 0 },
+    "deepseek": { "macosRealSessions": 0, "windowsRealSessions": 0 }
+  },
+  "faultDrills": {
+    "diskWriteFailure": "unverified",
+    "lostAckRetry": "unverified",
+    "restartRecovery": "unverified",
+    "journalCompaction": "unverified",
+    "sourceUpgradeMismatch": "unverified"
+  }
+}

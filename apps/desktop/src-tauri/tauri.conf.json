@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build && node ../../scripts/desktop-pet/prepare-resources.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -15,5 +15,47 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
-  "bundle": { "active": false, "macOS": { "minimumSystemVersion": "13.0" } }
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg",
+      "nsis"
+    ],
+    "publisher": "Codex Pet (Unsigned Test Build)",
+    "shortDescription": "Codex 与 DeepSeek Harness 双平台独立桌宠（未签名测试版）",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/pet-bridge"
+    ],
+    "resources": {
+      "resources/harness-bundle": "harness-bundle",
+      "resources/default-pet": "default-pet",
+      "resources/resource-manifest.json": "resource-manifest.json"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": null
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": false
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
+  }
 }

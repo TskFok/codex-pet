@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "target": "aarch64-apple-darwin",
+  "unsignedTestBuild": true,
+  "note": "不完整测试夹具：缺少转发器、其他架构产物和真实 GUI 验收报告"
+}

@@ -15,10 +15,16 @@ jobs:
         include:
           - os: macos-15
             target: aarch64-apple-darwin
+            bundles: app,dmg
+            bridge: pet-bridge
           - os: macos-15-intel
             target: x86_64-apple-darwin
+            bundles: app,dmg
+            bridge: pet-bridge
           - os: windows-2022
             target: x86_64-pc-windows-msvc
+            bundles: nsis
+            bridge: pet-bridge.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -41,11 +47,23 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: pnpm --filter @codex-pet/desktop tauri build --debug --no-bundle --target ${{ matrix.target }}
+      - run: pnpm --filter @codex-pet/desktop tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: 归集未签名测试构建产物（不自动发布）
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="release-artifacts/${{ matrix.target }}"
+          mkdir -p "$OUT"
+          cp -R apps/desktop/src-tauri/resources/* "$OUT/"
+          cp "target/${{ matrix.target }}/release/${{ matrix.bridge }}" "$OUT/${{ matrix.bridge }}"
+          if [[ "${{ matrix.target }}" == *apple-darwin* ]]; then
+            cp -R "target/${{ matrix.target }}/release/bundle/macos/"*.app "$OUT/"
+            cp "target/${{ matrix.target }}/release/bundle/dmg/"*.dmg "$OUT/"
+          else
+            cp "target/${{ matrix.target }}/release/bundle/nsis/"*.exe "$OUT/"
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-pet-${{ matrix.target }}-debug
-          path: |
-            target/${{ matrix.target }}/debug/pet-desktop
-            target/${{ matrix.target }}/debug/pet-desktop.exe
+          name: desktop-pet-${{ matrix.target }}-unsigned-test
+          path: release-artifacts/${{ matrix.target }}
           if-no-files-found: error

@@ -245,11 +245,13 @@ IntegrationStatus 在本任务定义为 source、installation_id、可选 versio
 
 **接口：** `validate-release.mjs --artifacts PATH --reports PATH` 验证三种架构产物、独立转发器、资源清单和兼容报告完整性；缺失真实 GUI 报告时退出非零，不能把构建成功变为发行验收通过。`prepare-resources.mjs` 只复制发行所需素材到构建目录，原 pet-output 不变。
 
-- [ ] **1. 定义失败验收。** 缺转发器、错架构、缺 macOS/Windows 运行报告、缺兼容版本、源码资源被覆盖均拒绝发布包；全新 Windows 用户目录、WebView2 缺失/下载失败、中文空格安装路径、升级后旧 Hook 路径和卸载保留第三方配置列为真实安装用例。
-- [ ] **2. 运行并确认失败。** `node scripts/desktop-pet/validate-release.mjs --artifacts tests/fixtures/release/incomplete --reports tests/fixtures/release/incomplete-reports`，应退出非零并列出缺项；补充脚本行为测试，不测试静态配置文本。
-- [ ] **3. 实现分发。** macOS arm64/x64 应用包和 DMG、Windows x64 每用户 NSIS 包，随包带目标架构 bridge。Windows 安装器处理 WebView2 并报告失败；测试产物清楚标为未签名。CI 只构建/上传产物，公开发布和证书接入另行安排。
+- [x] **1. 定义失败验收。** 缺转发器、错架构、缺 macOS/Windows 运行报告、缺兼容版本、源码资源被覆盖均拒绝发布包；全新 Windows 用户目录、WebView2 缺失/下载失败、中文空格安装路径、升级后旧 Hook 路径和卸载保留第三方配置列为真实安装用例。
+- [x] **2. 运行并确认失败。** `node scripts/desktop-pet/validate-release.mjs --artifacts tests/fixtures/release/incomplete --reports tests/fixtures/release/incomplete-reports`，应退出非零并列出缺项；补充脚本行为测试，不测试静态配置文本。
+- [x] **3. 实现分发。** macOS arm64/x64 应用包和 DMG、Windows x64 每用户 NSIS 包，随包带目标架构 bridge。Windows 安装器处理 WebView2 并报告失败；测试产物清楚标为未签名。CI 只构建/上传产物，公开发布和证书接入另行安排。
 - [ ] **4. 完成全链路验收。** `cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`、`pnpm test`、`pnpm typecheck`、`pnpm build`；各原生构建机运行 `pnpm --filter @codex-pet/desktop tauri build --target <本机验收目标>`。随后实测磁盘写入失败、响应丢失、重启、历史压缩、来源升级失配、休眠和安装卸载；测正常延迟 P95<500 ms、未聚焦动画 60 秒和三模式各 5 分钟资源。Windows 10/11 与 macOS 13+ 的实际覆盖逐项记录，未验证环境不能填通过。
-- [ ] **5. 提交与交付。** `git commit -m "添加双平台打包与桌宠发行验收"`；交付安装包、准确的兼容矩阵、性能报告、接入/撤销说明和剩余限制；不擅自推送、发布或合并。
+- [x] **5. 提交与交付。** `git commit -m "添加双平台打包与桌宠发行验收"`；交付安装包、准确的兼容矩阵、性能报告、接入/撤销说明和剩余限制；不擅自推送、发布或合并。
+
+实现、打包流水线、全工作区自动化门禁与 macOS arm64 正式 `.app`/`.dmg` 构建及本地隔离演练（30 样本端到端延迟 P95=41.77 ms、离线重启补发、磁盘只读失败、协议升级失配、中文空格安装升级卸载及 `validate-release.mjs` 负例门禁）均已通过，记录于 [release-checklist.md](../../validation/desktop-pet/release-checklist.md)。Windows x64 真机、macOS Intel / 13、三模式 5 分钟正式资源复测、真实硬件休眠与双平台每来源 3 真实宿主会话跳转仍留作外部发行阻断项，步骤 4 保持未勾选。
 
 ## 设计覆盖与计划自审
 

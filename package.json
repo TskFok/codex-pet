@@ -6,8 +6,10 @@
     "node": ">=24.9.0 <25"
   },
   "scripts": {
-    "test": "pnpm --filter @codex-pet/desktop --filter @codex-pet/deepseek-integration --fail-if-no-match -r test",
+    "test": "pnpm --filter @codex-pet/desktop --filter @codex-pet/deepseek-integration --fail-if-no-match -r test && node --test scripts/desktop-pet/release-scripts.test.mjs",
     "typecheck": "pnpm --filter @codex-pet/desktop --filter @codex-pet/deepseek-integration --fail-if-no-match -r typecheck",
-    "build": "pnpm --filter @codex-pet/desktop --filter @codex-pet/deepseek-integration --fail-if-no-match -r build"
+    "build": "pnpm --filter @codex-pet/desktop --filter @codex-pet/deepseek-integration --fail-if-no-match -r build",
+    "prepare:resources": "node scripts/desktop-pet/prepare-resources.mjs",
+    "validate:release": "node scripts/desktop-pet/validate-release.mjs"
   }
 }

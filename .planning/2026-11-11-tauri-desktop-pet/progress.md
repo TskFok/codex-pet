@@ -105,3 +105,11 @@
 
 - 完成 Task 11（`0e684ac`、`1c17c21`）独立代码审阅（`task-11-review.md`），发现并修复 2 项气泡按钮热区同步缺陷：缩放/DPI 变化时按新掩码重测并裁剪按钮矩形、降级显示「打开应用」时即使气泡外框尺寸未变也立即同步原生按钮区域与修订号；同时收紧了宿主路径的 `..` 与 UNC 前缀校验，并同步更新了 Codex 接入说明。
 - 回归测试（前端 13 套 32 项、Rust navigation 5 项、fmt/clippy/typecheck）全部通过。双平台每来源 3 真实宿主会话定位与 Windows 原生点击保留为发行验收阻断项。进入 Deferred Minors 清理与 Task 12。
+
+## 2026-11-24：Deferred Minors 清理与 Task 12 双平台打包和发行验收
+
+- 清理 Tasks 8–10 延后 Minor 项（`dbb9952`）：收窄 `settings` 窗口权限移除未用的 `allow-get-pet-asset`、更新设置前刷新 macOS 180 ms 拖动防抖坐标、在 Harness 状态中检查已选 bundle 的 `bridgePath` 有效性、修复 Windows 物理窗口取整 1 像素越界、统一诊断分段时间戳边界。
+- 完成 Task 12 打包与发行验收脚手架：新增 `scripts/desktop-pet/{binary-arch,prepare-resources,validate-release,release-scripts.test}.mjs` 与 `tests/fixtures/release/` 失败验收夹具；生成桌面全套方形图标并开启 `tauri.conf.json` macOS（`.app`/`.dmg`）与 Windows（每用户 NSIS、非静默 WebView2 引导）打包配置，随包打包目标架构 `pet-bridge` 与离线 `harness-bundle`/`default-pet` 资源；更新 `.github/workflows/desktop-pet.yml`、根 `package.json`、`README.md` 与 `docs/validation/desktop-pet/release-checklist.md`。
+- 修复 macOS 27 下发布构建剥离 proc-macro dylib 调试信息破坏 LINKEDIT 对齐的问题（`[profile.release.build-override] strip = false`），完成本机 macOS arm64 正式 `.app`（19.52 MiB）与 `.dmg`（11.39 MiB）构建，并核验包内 `pet-bridge`（Mach-O arm64）、`harness-bundle` 及原 `pet-output/` SHA-256 未变。
+- 在隔离临时目录针对正式 `Codex Pet.app` 完成本机实测：30 样本端到端通知延迟 P50=28.73 ms / P95=41.77 ms（<500 ms），离线队列重启补发、只读磁盘安全退出、协议升级失配退出码 2、中文空格路径安装/升级/卸载保留第三方 Hook 全部通过；对真实 arm64 产物执行 `validate-release.mjs` 确认诚实拦截缺失平台与真实 GUI 验收。
+- Windows x64 真机全链路、macOS Intel / 13、三模式 5 分钟正式资源复测、真实硬件休眠与双平台每来源 3 真实宿主会话定位保留在 `release-checklist.md` 作为发行阻断项，未擅自推送或发布。

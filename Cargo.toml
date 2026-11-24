@@ -9,3 +9,7 @@ rust-version = "1.93.1"
 [workspace.dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+
+# 避免 macOS 新版链接器剥离 proc-macro dylib 调试信息时破坏 LINKEDIT 对齐。
+[profile.release.build-override]
+strip = false

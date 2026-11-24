@@ -1,51 +1,74 @@
 # Codex Pet
 
-macOS / Windows 独立桌宠工程。当前交付事件协议与可重放会话状态核心；桌面界面、来源适配器、文件持久化及平台验收将由后续任务实现。现有 `pet-output/` 素材保留原样。
+macOS / Windows 双平台独立桌宠（基于 Tauri 2、Rust 与 TypeScript/Canvas），用于接收 Codex 与官方 DeepSeek Harness 的任务提醒并打开对应原会话。首版聚焦提醒与会话跳转，不提供任务回答、批准或执行控制；现有 `pet-output/` 原始素材保持只读不被覆盖。
 
 ## 开发环境
 
-- Rust 1.93.1（`rust-toolchain.toml`）。
-- Node 24.11.1（`.node-version`，要求 24.x 且至少 24.9）。
-- pnpm 10.28.2（根 `package.json`）。
+- Rust 1.93.1（`rust-toolchain.toml`）
+- Node 24.x LTS（`.node-version` 锁定 `24.11.1`，要求 `>=24.9.0 <25`）
+- pnpm 10.28.2（根 `package.json`）
 
-从仓库根目录执行：
+从仓库根目录执行常规检查：
 
 ```sh
-cargo test --workspace
+pnpm install --frozen-lockfile
+pnpm test
+pnpm typecheck
+pnpm build
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
 ```
 
-`pnpm install --frozen-lockfile` 使用已提交的锁文件。根 `pnpm test`、`pnpm typecheck`、`pnpm build` 将执行后续 `@codex-pet/desktop` 与 `@codex-pet/deepseek-integration` 包的对应命令；当前尚无这些包，命令会明确报无匹配项目，不将空工作区记为前端验证通过。后续前端测试使用 `vitest run`，空测试集必须失败。
+## 构建与打包（未签名测试包）
 
-## 核心入口
+正式签名、公证、应用商店上架与自动更新服务不在首版范围；打包产物明确标为**未签名个人测试包**。构建前会自动准备目标架构的 `pet-bridge` 转发器、离线 `harness-bundle` 模板与默认月影资源（只复制到构建目录，不改动 `pet-output/`）：
 
-`crates/pet-core` 不依赖 GUI 或宿主。跨进程输入先经过 `protocol::decode_event`：生产协议版本为 2，兼容读取旧 v1 的 Turn 默认生命周期；v1 携带 until_resolved 明确拒绝。JSON 不超过 64 KiB，摘要不超过 512 个 Unicode 字符。JSON 字段使用 camelCase，枚举值使用 snake_case，事件种类位于 `kind.type`；未设置的可选字段序列化时省略。接收时间由接收端填入。
+```sh
+# macOS Apple Silicon (.app 与 .dmg)
+pnpm --filter @codex-pet/desktop tauri build --target aarch64-apple-darwin --bundles app,dmg
 
-`SessionStore` 提供 `apply`、`mark_read`、`clear_history`、`snapshot` 与 `restore`。`SessionKey` 使用来源、安装 ID、会话 ID 隔离状态；实例 ID 标识来源进程生命周期。`ApplyResult.changed` 只表示公开快照变化；接收事件的持久化与去重不能以此作为是否接收的判断。`should_notify` 仅表示本次实时新增的重要提醒，恢复批次后应统一展示最终快照中的未解决请求与未读结束提醒。
+# macOS Intel (.app 与 .dmg)
+pnpm --filter @codex-pet/desktop tauri build --target x86_64-apple-darwin --bundles app,dmg
 
-状态遵循以下规则：
+# Windows x64 每用户 NSIS 安装包（需在 Windows 原生环境运行）
+pnpm --filter @codex-pet/desktop tauri build --target x86_64-pc-windows-msvc --bundles nsis
+```
 
-- 按 `eventId` 去重；请求 tombstone 按会话、回合与请求 ID 匹配，撤回或已回答的请求不因倒序投递复活。
-- 序号仅在同一来源、安装、实例、会话内可比。已知旧回合被忽略；回合 ID 不同且没有可比较序号时，保留现存请求并标为 `unknown`，时间戳不决定回合先后。
-- 同一回合终态阻止迟到的开始或请求。`unknown` 结束也会形成终态，不推断业务目标成功。
-- 标为已读与解决请求相互独立；可靠新回合不会清除未读结束历史。清空历史保留请求、去重与因果记录。
-- `active` 按待处理、失败、未读结束、运行中排序，同级选最近事件；时间相同按会话 key 稳定排序。父子会话各自保留状态，`parentSessionId` 用于后续 UI 分组；`active` 始终指向实际存在且需要展示的会话。
-- 恢复时工作中降为未知，未读提醒保留。历史至多 1,000 条、7 天；未知因果与去重记录独立于历史，本核心在内存中不裁剪这些记录，后续存储层需持久化并保留至少 24 小时的去重数据。
+校验发行产物与真实验收报告完整性（缺少任一目标架构、转发器、兼容报告或真实双平台 GUI 验收时必须退出非零，不将构建成功视为发行通过）：
 
-`source_snapshot` 不产生新提醒。新会话可导入；已有会话只有与 envelope 对应的同一会话拥有同实例可比较新序号时才能校正。当前 DTO 不含每个 projection 的序号或实例水位：其他已有会话的冲突快照保留已知回合及请求并标未知，遗漏会话也保守标未知；同会话已知旧序号的遗漏不覆盖更新事实。后续若要可靠校正多会话快照，需扩展每会话因果水位。来源断开事件仅影响同一安装与实例的会话，不凭静默判定断开。
+```sh
+pnpm validate:release --artifacts <产物目录> --reports <报告目录>
+```
 
-## 测试样例
+## 目录与模块
 
-`tests/fixtures/events/` 保存脱敏事件及手工期望快照；`tests/fixtures/protocol/` 保存协议输入，供后续 Rust、TypeScript 与适配器共同使用。`pet-core` 集成测试使用本地 `tests/support` 辅助模块加载，不跨 crate 导入测试目录。
+- `crates/pet-core`：统一事件协议（生产协议 v2/v3，兼容读取旧 v1/v2）、可重放多会话状态机（`SessionStore`）、持久化日志与去重存储（`JournalStore`）、旧 v1/v2 宠物包导入与独立动画格式（`pet_package`）。无 GUI 或宿主依赖。
+- `crates/pet-bridge`：原生转发器与安全安装器（`codex` / `harness` / `hooks` 子命令），负责 8 MiB 原始 Hook 归一化、64 KiB 统一事件校验、有界待发送区（2,000 条 / 10 MiB / 24 小时）与 200 ms 本机 HTTP 投递。
+- `apps/desktop`：Tauri 2 桌面应用与 TypeScript/Canvas 前端，包含本机 loopback broker、透明窗口与逐帧命中区域、系统托盘、通知历史面板、设置与来源接入状态、原会话安全导航。
+- `integrations/codex`：Codex 分级生命周期 Hook 模板、能力兼容表与接入/撤销文档（[Codex 接入说明](integrations/codex/README.md) · [Codex 兼容表](integrations/codex/compatibility.json)）。
+- `integrations/deepseek-harness`：DeepSeek Harness 完整待处理与精确解除插件、离线 `dsh.bundle` 安装包生成器与最小宿主补丁（[Harness 接入说明](integrations/deepseek-harness/README.md) · [Harness 兼容表](integrations/deepseek-harness/compatibility.json)）。
+- `scripts/desktop-pet`：发行资源准备脚本（`prepare-resources.mjs`）、发行验收守卫（`validate-release.mjs`）及行为测试。
+- `docs/validation/desktop-pet`：双平台窗口与性能实测（[platforms.md](docs/validation/desktop-pet/platforms.md)）、来源验证（[codex.md](docs/validation/desktop-pet/codex.md)、[harness.md](docs/validation/desktop-pet/harness.md)）及发行检查清单（[release-checklist.md](docs/validation/desktop-pet/release-checklist.md)）。
 
-完整设计见 [双平台桌宠设计](docs/superpowers/specs/2026-11-11-tauri-desktop-pet-design.md)。本任务没有验证桌面事件覆盖、精确会话跳转、原生窗口、资源预算或双平台运行能力。
+## 核心协议与状态规则
 
-
-持续请求使用 `RequestLifetime::UntilResolved`（JSON `until_resolved`），普通请求默认 `Turn` 且省略默认字段。持续请求保留原始出生回合，跨回合结束、新回合和普通快照替换保留，只有精确解除事实移除；存在持续请求时聚合显示待处理，解除后恢复可证的活动/终态，活动因果未知时仍为 Unknown。Task5必须持久化完整重放事件或全部私有墓碑、已知终态、活动事实及延后请求，公开快照本身不足以恢复因果。
+- 跨进程输入先经 `protocol::decode_event` 校验：JSON 不超过 64 KiB，摘要不超过 512 个 Unicode 字符；字段使用 `camelCase`，枚举值使用 `snake_case`，事件种类位于 `kind.type`，未设置的可选字段省略。接收时间由接收端填入。
+- `SessionStore` 按 `(source, installationId, sessionId)` 隔离会话状态，按 `eventId` 独立去重（去重记录独立于 1,000 条 / 7 天的可见历史保留至少 24 小时）。
+- 持续请求使用 `RequestLifetime::UntilResolved`（JSON `until_resolved`），保留原始出生回合，跨回合结束、新回合和普通快照保留，仅由原会话/原请求精确解除；普通 `Turn` 请求保持原回合边界语义。
+- `Stop` 等未知终态映射为 `unknown` 而非“任务成功”；标为已读与清空历史均不解除仍待处理的请求，也不删除宠物素材或去重索引。
 
 ## 从通知打开会话
 
-点击桌宠气泡的「打开会话」，或在托盘「通知」中展开会话并点击「尝试打开会话」。桌宠检查本机登记的来源安装，并通过系统入口发送对应请求。「已发送打开请求」表示系统已接受请求。请在来源应用确认是否定位到原会话。也可以在气泡或通知面板复制会话 ID。
+点击桌宠气泡的「打开会话」，或在托盘「通知」中展开会话并点击「尝试打开会话」。桌宠会重新核对本机登记的来源安装与系统协议注册，再通过操作系统原生入口发送受限固定深链（绝不执行事件中的任意命令或 URL）：
 
-Codex 使用官方会话链接。旧版共用 Hooks 的通知可能来自 CLI，系统接受链接时仍可能找不到对应的桌面会话。Harness 需要桌面 profile 已选用配套插件，并且系统注册的 0.2.2-rc.1 桌面包带有会话深链补丁。仅支持唤起时，界面提供独立的「打开应用」按钮。[Codex 兼容表](integrations/codex/compatibility.json) · [Harness 兼容表](integrations/deepseek-harness/compatibility.json)
+- **「已发送打开请求」**（`Requested`）仅表示操作系统接受了深链请求，不宣称来源界面已完成定位。
+- **「打开应用」**（`ApplicationOnly`）在宿主版本不支持会话深链时显式提示，需用户再次点击才唤起应用。
+- 失败或无桌面入口时保留通知并提供「复制会话 ID」按钮。
+- Codex 使用 `codex://threads/<thread-id>`（共用 Hooks 的旧版通知可能来自 CLI，桌面端未必存在对应会话）；Harness 需要桌面 profile 已选用配套 `dsh.bundle` 且系统注册的 `0.2.2-rc.1` 桌面包包含会话深链补丁。
+
+## 兼容范围与当前验收状态
+
+- **Codex（分级支持）**：提供可验证生命周期提醒（`UserPromptSubmit`、`Stop`、`Interrupt`、`SubagentStart`、`SubagentStop`）与会话跳转；**不支持**精确审批/提问等待与解除同步。
+- **DeepSeek Harness（完整待处理目标）**：支持审批、直接提问与跨回合定时提问的精确解除、观察器重载恢复与 JSONL 崩溃代次隔离（后两项需配套宿主补丁）。
+- 完整架构设计见 [双平台桌宠设计](docs/superpowers/specs/2026-11-11-tauri-desktop-pet-design.md)，当前已验证项与剩余发行阻断项（含 Windows 真机全链路、macOS Intel、双平台 3 真实宿主会话跳转及 5 分钟正式资源实测）详见 [发行检查清单](docs/validation/desktop-pet/release-checklist.md)。
