@@ -21,6 +21,32 @@ export const BASE_WALK_SPEED_PX_PER_SEC = 175;
 export const MIN_ACTIVITY_SPEED = 0.5;
 export const MAX_ACTIVITY_SPEED = 2.0;
 export const MIN_ACTIVITY_RANGE_SPAN = 0.1;
+export const DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS = 15;
+export const MAX_BUBBLE_AUTO_CLOSE_SECONDS = 600;
+
+export const BUBBLE_AUTO_CLOSE_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 0, label: '不自动关闭' },
+  { value: 5, label: '5 秒' },
+  { value: 10, label: '10 秒' },
+  { value: 15, label: '15 秒（默认）' },
+  { value: 30, label: '30 秒' },
+  { value: 60, label: '1 分钟' },
+  { value: 180, label: '3 分钟' },
+  { value: 300, label: '5 分钟' },
+];
+
+export function normalizeBubbleAutoCloseSeconds(seconds?: number): number {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS;
+  return Math.min(MAX_BUBBLE_AUTO_CLOSE_SECONDS, Math.max(0, Math.round(seconds)));
+}
+
+export function formatBubbleAutoCloseSeconds(seconds: number): string {
+  const normalized = normalizeBubbleAutoCloseSeconds(seconds);
+  const preset = BUBBLE_AUTO_CLOSE_OPTIONS.find((item) => item.value === normalized);
+  if (preset) return preset.label;
+  if (normalized % 60 === 0) return `${normalized / 60} 分钟`;
+  return `${normalized} 秒`;
+}
 
 export const ACTIVITY_RANGE_PRESETS: ReadonlyArray<{
   id: ActivityRangePreset;
@@ -340,13 +366,17 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
   const fps = el('select'),
     pet = el('select'),
     scale = el('select'),
+    bubbleAutoClose = el('select'),
     deepseekModel = el('select'),
     activityRangePreset = el('select');
+  bubbleAutoClose.name = 'bubbleAutoCloseSeconds';
   deepseekModel.name = 'deepseekModel';
   activityRangePreset.name = 'activityRangePreset';
 
   fps.append(option('30', '30 FPS'), option('60', '60 FPS'));
   for (const v of [0.75, 1, 1.25, 1.5, 2]) scale.append(option(String(v), Math.round(100 * v) + '%'));
+  for (const choice of BUBBLE_AUTO_CLOSE_OPTIONS)
+    bubbleAutoClose.append(option(String(choice.value), choice.label));
   for (const choice of DEEPSEEK_MODEL_CHOICES) deepseekModel.append(option(choice.id, choice.label));
   for (const choice of ACTIVITY_RANGE_PRESETS)
     activityRangePreset.append(option(choice.id, choice.label));
@@ -589,6 +619,10 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
       : '输入 sk-...';
     renderActivityRange(value.activityRange ?? normalizeActivityRange());
     renderActivitySpeed(value.activitySpeed ?? 1.0);
+    const autoCloseSeconds = normalizeBubbleAutoCloseSeconds(value.bubbleAutoCloseSeconds);
+    if (!Array.from(bubbleAutoClose.options).some((o) => Number(o.value) === autoCloseSeconds))
+      bubbleAutoClose.append(option(String(autoCloseSeconds), formatBubbleAutoCloseSeconds(autoCloseSeconds)));
+    setSelectValue(bubbleAutoClose, String(autoCloseSeconds));
     sound.checked = value.sound;
     login.checked = value.autostart;
     for (const s of SOURCES) muted[s].checked = value.mutedSources.includes(s);
@@ -698,6 +732,8 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
   };
 
   sound.onchange = () => update({ sound: sound.checked });
+  bubbleAutoClose.onchange = () =>
+    update({ bubbleAutoCloseSeconds: normalizeBubbleAutoCloseSeconds(Number(bubbleAutoClose.value)) });
   login.onchange = () => update({ autostart: login.checked });
   for (const s of SOURCES)
     muted[s].onchange = () =>
@@ -820,6 +856,11 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
     settingCard(
       '提醒与系统',
       settingRow('播放提醒声音', sound, '有待审批、待回答或回合结束时播放提示音'),
+      settingRow(
+        '任务气泡自动关闭',
+        bubbleAutoClose,
+        '任务提醒气泡在显示指定时长后自动收起（仍保留在通知面板中）',
+      ),
       settingRow('登录时启动桌宠', login, '系统登录后自动启动桌宠'),
     ),
     settingCard(
@@ -957,6 +998,7 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
   selectTab('general');
   renderActivityRange(draftRange);
   renderActivitySpeed(1.0);
+  setSelectValue(bubbleAutoClose, String(DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS));
 
   async function listSources() {
     const values = await api.integrations();

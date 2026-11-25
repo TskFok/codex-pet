@@ -17,6 +17,7 @@ import {
   type PetClickEvent,
 } from './pet-interactions';
 import { presentation, withBubbles } from './reminder';
+import { DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS } from './settings';
 
 type BubbleAction = 'session' | 'application' | 'copy' | 'close' | 'close_all' | InteractionBubbleAction;
 type BubbleBackdrop = FrameRect & { radius: number };
@@ -138,6 +139,10 @@ export function bindReminder(
   let lastFitCanvasHeight = 0;
   const views = new Map<string, BubbleView>();
   const reminderOrder = new Map<string, number>();
+  const reminderAutoCloseTimers = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; durationMs: number }
+  >();
   let petLoadErrorOrder: number | undefined;
   const ephemeralBubbles: EphemeralBubble[] = [];
 
@@ -172,6 +177,78 @@ export function bindReminder(
   function clearAllEphemeralBubbles() {
     for (const entry of ephemeralBubbles) clearEphemeralTimer(entry);
     ephemeralBubbles.length = 0;
+  }
+
+  function resolveReminderAutoCloseMs(): number {
+    const seconds = settings?.bubbleAutoCloseSeconds;
+    if (typeof seconds === 'number' && Number.isFinite(seconds)) {
+      return seconds <= 0 ? 0 : Math.round(seconds * 1000);
+    }
+    return DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS * 1000;
+  }
+
+  function clearReminderAutoCloseTimer(id: string) {
+    const entry = reminderAutoCloseTimers.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    reminderAutoCloseTimers.delete(id);
+  }
+
+  function clearAllReminderAutoCloseTimers() {
+    for (const entry of reminderAutoCloseTimers.values()) {
+      clearTimeout(entry.timer);
+    }
+    reminderAutoCloseTimers.clear();
+  }
+
+  function autoDismissReminder(id: string) {
+    clearReminderAutoCloseTimer(id);
+    if (stopped || dismissed.has(id)) return;
+    rememberDismissed([id]);
+    reminderOrder.delete(id);
+    renderStack(true);
+  }
+
+  function scheduleReminderAutoClose(id: string, durationMs: number) {
+    clearReminderAutoCloseTimer(id);
+    if (stopped || durationMs <= 0) return;
+    const timer = setTimeout(() => {
+      reminderAutoCloseTimers.delete(id);
+      autoDismissReminder(id);
+    }, durationMs);
+    reminderAutoCloseTimers.set(id, { timer, durationMs });
+  }
+
+  function refreshReminderAutoClose(id: string) {
+    if (stopped) return;
+    const autoCloseMs = resolveReminderAutoCloseMs();
+    if (autoCloseMs <= 0) return;
+    if (!renderedIds.includes(id)) return;
+    if (views.get(id)?.element.dataset.bubbleKind !== 'reminder') return;
+    scheduleReminderAutoClose(id, autoCloseMs);
+  }
+
+  function syncReminderAutoCloseTimers(visible: readonly RenderBubble[]) {
+    const autoCloseMs = resolveReminderAutoCloseMs();
+    if (stopped || autoCloseMs <= 0) {
+      clearAllReminderAutoCloseTimers();
+      return;
+    }
+    const visibleReminderIds = new Set<string>();
+    for (const entry of visible) {
+      if (entry.kind === 'reminder') visibleReminderIds.add(entry.id);
+    }
+    for (const id of Array.from(reminderAutoCloseTimers.keys())) {
+      if (!visibleReminderIds.has(id)) {
+        clearReminderAutoCloseTimer(id);
+      }
+    }
+    for (const entry of visible) {
+      if (entry.kind !== 'reminder') continue;
+      const existing = reminderAutoCloseTimers.get(entry.id);
+      if (existing && existing.durationMs === autoCloseMs) continue;
+      scheduleReminderAutoClose(entry.id, autoCloseMs);
+    }
   }
 
   function removeEphemeralBubble(id: string): boolean {
@@ -606,6 +683,7 @@ export function bindReminder(
       }
       return;
     }
+    clearReminderAutoCloseTimer(id);
     rememberDismissed([id]);
     reminderOrder.delete(id);
     renderStack(true);
@@ -636,6 +714,7 @@ export function bindReminder(
       rememberDismissed(reminderIds);
     }
     petLoadErrorOrder = undefined;
+    clearAllReminderAutoCloseTimers();
     clearAllEphemeralBubbles();
     renderStack(true);
     if (keysToMarkRead.length === 1) {
@@ -684,9 +763,21 @@ export function bindReminder(
             createNavigation(
               document,
               entry.key,
-              { open: api.openSession, copy: api.copySession },
+              {
+                open: (key, intent) => {
+                  refreshReminderAutoClose(entry.id);
+                  return api.openSession(key, intent);
+                },
+                copy: (key) => {
+                  refreshReminderAutoClose(entry.id);
+                  return api.copySession(key);
+                },
+              },
               true,
-              () => handleBubbleLayoutChange(),
+              () => {
+                refreshReminderAutoClose(entry.id);
+                handleBubbleLayoutChange();
+              },
             ),
           );
         }
@@ -791,6 +882,7 @@ export function bindReminder(
     if (canvasHeight > 0) {
       lastFitCanvasHeight = canvasHeight;
     }
+    syncReminderAutoCloseTimers(visible);
     if (invalidated) {
       ++stamp;
       targetChanged = true;
@@ -1151,6 +1243,7 @@ export function bindReminder(
     },
     stop() {
       stopped = true;
+      clearAllReminderAutoCloseTimers();
       clearAllEphemeralBubbles();
       clearInteractionAnimation();
       clearAutonomousActivity();

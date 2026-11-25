@@ -433,3 +433,78 @@ it('设置页支持配置自由活动范围（预设与自定义预览）与跑�
     vi.restoreAllMocks();
   }
 });
+
+it('设置页支持配置任务气泡自动关闭时长与禁用自动关闭', async () => {
+  const { document } = parseHTML('<html><body><main></main></body></html>');
+  const root = document.querySelector('main')!;
+  let state: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    petId: 'yueying-cape-dancer',
+    mutedSources: [],
+    bubbleAutoCloseSeconds: 15,
+    placement: { x: 100, y: 120, scale: 1, monitorId: null },
+  };
+  let receiveSettings!: (value: Settings) => void;
+  vi.spyOn(api, 'settings').mockResolvedValue(state);
+  vi.spyOn(api, 'settingsEvents').mockImplementation(async (cb) => {
+    receiveSettings = cb;
+    return () => {};
+  });
+  vi.spyOn(api, 'pets').mockResolvedValue([{ id: 'yueying-cape-dancer', name: '夏乌拉' }]);
+  vi.spyOn(api, 'integrations').mockResolvedValue([]);
+  vi.spyOn(api, 'deepseekActivityStatus').mockResolvedValue({
+    configured: false,
+    enabled: true,
+    running: false,
+    model: 'deepseek-chat',
+  });
+  vi.spyOn(api, 'deepseekActivityStatusEvents').mockResolvedValue(() => {});
+  const update = vi.spyOn(api, 'update').mockImplementation(async (patch) => {
+    state = {
+      ...state,
+      revision: state.revision + 1,
+      bubbleAutoCloseSeconds: patch.bubbleAutoCloseSeconds ?? state.bubbleAutoCloseSeconds,
+    };
+    return state;
+  });
+
+  const stop = await mountSettings(root);
+  try {
+    const form = root.querySelector<HTMLFieldSetElement>('fieldset')!;
+    const select = root.querySelector<HTMLSelectElement>('select[name="bubbleAutoCloseSeconds"]')!;
+    expect(select).toBeTruthy();
+    expect(select.value).toBe('15');
+    expect(root.textContent).toContain('任务气泡自动关闭');
+
+    const chooseOption = (value: string) => {
+      let target: HTMLOptionElement | undefined;
+      for (const opt of Array.from(select.options)) {
+        if (opt.value === value) target = opt;
+        else opt.selected = false;
+      }
+      if (target) target.selected = true;
+      select.onchange?.(new Event('change'));
+    };
+
+    chooseOption('0');
+    await vi.waitFor(() => expect(update).toHaveBeenCalledWith({ bubbleAutoCloseSeconds: 0 }));
+    await vi.waitFor(() => expect(form.disabled).toBe(false));
+    expect(select.value).toBe('0');
+
+    chooseOption('30');
+    await vi.waitFor(() => expect(update).toHaveBeenCalledWith({ bubbleAutoCloseSeconds: 30 }));
+    await vi.waitFor(() => expect(form.disabled).toBe(false));
+    expect(select.value).toBe('30');
+
+    // 兼容配置文件中非预设的自定义秒数
+    receiveSettings({ ...state, revision: state.revision + 1, bubbleAutoCloseSeconds: 45 });
+    expect(select.value).toBe('45');
+    expect(Array.from(select.options).some((opt) => opt.value === '45' && opt.textContent === '45 秒')).toBe(true);
+  } finally {
+    stop();
+    vi.restoreAllMocks();
+  }
+});

@@ -152,6 +152,7 @@ export interface Settings {
   deepseekApiKeyHint?: string | null;
   activityRange?: ActivityRange;
   activitySpeed?: number;
+  bubbleAutoCloseSeconds?: number;
   placement: Placement;
 }
 export type SettingsPatch = Partial<

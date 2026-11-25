@@ -1406,3 +1406,232 @@ it('多个气泡超出容器可用高度时自动按优先级裁剪，避免顶�
     vi.unstubAllGlobals();
   }
 });
+
+it('任务气泡默认到期自动关闭并释放热区（不标记已读），交互可重置计时，支持关闭或动态调整时长', async () => {
+  vi.useFakeTimers();
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  const storage = createMemoryStorage();
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('localStorage', storage);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    if (this.localName === 'aside') return rect(6, 180, 228, 60);
+    if (this.dataset.action === 'close') return rect(210, 186, 18, 18);
+    if (this.dataset.action === 'session') return rect(14, 214, 60, 20);
+    return rect(78, 214, 56, 20);
+  });
+
+  const keyA = { source: 'codex' as const, installationId: 'i1', sessionId: 'auto-close-a' };
+  const initial: PetSnapshot = {
+    revision: 1,
+    sessions: [{ key: keyA, turnId: 't1', status: 'ended', pending: [], unread: true, lastEventAtMs: 100 }],
+    notifications: [
+      {
+        id: 'n-1',
+        key: keyA,
+        turnId: 't1',
+        kind: { type: 'turn_ended', outcome: 'completed' },
+        summary: '第一个任务完成',
+        occurredAtMs: 100,
+        read: false,
+      },
+    ],
+  };
+  let receiveSettings!: (value: Settings) => void;
+  let receiveSnapshot!: (value: PetSnapshot) => void;
+  const basePrefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    mutedSources: [],
+    petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(basePrefs);
+  vi.spyOn(api, 'settingsEvents').mockImplementation(async (cb) => {
+    receiveSettings = cb;
+    return () => {};
+  });
+  vi.spyOn(api, 'snapshots').mockImplementation(async (cb) => {
+    receiveSnapshot = cb;
+    return () => {};
+  });
+  vi.spyOn(api, 'snapshot').mockResolvedValue(initial);
+  const markRead = vi.spyOn(api, 'markRead').mockResolvedValue(initial);
+  const copySession = vi.spyOn(api, 'copySession').mockResolvedValue(undefined);
+
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 240;
+  canvas.height = 440;
+  const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
+  const renderer = { setState: vi.fn(), setFps: vi.fn() };
+  const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+  const flushMicrotasks = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  try {
+    handle.pose({ width: 240, height: 440, runs: [[300, 80, 160]] }, { x: 0, y: 0, width: 240, height: 440 });
+    await flushMicrotasks();
+    expect(stack.hidden).toBe(false);
+    expect(stack.textContent).toContain('第一个任务完成');
+
+    // 1. 推进 10 秒后点击“复制 ID”按钮，应重置 15 秒自动关闭计时
+    vi.advanceTimersByTime(10_000);
+    expect(stack.hidden).toBe(false);
+    const copyBtn = stack.querySelector<HTMLButtonElement>('button[data-action="copy"]')!;
+    copyBtn.click();
+    await flushMicrotasks();
+    expect(copySession).toHaveBeenCalledWith(keyA);
+
+    // 再过 10 秒（距最初显示已 20 秒，但距交互仅 10 秒）仍保持显示
+    vi.advanceTimersByTime(10_000);
+    expect(stack.hidden).toBe(false);
+
+    // 再过 5 秒到达重置后的 15 秒上限，任务气泡自动关闭并释放热区，且不标记已读
+    vi.advanceTimersByTime(5_000);
+    expect(stack.hidden).toBe(true);
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(0);
+    expect(poses.mock.lastCall?.[0].bubbleInput).toBeUndefined();
+    expect(poses.mock.lastCall?.[0].mask.runs).toEqual([[300, 80, 160]]);
+    expect(markRead).not.toHaveBeenCalled();
+
+    // 无关快照刷新不会重新弹出已自动关闭的气泡
+    receiveSnapshot({ ...initial, revision: 2 });
+    expect(stack.hidden).toBe(true);
+
+    // 2. 设置 bubbleAutoCloseSeconds = 0 禁用自动关闭，新任务气泡不会自动消失
+    receiveSettings({ ...basePrefs, revision: 2, bubbleAutoCloseSeconds: 0 });
+    receiveSnapshot({
+      revision: 3,
+      sessions: [{ key: keyA, turnId: 't2', status: 'ended', pending: [], unread: true, lastEventAtMs: 200 }],
+      notifications: [
+        ...initial.notifications,
+        {
+          id: 'n-2',
+          key: keyA,
+          turnId: 't2',
+          kind: { type: 'turn_ended', outcome: 'completed' },
+          summary: '第二个任务完成',
+          occurredAtMs: 200,
+          read: false,
+        },
+      ],
+    });
+    expect(stack.hidden).toBe(false);
+    expect(stack.textContent).toContain('第二个任务完成');
+    vi.advanceTimersByTime(120_000);
+    expect(stack.hidden).toBe(false);
+
+    // 3. 动态将自动关闭调整为 5 秒后，当前可见气泡在 5 秒后自动关闭
+    receiveSettings({ ...basePrefs, revision: 3, bubbleAutoCloseSeconds: 5 });
+    vi.advanceTimersByTime(4_999);
+    expect(stack.hidden).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(stack.hidden).toBe(true);
+    expect(markRead).not.toHaveBeenCalled();
+  } finally {
+    handle.stop();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('多气泡排队时仅对可见任务气泡计时，前批自动关闭后排队气泡补位并获得完整展示时长', async () => {
+  vi.useFakeTimers();
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    if (this.dataset.action === 'close_all') return rect(150, 250, 84, 22);
+    if (this.localName === 'aside') {
+      const idx = Number(this.dataset.bubbleIndex ?? 0);
+      return rect(6, 186 - idx * 60, 228, 54);
+    }
+    const parent = this.closest('aside') as HTMLElement | null;
+    const idx = Number(parent?.dataset.bubbleIndex ?? 0);
+    const top = 186 - idx * 60;
+    if (this.dataset.action === 'close') return rect(210, top + 6, 18, 18);
+    return rect(14, top + 30, 56, 18);
+  });
+
+  const keys = Array.from({ length: 5 }, (_, i) => ({
+    source: 'codex' as const,
+    installationId: 'i1',
+    sessionId: `queued-session-${i + 1}`,
+  }));
+  const manySnapshot: PetSnapshot = {
+    revision: 1,
+    sessions: keys.map((key, i) => ({
+      key,
+      turnId: `t-${i + 1}`,
+      status: 'ended' as const,
+      pending: [],
+      unread: true,
+      lastEventAtMs: 100 + i * 10,
+    })),
+    notifications: keys.map((key, i) => ({
+      id: `qn-${i + 1}`,
+      key,
+      turnId: `t-${i + 1}`,
+      kind: { type: 'turn_ended' as const, outcome: 'completed' as const },
+      summary: `排队任务 ${i + 1}`,
+      occurredAtMs: 100 + i * 10,
+      read: false,
+    })),
+  };
+  const prefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    mutedSources: [],
+    petId: 'yueying-cape-dancer',
+    bubbleAutoCloseSeconds: 5,
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshots').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshot').mockResolvedValue(manySnapshot);
+
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 240;
+  canvas.height = 440;
+  const renderer = { setState: vi.fn(), setFps: vi.fn() };
+  const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, vi.fn(), vi.fn());
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+  try {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    // 初始同屏展示最新 4 个（任务 2~5），任务 1 在队列中等待
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(4);
+    expect(stack.textContent).not.toContain('排队任务 1');
+
+    // 5 秒后前 4 个自动关闭，排队中的任务 1 自动补位出现
+    vi.advanceTimersByTime(5_000);
+    const remaining = stack.querySelectorAll('aside.bubble');
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].textContent).toContain('排队任务 1');
+
+    // 任务 1 拥有完整的 5 秒展示时长
+    vi.advanceTimersByTime(4_999);
+    expect(stack.hidden).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(stack.hidden).toBe(true);
+  } finally {
+    handle.stop();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});

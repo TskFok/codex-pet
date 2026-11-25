@@ -11,6 +11,8 @@ pub const DEFAULT_ACTIVITY_SPEED: f64 = 1.0;
 pub const MIN_ACTIVITY_SPEED: f64 = 0.5;
 pub const MAX_ACTIVITY_SPEED: f64 = 2.0;
 pub const MIN_ACTIVITY_RANGE_SPAN: f64 = 0.1;
+pub const DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS: u32 = 15;
+pub const MAX_BUBBLE_AUTO_CLOSE_SECONDS: u32 = 600;
 const MAX_API_KEY_LEN: usize = 512;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -154,6 +156,7 @@ pub struct Preferences {
     pub deepseek_model: String,
     pub activity_range: ActivityRange,
     pub activity_speed: f64,
+    pub bubble_auto_close_seconds: u32,
 }
 impl fmt::Debug for Preferences {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -176,6 +179,7 @@ impl fmt::Debug for Preferences {
             .field("deepseek_model", &self.deepseek_model)
             .field("activity_range", &self.activity_range)
             .field("activity_speed", &self.activity_speed)
+            .field("bubble_auto_close_seconds", &self.bubble_auto_close_seconds)
             .finish()
     }
 }
@@ -193,6 +197,7 @@ impl Default for Preferences {
             deepseek_model: DEEPSEEK_DEFAULT_MODEL.into(),
             activity_range: ActivityRange::default(),
             activity_speed: DEFAULT_ACTIVITY_SPEED,
+            bubble_auto_close_seconds: DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS,
         }
     }
 }
@@ -210,6 +215,7 @@ pub struct SettingsPatch {
     pub deepseek_model: Option<String>,
     pub activity_range: Option<ActivityRange>,
     pub activity_speed: Option<f64>,
+    pub bubble_auto_close_seconds: Option<u32>,
 }
 impl fmt::Debug for SettingsPatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -231,6 +237,7 @@ impl fmt::Debug for SettingsPatch {
             .field("deepseek_model", &self.deepseek_model)
             .field("activity_range", &self.activity_range)
             .field("activity_speed", &self.activity_speed)
+            .field("bubble_auto_close_seconds", &self.bubble_auto_close_seconds)
             .finish()
     }
 }
@@ -273,6 +280,7 @@ struct SettingsWire<'a> {
     deepseek_api_key_hint: Option<String>,
     activity_range: &'a ActivityRange,
     activity_speed: f64,
+    bubble_auto_close_seconds: u32,
     placement: &'a WindowPlacement,
 }
 
@@ -293,6 +301,7 @@ impl Serialize for Settings {
             deepseek_api_key_hint: hint,
             activity_range: &prefs.activity_range,
             activity_speed: prefs.activity_speed,
+            bubble_auto_close_seconds: prefs.bubble_auto_close_seconds,
             placement: &self.placement,
         }
         .serialize(serializer)
@@ -344,6 +353,11 @@ impl Preferences {
                 "跑动速率必须在 0.5x 到 2.0x 之间",
             ));
         }
+        if self.bubble_auto_close_seconds > MAX_BUBBLE_AUTO_CLOSE_SECONDS {
+            return Err(StorageError::InvalidData(
+                "任务气泡自动关闭时长必须在 0 到 600 秒之间",
+            ));
+        }
         Ok(())
     }
     pub fn patched(&self, patch: &SettingsPatch) -> Result<Self, StorageError> {
@@ -379,6 +393,9 @@ impl Preferences {
         }
         if let Some(speed) = patch.activity_speed {
             next.activity_speed = speed;
+        }
+        if let Some(seconds) = patch.bubble_auto_close_seconds {
+            next.bubble_auto_close_seconds = seconds;
         }
         if let Some(p) = patch
             .placement

@@ -206,3 +206,66 @@ fn activity_range_and_speed_preferences_validate_normalize_and_persist() {
         assert!(custom.patched(&bad).is_err(), "预期拒绝配置：{bad_json}");
     }
 }
+
+#[test]
+fn bubble_auto_close_preference_defaults_validates_and_persists() {
+    use pet_desktop::{
+        placement::WindowPlacement,
+        settings::{DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS, MAX_BUBBLE_AUTO_CLOSE_SECONDS, Settings},
+    };
+
+    let temp = tempfile::tempdir().unwrap();
+    let paths = AppPaths::under(&temp.path().canonicalize().unwrap().join("app"));
+    paths.prepare_root().unwrap();
+
+    // 旧版 settings.json 无任务气泡自动关闭字段时，应平滑回退默认 15 秒
+    std::fs::write(
+        &paths.settings,
+        r#"{"revision":5,"fps":30,"sound":false,"autostart":false,"petId":"yueying-cape-dancer","mutedSources":[]}"#,
+    )
+    .unwrap();
+    let legacy = Preferences::load(&paths).unwrap();
+    assert_eq!(
+        legacy.bubble_auto_close_seconds,
+        DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS
+    );
+
+    // 可调整为 30 秒并落盘及经 IPC 序列化
+    let patch_30: SettingsPatch = serde_json::from_str(r#"{"bubbleAutoCloseSeconds":30}"#).unwrap();
+    let updated = legacy.patched(&patch_30).unwrap();
+    assert_eq!(updated.bubble_auto_close_seconds, 30);
+    updated.save(&paths).unwrap();
+    assert_eq!(Preferences::load(&paths).unwrap(), updated);
+
+    let wire = serde_json::to_value(Settings {
+        preferences: updated.clone(),
+        placement: WindowPlacement::default(),
+    })
+    .unwrap();
+    assert_eq!(wire["bubbleAutoCloseSeconds"], 30);
+
+    // 0 表示关闭自动关闭，最大值 600 秒允许，超过上限拒绝
+    let disable_patch: SettingsPatch =
+        serde_json::from_str(r#"{"bubbleAutoCloseSeconds":0}"#).unwrap();
+    let disabled = updated.patched(&disable_patch).unwrap();
+    assert_eq!(disabled.bubble_auto_close_seconds, 0);
+
+    let max_patch: SettingsPatch = serde_json::from_str(&format!(
+        r#"{{"bubbleAutoCloseSeconds":{MAX_BUBBLE_AUTO_CLOSE_SECONDS}}}"#
+    ))
+    .unwrap();
+    assert_eq!(
+        disabled
+            .patched(&max_patch)
+            .unwrap()
+            .bubble_auto_close_seconds,
+        MAX_BUBBLE_AUTO_CLOSE_SECONDS
+    );
+
+    let over_max_patch: SettingsPatch = serde_json::from_str(&format!(
+        r#"{{"bubbleAutoCloseSeconds":{}}}"#,
+        MAX_BUBBLE_AUTO_CLOSE_SECONDS + 1
+    ))
+    .unwrap();
+    assert!(disabled.patched(&over_max_patch).is_err());
+}
