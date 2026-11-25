@@ -13,7 +13,7 @@ const DEFAULT_REPO_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url
 
 const IMMUTABLE_SOURCE_HASHES = {
   'yueying-cape-dancer/package/pet.json':
-    '353b9fe18c71937a85b2fc82a03e2af89f9b9454f7cb82c83e7a4678733ee571',
+    '1e921e3bb634b97def071b6c06a8941f558c98c9757bb7726d38d9292d0dfa3f',
   'yueying-cape-dancer/package/spritesheet.webp':
     '70a06d18162ad3b5344afdc7e28d4dbd70b70c0d32ab0bfcac52fe7315b63130',
 };

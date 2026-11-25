@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { api, observeSnapshot } from '../api';
+import defaultManifest from '../assets/yueying.json';
 import type { AlphaMask } from '../animation/hit-mask';
 import type { FrameRect, PetActivityEvent, PetSnapshot, SessionKey, Settings } from '../types';
 import type { mountPet } from './pet';
@@ -69,6 +70,7 @@ const DEFAULT_BUBBLE_RADIUS = 14;
 const MAX_VISIBLE_BUBBLES = 4;
 const MAX_EPHEMERAL_BUBBLES = 3;
 const INTERACTION_REPLACE_WINDOW_MS = 450;
+const OVERFLOW_EPSILON_PX = 0.5;
 
 function loadDismissed(): Set<string> {
   try {
@@ -117,7 +119,7 @@ export function bindReminder(
   closeAllButton.title = '关闭全部气泡';
   closeAllButton.hidden = true;
   closeAllButton.onclick = () => dismissAllBubbles();
-  const observer = new ResizeObserver(() => measure());
+  const observer = new ResizeObserver(() => handleBubbleLayoutChange());
   observer.observe(canvas);
   observer.observe(stackEl);
   observer.observe(closeAllButton);
@@ -132,6 +134,8 @@ export function bindReminder(
   let bubbleOrder = 0;
   let renderedIds: string[] = [];
   let renderedTotalCount = 0;
+  let lastEntriesSignature = '';
+  let lastFitCanvasHeight = 0;
   const views = new Map<string, BubbleView>();
   const reminderOrder = new Map<string, number>();
   let petLoadErrorOrder: number | undefined;
@@ -142,8 +146,8 @@ export function bindReminder(
   let activeAnimation: { state: string; key: string; fallbackState: string } | undefined;
   let snapshot: PetSnapshot | undefined,
     settings: Settings | undefined,
-    selectedPet = 'yueying-cape-dancer',
-    petName = '月影';
+    selectedPet = defaultManifest.id,
+    petName = defaultManifest.name;
   let change = 0,
     stopped = false;
   const stops: (() => void)[] = [];
@@ -457,7 +461,7 @@ export function bindReminder(
     if (changed) saveDismissed(dismissed);
   }
 
-  function computeVisibleBubbles(): { visible: RenderBubble[]; totalCount: number } {
+  function collectBubbleEntries(): RenderBubble[] {
     const entries: RenderBubble[] = [];
     const activeReminderIds = new Set<string>();
     if (snapshot) {
@@ -506,19 +510,64 @@ export function bindReminder(
         actions: item.actions,
       });
     }
-    const totalCount = entries.length;
-    if (entries.length <= MAX_VISIBLE_BUBBLES) {
-      entries.sort((a, b) => a.order - b.order);
-      return { visible: entries, totalCount };
+    return entries;
+  }
+
+  function selectVisibleBubbles(entries: readonly RenderBubble[], maxVisible: number): RenderBubble[] {
+    const limit = Math.max(0, Math.min(maxVisible, entries.length));
+    if (limit === 0) return [];
+    if (entries.length <= limit) {
+      return [...entries].sort((a, b) => a.order - b.order);
     }
-    // 超过同屏上限时，优先保留错误与待审批/待回答提醒，其余保留最新叠加的气泡
+    // 超过同屏上限或可用高度时，优先保留错误与待审批/待回答提醒，其余保留最新叠加的气泡
     const pinned = entries.filter((entry) => entry.rank >= 5).sort((a, b) => b.order - a.order);
     const others = entries.filter((entry) => entry.rank < 5).sort((a, b) => b.order - a.order);
-    const kept = [...pinned.slice(0, MAX_VISIBLE_BUBBLES)];
-    const remaining = MAX_VISIBLE_BUBBLES - kept.length;
+    const kept = [...pinned.slice(0, limit)];
+    const remaining = limit - kept.length;
     if (remaining > 0) kept.push(...others.slice(0, remaining));
     kept.sort((a, b) => a.order - b.order);
-    return { visible: kept, totalCount };
+    return kept;
+  }
+
+  function doesRenderedStackOverflow(visibleElements: readonly HTMLElement[]): boolean {
+    if (visibleElements.length <= 1 || stackEl.hidden) return false;
+    const canvasBox = canvas.getBoundingClientRect();
+    if (!canvasBox || canvasBox.width <= 0 || canvasBox.height <= 0) return false;
+
+    let minTop = Number.POSITIVE_INFINITY;
+    let maxBottom = Number.NEGATIVE_INFINITY;
+    let maxWidth = 0;
+    for (const element of visibleElements) {
+      const box = element.getBoundingClientRect();
+      if (!box || box.width <= 0 || box.height <= 0) return false;
+      minTop = Math.min(minTop, box.top);
+      maxBottom = Math.max(maxBottom, box.top + box.height);
+      maxWidth = Math.max(maxWidth, box.width);
+    }
+
+    // 任意气泡顶部超出窗口（canvas）顶部边界，头部必然被截断
+    if (minTop < canvasBox.top - OVERFLOW_EPSILON_PX) {
+      return true;
+    }
+
+    // 容器具备有效布局盒时，检查气泡是否超出 .bubble-stack 可用上下边界
+    const stackBox = stackEl.getBoundingClientRect();
+    if (
+      stackBox &&
+      stackBox.width >= maxWidth - 1 &&
+      stackBox.height > 0 &&
+      stackBox.top >= canvasBox.top - 1 &&
+      stackBox.top + stackBox.height <= canvasBox.top + canvasBox.height + 1
+    ) {
+      if (minTop < stackBox.top - OVERFLOW_EPSILON_PX) {
+        return true;
+      }
+      if (maxBottom > stackBox.top + stackBox.height + OVERFLOW_EPSILON_PX) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function createBubbleView(id: string): BubbleView {
@@ -596,18 +645,9 @@ export function bindReminder(
     }
   }
 
-  function renderStack(forceInvalidate = false) {
-    const stackState = computeVisibleBubbles();
-    const visible = stackState.visible;
-    const totalCount = stackState.totalCount;
-    const visibleIds = visible.map((entry) => entry.id);
-    const visibleSet = new Set(visibleIds);
+  function mountVisibleBubbles(visible: readonly RenderBubble[], totalCount: number) {
+    const visibleSet = new Set(visible.map((entry) => entry.id));
     const showCloseAll = totalCount > 1;
-    let invalidated =
-      forceInvalidate ||
-      totalCount !== renderedTotalCount ||
-      visibleIds.length !== renderedIds.length ||
-      visibleIds.some((id, index) => renderedIds[index] !== id);
 
     for (const pair of Array.from(views.entries())) {
       const id = pair[0];
@@ -616,7 +656,6 @@ export function bindReminder(
         observer.unobserve?.(view.element);
         view.element.remove();
         views.delete(id);
-        invalidated = true;
       }
     }
 
@@ -626,7 +665,6 @@ export function bindReminder(
       if (!view) {
         view = createBubbleView(entry.id);
         views.set(entry.id, view);
-        invalidated = true;
       }
       view.element.hidden = false;
       view.element.dataset.bubbleIndex = String(index);
@@ -642,14 +680,13 @@ export function bindReminder(
         view.element.classList.toggle('has-actions', true);
         if (view.controlsKey !== controlsKey) {
           view.controlsKey = controlsKey;
-          invalidated = true;
           view.controls.replaceChildren(
             createNavigation(
               document,
               entry.key,
               { open: api.openSession, copy: api.copySession },
               true,
-              () => measure(),
+              () => handleBubbleLayoutChange(),
             ),
           );
         }
@@ -658,7 +695,6 @@ export function bindReminder(
         view.element.classList.toggle('has-actions', true);
         if (view.controlsKey !== controlsKey) {
           view.controlsKey = controlsKey;
-          invalidated = true;
           const bar = document.createElement('div');
           bar.className = 'actions';
           for (const action of entry.actions) {
@@ -682,7 +718,6 @@ export function bindReminder(
         view.element.classList.toggle('has-actions', false);
         if (view.controlsKey !== undefined) {
           view.controlsKey = undefined;
-          invalidated = true;
           view.controls.replaceChildren();
         }
       }
@@ -704,13 +739,84 @@ export function bindReminder(
 
     stackEl.hidden = visible.length === 0;
     stackEl.classList.toggle('is-stacked', visible.length > 1);
+    stackEl.classList.toggle('has-close-all', showCloseAll);
+  }
+
+  function renderStack(forceInvalidate = false, forceQueue = false) {
+    const entries = collectBubbleEntries();
+    const totalCount = entries.length;
+    const entriesSignature = JSON.stringify(
+      entries.map((entry) => [entry.id, entry.title, entry.detail, entry.rank, entry.actions ?? null]),
+    );
+    const canvasHeight = canvas.getBoundingClientRect()?.height ?? 0;
+    const previousControlsKeys = new Map<string, string | undefined>();
+    views.forEach((view, id) => {
+      previousControlsKeys.set(id, view.controlsKey);
+    });
+
+    const maxAllowed = Math.min(totalCount, MAX_VISIBLE_BUBBLES);
+    let limit = maxAllowed;
+    if (
+      totalCount > 0 &&
+      !forceInvalidate &&
+      entriesSignature === lastEntriesSignature &&
+      canvasHeight <= lastFitCanvasHeight + OVERFLOW_EPSILON_PX &&
+      renderedIds.length > 0
+    ) {
+      limit = Math.max(1, Math.min(renderedIds.length, maxAllowed));
+    }
+
+    let visible = selectVisibleBubbles(entries, limit);
+    mountVisibleBubbles(visible, totalCount);
+    while (
+      visible.length > 1 &&
+      doesRenderedStackOverflow(visible.map((entry) => views.get(entry.id)!.element))
+    ) {
+      limit = visible.length - 1;
+      visible = selectVisibleBubbles(entries, limit);
+      mountVisibleBubbles(visible, totalCount);
+    }
+
+    const visibleIds = visible.map((entry) => entry.id);
+    const invalidated =
+      forceInvalidate ||
+      totalCount !== renderedTotalCount ||
+      visibleIds.length !== renderedIds.length ||
+      visibleIds.some((id, index) => renderedIds[index] !== id) ||
+      visible.some((entry) => views.get(entry.id)?.controlsKey !== previousControlsKeys.get(entry.id));
+
     renderedIds = visibleIds;
     renderedTotalCount = totalCount;
+    lastEntriesSignature = entriesSignature;
+    if (canvasHeight > 0) {
+      lastFitCanvasHeight = canvasHeight;
+    }
     if (invalidated) {
       ++stamp;
       targetChanged = true;
     }
-    measure();
+    measure(forceQueue);
+  }
+
+  function handleBubbleLayoutChange(forceQueue = false) {
+    if (stopped) return;
+    if (!stackEl.hidden && renderedIds.length > 0) {
+      const canvasHeight = canvas.getBoundingClientRect()?.height ?? 0;
+      const canExpand =
+        canvasHeight > lastFitCanvasHeight + OVERFLOW_EPSILON_PX &&
+        renderedIds.length < Math.min(renderedTotalCount, MAX_VISIBLE_BUBBLES);
+      const currentElements = renderedIds
+        .map((id) => views.get(id)?.element)
+        .filter((el): el is HTMLElement => el !== undefined);
+      if (canExpand || doesRenderedStackOverflow(currentElements)) {
+        renderStack(false, forceQueue);
+        return;
+      }
+      if (canvasHeight > 0) {
+        lastFitCanvasHeight = canvasHeight;
+      }
+    }
+    measure(forceQueue);
   }
 
   function queue() {
@@ -901,10 +1007,10 @@ export function bindReminder(
     selectedPet = value.petId;
     const token = ++change;
     try {
-      if (selectedPet === 'yueying-cape-dancer') {
+      if (selectedPet === defaultManifest.id) {
         await pet.mountDefault();
-        petName = '月影';
-        canvas.setAttribute('aria-label', '月影');
+        petName = defaultManifest.name;
+        canvas.setAttribute('aria-label', defaultManifest.name);
       } else {
         const asset = await api.asset(selectedPet);
         if (token !== change || stopped) return;
@@ -920,8 +1026,8 @@ export function bindReminder(
       }
     } catch (e) {
       if (token !== change || stopped) return;
-      selectedPet = 'yueying-cape-dancer';
-      petName = '月影';
+      selectedPet = defaultManifest.id;
+      petName = defaultManifest.name;
       await pet.mountDefault();
       console.error(e);
       petLoadErrorOrder = ++bubbleOrder;
@@ -1015,7 +1121,7 @@ export function bindReminder(
       const sizeChanged =
         !measuredSize || measuredSize.width !== mask.width || measuredSize.height !== mask.height;
       base = { mask, frame };
-      if (!stackEl.hidden && sizeChanged) measure(true);
+      if (!stackEl.hidden && sizeChanged) handleBubbleLayoutChange(true);
       else queue();
     },
     click(event: PetClickEvent) {

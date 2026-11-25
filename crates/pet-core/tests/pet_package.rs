@@ -75,7 +75,7 @@ fn imports_real_v1_and_v2_with_exact_legacy_timings_and_directions() {
     let paths = AppPaths::under(&root.join("应用数据"));
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (id, name, height, directions) in [
-        ("yueying-cape-dancer", "月影", 1872, 0),
+        ("yueying-cape-dancer", "夏乌拉", 1872, 0),
         ("deepseek-big-fish", "deepseek大肥鱼", 2288, 16),
     ] {
         let source = repo.join("pet-output").join(id).join("package");

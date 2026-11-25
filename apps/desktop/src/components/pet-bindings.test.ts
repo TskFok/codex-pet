@@ -772,8 +772,8 @@ it('气泡按是否包含操作按钮切换 has-actions 类，并在多行发言
     ]);
 
     // 2. 双击互动面板与通知提醒均带有操作按钮，应启用 has-actions；逐个关闭后隐藏堆栈
-    bubbleTop = 160;
-    bubbleHeight = 94;
+    bubbleTop = 186;
+    bubbleHeight = 54;
     handle.click({ x: 0.5, y: 0.8, clickCount: 2 });
     const panelBubble = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble')).find((el) =>
       el.textContent?.includes('投喂'),
@@ -809,16 +809,16 @@ it('任务完成后支持多气泡向上逐层叠加，新的任务提醒、自�
     if (this.localName === 'canvas') return rect(0, 0, 240, 440);
     if (this.localName === 'aside') {
       const idx = Number(this.dataset.bubbleIndex ?? 0);
-      // 模拟 column-reverse：index 越大越靠上（y 越小）
-      return rect(6, 186 - idx * 66, 228, 60);
+      // 模拟 column-reverse：index 越大越靠上（y 越小），4 层都在窗口内
+      return rect(6, 186 - idx * 60, 228, 54);
     }
     if (this.dataset.action === 'close_all') return rect(158, 250, 76, 22);
     const parent = this.closest('aside') as HTMLElement | null;
     const idx = Number(parent?.dataset.bubbleIndex ?? 0);
-    const top = 186 - idx * 66;
+    const top = 186 - idx * 60;
     if (this.dataset.action === 'close') return rect(210, top + 6, 18, 18);
-    if (this.dataset.action === 'session') return rect(14, top + 34, 60, 20);
-    return rect(78, top + 34, 56, 20);
+    if (this.dataset.action === 'session') return rect(14, top + 30, 60, 20);
+    return rect(78, top + 30, 56, 20);
   });
 
   const keyA = { source: 'codex' as const, installationId: 'i1', sessionId: 'task-a' };
@@ -910,8 +910,8 @@ it('任务完成后支持多气泡向上逐层叠加，新的任务提醒、自�
     expect(bubbles[0].textContent).toContain('任务 A 已完成');
     expect(bubbles[1].textContent).toContain('任务 B 已完成');
     expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toEqual([
-      { x: 6, y: 186, width: 228, height: 60, radius: 14 },
-      { x: 6, y: 120, width: 228, height: 60, radius: 14 },
+      { x: 6, y: 186, width: 228, height: 54, radius: 14 },
+      { x: 6, y: 126, width: 228, height: 54, radius: 14 },
       { x: 158, y: 250, width: 76, height: 22, radius: 11 },
     ]);
 
@@ -1217,6 +1217,189 @@ it('点击全部关闭按钮可一次性关闭所有可见、排队中及互动�
     });
     expect(stack.hidden).toBe(true);
     expect(stack.querySelectorAll('aside.bubble')).toHaveLength(0);
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('多个气泡超出容器可用高度时自动按优先级裁剪，避免顶部气泡头部被截断并在关闭或放大窗口后自动补位', async () => {
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  let resizeCallback: (() => void) | undefined;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(cb: () => void) {
+        resizeCallback = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+
+  // 模拟真实 flex-direction: column-reverse 布局：bottom 固定在 75vw + 6px，max-height = 100vh - 75vw - 10px
+  let canvasWidth = 240;
+  let canvasHeight = 440;
+  let bubbleHeight = 92;
+  const gap = 4;
+  const closeAllHeight = 20;
+
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, canvasWidth, canvasHeight);
+    const petStageHeight = canvasWidth * 0.75;
+    const stackBottom = canvasHeight - petStageHeight - 6;
+    const stackMaxHeight = canvasHeight - petStageHeight - 10;
+    const bubbleNodes = Array.from(document.querySelectorAll<HTMLElement>('.bubble-stack aside.bubble:not([hidden])'));
+    const closeAllNode = document.querySelector<HTMLElement>('.bubble-stack button[data-action="close_all"]:not([hidden])');
+    const hasCloseAll = Boolean(closeAllNode);
+    const totalContentHeight =
+      bubbleNodes.length * bubbleHeight +
+      (hasCloseAll ? closeAllHeight : 0) +
+      Math.max(0, bubbleNodes.length + (hasCloseAll ? 1 : 0) - 1) * gap;
+
+    if (this.classList.contains('bubble-stack')) {
+      const renderedHeight = Math.min(totalContentHeight, stackMaxHeight);
+      return rect(6, stackBottom - renderedHeight, canvasWidth - 12, renderedHeight);
+    }
+    if (this.dataset.action === 'close_all') {
+      return rect(canvasWidth - 90, stackBottom - closeAllHeight, 84, closeAllHeight);
+    }
+    const baseBottom = hasCloseAll ? stackBottom - closeAllHeight - gap : stackBottom;
+    if (this.localName === 'aside') {
+      const idx = Number(this.dataset.bubbleIndex ?? 0);
+      const bottom = baseBottom - idx * (bubbleHeight + gap);
+      return rect(6, bottom - bubbleHeight, canvasWidth - 12, bubbleHeight);
+    }
+    const parent = this.closest('aside') as HTMLElement | null;
+    const idx = Number(parent?.dataset.bubbleIndex ?? 0);
+    const top = baseBottom - idx * (bubbleHeight + gap) - bubbleHeight;
+    if (this.dataset.action === 'close') return rect(canvasWidth - 28, top + 6, 16, 16);
+    return rect(14, top + bubbleHeight - 24, 56, 18);
+  });
+
+  const keyOld = { source: 'codex' as const, installationId: 'i1', sessionId: 'old-ended' };
+  const keyUrgent = { source: 'deepseek' as const, installationId: 'i2', sessionId: 'urgent-approval' };
+  const keyNew = { source: 'antigravity' as const, installationId: 'i3', sessionId: 'new-ended' };
+  const threeBubblesSnapshot: PetSnapshot = {
+    revision: 1,
+    sessions: [
+      { key: keyOld, turnId: 't1', status: 'ended', pending: [], unread: true, lastEventAtMs: 100 },
+      {
+        key: keyUrgent,
+        turnId: 't2',
+        status: 'needs_attention',
+        pending: [{ id: 'req-1', reason: 'approval', summary: '需要审批的命令' }],
+        unread: true,
+        lastEventAtMs: 150,
+      },
+      { key: keyNew, turnId: 't3', status: 'ended', pending: [], unread: true, lastEventAtMs: 200 },
+    ],
+    notifications: [
+      {
+        id: 'n-old',
+        key: keyOld,
+        turnId: 't1',
+        kind: { type: 'turn_ended', outcome: 'completed' },
+        summary: '旧任务完成',
+        occurredAtMs: 100,
+        read: false,
+      },
+      {
+        id: 'n-new',
+        key: keyNew,
+        turnId: 't3',
+        kind: { type: 'turn_ended', outcome: 'completed' },
+        summary: '最新任务完成',
+        occurredAtMs: 200,
+        read: false,
+      },
+    ],
+  };
+  const prefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    mutedSources: [],
+    petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshots').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshot').mockResolvedValue(threeBubblesSnapshot);
+  vi.spyOn(api, 'markRead').mockResolvedValue(threeBubblesSnapshot);
+
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+  const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
+  const renderer = { setState: vi.fn(), setFps: vi.fn() };
+  const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+  try {
+    handle.pose({ width: canvasWidth, height: canvasHeight, runs: [[300, 80, 160]] }, { x: 0, y: 0, width: canvasWidth, height: canvasHeight });
+    // 1. 240x440 可用高度 250px，3 个 92px 气泡 + 全部关闭按钮合计 308px，会自动裁剪为 2 个（保留紧急审批 + 最新任务）
+    await vi.waitFor(() => expect(stack.querySelectorAll('aside.bubble')).toHaveLength(2));
+    let bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles[0].textContent).toContain('需要审批的命令');
+    expect(bubbles[0].dataset.bubbleIndex).toBe('0');
+    expect(bubbles[1].textContent).toContain('最新任务完成');
+    expect(bubbles[1].dataset.bubbleIndex).toBe('1');
+    expect(stack.querySelector<HTMLButtonElement>('button[data-action="close_all"]')?.textContent).toBe('全部关闭 (3)');
+    expect(stack.classList.contains('has-close-all')).toBe(true);
+    // 所有可见气泡的背景与关闭按钮均完整落在容器顶部边界（y >= 4）内，顶部气泡头部无截断
+    for (const backdrop of poses.mock.lastCall![0].bubbleInput!.backdrops!) {
+      expect(backdrop.y).toBeGreaterThanOrEqual(4);
+    }
+
+    // 2. 窗口放大到 150%（360x660，可用高度 380px）后，ResizeObserver 自动展开显示全部 3 个气泡
+    canvasWidth = 360;
+    canvasHeight = 660;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    resizeCallback?.();
+    bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles).toHaveLength(3);
+    expect(bubbles[0].textContent).toContain('旧任务完成');
+    expect(bubbles[1].textContent).toContain('需要审批的命令');
+    expect(bubbles[2].textContent).toContain('最新任务完成');
+
+    // 3. 窗口缩小到 75%（180x330，可用高度 185px）时，连 2 个 92px 气泡也会溢出（212px > 185px），自动裁剪为 1 个紧急气泡且仍保留“全部关闭 (3)”
+    canvasWidth = 180;
+    canvasHeight = 330;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    resizeCallback?.();
+    bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles).toHaveLength(1);
+    expect(bubbles[0].textContent).toContain('需要审批的命令');
+    expect(stack.querySelector<HTMLButtonElement>('button[data-action="close_all"]')?.textContent).toBe('全部关闭 (3)');
+    expect(stack.classList.contains('has-close-all')).toBe(true);
+
+    // 4. 恢复 100% 且微幅溢出容器顶边（y = 1 < stackTop = 4）时同样自动裁剪，关闭顶部气泡后排队气泡自动补位
+    canvasWidth = 240;
+    canvasHeight = 440;
+    bubbleHeight = 73; // 3 * 73 + 20 + 12 = 251px > 250px -> 顶部气泡 top = 3 < 4
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    resizeCallback?.();
+    bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles).toHaveLength(2);
+    expect(bubbles[0].textContent).toContain('需要审批的命令');
+    expect(bubbles[1].textContent).toContain('最新任务完成');
+
+    // 关闭“最新任务完成”后，排队中的“旧任务完成”自动补位显示
+    bubbles[1].querySelector<HTMLButtonElement>('button[data-action="close"]')!.click();
+    bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles).toHaveLength(2);
+    expect(bubbles[0].textContent).toContain('旧任务完成');
+    expect(bubbles[1].textContent).toContain('需要审批的命令');
+    expect(stack.querySelector<HTMLButtonElement>('button[data-action="close_all"]')?.textContent).toBe('全部关闭 (2)');
   } finally {
     handle.stop();
     vi.restoreAllMocks();

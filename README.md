@@ -22,7 +22,7 @@ cargo test --workspace --locked
 
 ## 构建与打包（未签名测试包）
 
-正式签名、公证、应用商店上架与自动更新服务不在首版范围；打包产物明确标为**未签名个人测试包**。构建前会自动准备目标架构的 `pet-bridge` 转发器、离线 `harness-bundle` 模板与默认月影资源（只复制到构建目录，不改动 `pet-output/`）：
+正式签名、公证、应用商店上架与自动更新服务不在首版范围；打包产物明确标为**未签名个人测试包**。构建前会自动准备目标架构的 `pet-bridge` 转发器、离线 `harness-bundle` 模板与默认夏乌拉资源（只复制到构建目录，不改动 `pet-output/`）：
 
 ```sh
 # macOS Apple Silicon (.app 与 .dmg)

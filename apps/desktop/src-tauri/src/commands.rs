@@ -6,7 +6,7 @@ use crate::{
     notification_paths,
     placement::{PlacementState, WindowPlacement},
     platform,
-    settings::{DEFAULT_PET, Preferences, Settings, SettingsPatch},
+    settings::{DEFAULT_PET, DEFAULT_PET_NAME, Preferences, Settings, SettingsPatch},
 };
 use base64::Engine;
 use pet_core::{
@@ -424,7 +424,7 @@ fn verified_pet(paths: &AppPaths, id: &str) -> Result<(PetManifest, Vec<u8>)> {
 pub(crate) fn list_pet_choices(paths: &AppPaths) -> Result<Vec<PetChoice>> {
     let mut choices = vec![PetChoice {
         id: DEFAULT_PET.into(),
-        name: "月影".into(),
+        name: DEFAULT_PET_NAME.into(),
     }];
     paths.prepare_root()?;
     paths::prepare_directory(&paths.pets)?;

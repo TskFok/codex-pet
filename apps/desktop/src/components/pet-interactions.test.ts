@@ -24,7 +24,7 @@ it('亲密度等级随互动稳步进阶', () => {
 
 it('单击不同部位触发对应的动作、粒子特效与回应文本', () => {
   const controller = new PetInteractionController({ affinity: 0, interactions: 0, feeds: 0 });
-  const ctx = { petName: '月影' };
+  const ctx = { petName: '夏乌拉' };
 
   const head = controller.handleClick({ x: 0.5, y: 0.68 }, 1000, ctx);
   expect(head.steps).toEqual([{ state: 'waving' }]);
@@ -65,7 +65,7 @@ it('双击打开快捷互动面板，三连击触发应援连招，连续猛戳�
     ],
     notifications: [],
   };
-  const ctx = { petName: '月影', snapshot: runningSnapshot };
+  const ctx = { petName: '夏乌拉', snapshot: runningSnapshot };
 
   // 第 1 次点击
   controller.handleClick({ x: 0.5, y: 0.7, clickCount: 1 }, 1000, ctx);
@@ -97,7 +97,7 @@ it('双击打开快捷互动面板，三连击触发应援连招，连续猛戳�
 
 it('支持 Alt 快捷投喂、Shift 动作轮播、面板按钮动作及拖拽放置反馈', () => {
   const controller = new PetInteractionController({ affinity: 0, interactions: 0, feeds: 0 });
-  const ctx = { petName: '月影' };
+  const ctx = { petName: '夏乌拉' };
 
   const altFeed = controller.handleClick({ x: 0.5, y: 0.6, altKey: true }, 1000, ctx);
   expect(altFeed.steps).toEqual([{ state: 'jumping' }]);

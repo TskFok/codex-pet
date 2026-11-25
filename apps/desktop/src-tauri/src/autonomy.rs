@@ -8,8 +8,8 @@ use crate::{
     placement::{DesktopContext, WindowPlacement},
     platform,
     settings::{
-        ActivityRange, DEEPSEEK_DEFAULT_MODEL, DEFAULT_PET, MAX_ACTIVITY_SPEED, MIN_ACTIVITY_SPEED,
-        Preferences, valid_deepseek_model,
+        ActivityRange, DEEPSEEK_DEFAULT_MODEL, DEFAULT_PET, DEFAULT_PET_NAME, MAX_ACTIVITY_SPEED,
+        MIN_ACTIVITY_SPEED, Preferences, valid_deepseek_model,
     },
 };
 use pet_core::paths::wall_clock_ms;
@@ -716,11 +716,11 @@ pub(crate) fn start(app: tauri::AppHandle) {
 
 fn load_preferences_and_pet_name() -> (Preferences, String) {
     let Ok(paths) = notification_paths() else {
-        return (Preferences::default(), "月影".into());
+        return (Preferences::default(), DEFAULT_PET_NAME.into());
     };
     let prefs = Preferences::load(&paths).unwrap_or_default();
     let name = if prefs.pet_id == DEFAULT_PET {
-        "月影".into()
+        DEFAULT_PET_NAME.into()
     } else {
         pet_core::pet_package::describe_pet(&paths.pets.join(&prefs.pet_id))
             .map(|manifest| manifest.name)
@@ -1375,7 +1375,7 @@ mod tests {
     fn prompt_only_contains_pet_desktop_activity_context() {
         use crate::settings::ActivityRangePreset;
         let prompt = build_user_prompt(&ActivityPromptInput {
-            pet_name: "月影".into(),
+            pet_name: DEFAULT_PET_NAME.into(),
             work_area_width: 1440,
             work_area_height: 900,
             current_norm_x: 0.25,
@@ -1384,7 +1384,7 @@ mod tests {
             active_minutes: 12,
             recent_actions: vec!["walk(0.25,0.75)".into()],
         });
-        assert!(prompt.contains("月影"));
+        assert!(prompt.contains(DEFAULT_PET_NAME));
         assert!(prompt.contains("1440x900"));
         assert!(prompt.contains("屏幕底部"));
         assert!(prompt.contains("x=0.00..1.00, y=0.70..1.00"));
@@ -1506,7 +1506,7 @@ mod tests {
         let client =
             DeepSeekClient::with_endpoint(format!("http://{addr}/chat/completions")).unwrap();
         let input = ActivityPromptInput {
-            pet_name: "月影".into(),
+            pet_name: DEFAULT_PET_NAME.into(),
             work_area_width: 1440,
             work_area_height: 900,
             current_norm_x: 0.4,

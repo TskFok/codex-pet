@@ -29,7 +29,7 @@ impl From<tauri::Error> for PlatformError {
 
 pub fn create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError> {
     let builder = WebviewWindowBuilder::new(app, "pet", WebviewUrl::App("index.html".into()))
-        .title("月影桌宠")
+        .title(format!("{}桌宠", crate::settings::DEFAULT_PET_NAME))
         .visible(false)
         .inner_size(crate::placement::WIDTH, crate::placement::HEIGHT)
         .resizable(false)

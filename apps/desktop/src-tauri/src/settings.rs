@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::{fmt, fs::OpenOptions, io::Read};
 
 pub const DEFAULT_PET: &str = "yueying-cape-dancer";
+pub const DEFAULT_PET_NAME: &str = "夏乌拉";
 pub const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-chat";
 pub const DEEPSEEK_MODELS: &[&str] = &["deepseek-chat", "deepseek-reasoner"];
 pub const DEFAULT_ACTIVITY_SPEED: f64 = 1.0;

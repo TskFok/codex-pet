@@ -65,7 +65,7 @@ it('设置页支持填写 DeepSeek API Key、切换模型、测试连接与触�
   };
   vi.spyOn(api, 'settings').mockResolvedValue(initial);
   vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
-  vi.spyOn(api, 'pets').mockResolvedValue([{ id: 'yueying-cape-dancer', name: '月影' }]);
+  vi.spyOn(api, 'pets').mockResolvedValue([{ id: 'yueying-cape-dancer', name: '夏乌拉' }]);
   vi.spyOn(api, 'integrations').mockResolvedValue([]);
   vi.spyOn(api, 'deepseekActivityStatus').mockResolvedValue({
     configured: false,
@@ -210,7 +210,7 @@ it('设置页将常规配置与各程序配置分标签展示，并在对应程�
   ];
   vi.spyOn(api, 'settings').mockResolvedValue(state);
   vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
-  vi.spyOn(api, 'pets').mockResolvedValue([{ id: 'yueying-cape-dancer', name: '月影' }]);
+  vi.spyOn(api, 'pets').mockResolvedValue([{ id: 'yueying-cape-dancer', name: '夏乌拉' }]);
   vi.spyOn(api, 'integrations').mockResolvedValue(integrations);
   vi.spyOn(api, 'deepseekActivityStatus').mockResolvedValue({
     configured: false,
@@ -311,7 +311,7 @@ it('设置页支持配置自由活动范围（预设与自定义预览）与跑�
   };
   vi.spyOn(api, 'settings').mockResolvedValue(state);
   vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
-  vi.spyOn(api, 'pets').mockResolvedValue([{ id: 'yueying-cape-dancer', name: '月影' }]);
+  vi.spyOn(api, 'pets').mockResolvedValue([{ id: 'yueying-cape-dancer', name: '夏乌拉' }]);
   vi.spyOn(api, 'integrations').mockResolvedValue([]);
   vi.spyOn(api, 'deepseekActivityStatus').mockResolvedValue({
     configured: true,

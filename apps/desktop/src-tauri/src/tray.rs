@@ -3,7 +3,7 @@ use crate::{
     notification_paths,
     placement::PlacementState,
     platform,
-    settings::{DEFAULT_PET, PlacementPatch, Preferences, SettingsPatch},
+    settings::{DEFAULT_PET, DEFAULT_PET_NAME, PlacementPatch, Preferences, SettingsPatch},
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
@@ -158,7 +158,7 @@ fn load_context_menu_state(app: &tauri::AppHandle) -> (Preferences, Vec<PetChoic
     let default_pets = || {
         vec![PetChoice {
             id: DEFAULT_PET.into(),
-            name: "月影".into(),
+            name: DEFAULT_PET_NAME.into(),
         }]
     };
     let (prefs, pets) = match notification_paths() {
