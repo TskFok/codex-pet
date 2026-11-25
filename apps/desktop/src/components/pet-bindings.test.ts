@@ -812,6 +812,7 @@ it('任务完成后支持多气泡向上逐层叠加，新的任务提醒、自�
       // 模拟 column-reverse：index 越大越靠上（y 越小）
       return rect(6, 186 - idx * 66, 228, 60);
     }
+    if (this.dataset.action === 'close_all') return rect(158, 250, 76, 22);
     const parent = this.closest('aside') as HTMLElement | null;
     const idx = Number(parent?.dataset.bubbleIndex ?? 0);
     const top = 186 - idx * 66;
@@ -911,6 +912,7 @@ it('任务完成后支持多气泡向上逐层叠加，新的任务提醒、自�
     expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toEqual([
       { x: 6, y: 186, width: 228, height: 60, radius: 14 },
       { x: 6, y: 120, width: 228, height: 60, radius: 14 },
+      { x: 158, y: 250, width: 76, height: 22, radius: 11 },
     ]);
 
     // 2. 任务完成后收到 DeepSeek 新对话：不再被拦截，向上叠加第 3 层气泡
@@ -930,7 +932,7 @@ it('任务完成后支持多气泡向上逐层叠加，新的任务提醒、自�
     bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
     expect(bubbles).toHaveLength(4);
     expect(bubbles[3].textContent).toContain('摸摸头');
-    expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toHaveLength(4);
+    expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toHaveLength(5);
 
     // 4. 通过原生点击指定第 2 层（bubble=1）的打开会话按钮，精确命中任务 B
     const stampForOpen = poses.mock.lastCall![0].bubbleInput!.stamp;
@@ -948,6 +950,273 @@ it('任务完成后支持多气泡向上逐层叠加，新的任务提醒、自�
     expect(bubbles[1].dataset.bubbleIndex).toBe('1');
     expect(bubbles[2].textContent).toContain('摸摸头');
     expect(bubbles[2].dataset.bubbleIndex).toBe('2');
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
+
+function createMemoryStorage() {
+  const map = new Map<string, string>();
+  return {
+    getItem: (key: string) => (map.has(key) ? map.get(key)! : null),
+    setItem: (key: string, value: string) => {
+      map.set(key, String(value));
+    },
+    removeItem: (key: string) => {
+      map.delete(key);
+    },
+    clear: () => {
+      map.clear();
+    },
+  };
+}
+
+it('关闭历史信息气泡后标为已读并持久化关闭状态，重新打开宠物不再重新出现，新提醒仍正常弹出', async () => {
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  const storage = createMemoryStorage();
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('localStorage', storage);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    if (this.dataset.action === 'close_all') return rect(158, 250, 76, 22);
+    if (this.localName === 'aside') {
+      const idx = Number(this.dataset.bubbleIndex ?? 0);
+      return rect(6, 186 - idx * 66, 228, 60);
+    }
+    const parent = this.closest('aside') as HTMLElement | null;
+    const idx = Number(parent?.dataset.bubbleIndex ?? 0);
+    const top = 186 - idx * 66;
+    if (this.dataset.action === 'close') return rect(210, top + 6, 18, 18);
+    return rect(14, top + 34, 60, 20);
+  });
+
+  const keyHistory = { source: 'codex' as const, installationId: 'i1', sessionId: 'history-session' };
+  const keyAttention = { source: 'deepseek' as const, installationId: 'i2', sessionId: 'attention-session' };
+  const initialSnapshot: PetSnapshot = {
+    revision: 1,
+    sessions: [
+      { key: keyHistory, turnId: 't1', status: 'ended', pending: [], unread: true, lastEventAtMs: 100 },
+      {
+        key: keyAttention,
+        turnId: 't2',
+        status: 'needs_attention',
+        pending: [{ id: 'req-old', reason: 'approval', summary: '旧审批请求' }],
+        unread: true,
+        lastEventAtMs: 200,
+      },
+    ],
+    notifications: [
+      {
+        id: 'hist-1',
+        key: keyHistory,
+        turnId: 't1',
+        kind: { type: 'turn_ended', outcome: 'completed' },
+        summary: '历史任务完成',
+        occurredAtMs: 100,
+        read: false,
+      },
+    ],
+  };
+  const prefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    mutedSources: [],
+    petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  let update!: (value: PetSnapshot) => void;
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshots').mockImplementation(async (receive) => {
+    update = receive;
+    return () => {};
+  });
+  vi.spyOn(api, 'snapshot').mockResolvedValue(initialSnapshot);
+  const markRead = vi.spyOn(api, 'markRead').mockResolvedValue(initialSnapshot);
+
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 240;
+  canvas.height = 440;
+  const renderer = { setState: vi.fn(), setFps: vi.fn() };
+  let handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, vi.fn(), vi.fn());
+  try {
+    let stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+    await vi.waitFor(() => expect(stack.querySelectorAll('aside.bubble')).toHaveLength(2));
+    expect(stack.querySelector<HTMLButtonElement>('button[data-action="close_all"]')?.textContent).toBe('全部关闭 (2)');
+
+    // 逐个关闭历史任务气泡与旧待审批气泡
+    const firstClose = stack.querySelector<HTMLButtonElement>('aside.bubble[data-bubble-index="0"] button[data-action="close"]')!;
+    firstClose.click();
+    expect(markRead).toHaveBeenCalledWith(keyHistory);
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(1);
+    expect(stack.querySelector('button[data-action="close_all"]')).toBeNull();
+
+    const secondClose = stack.querySelector<HTMLButtonElement>('aside.bubble[data-bubble-index="0"] button[data-action="close"]')!;
+    secondClose.click();
+    expect(markRead).toHaveBeenCalledWith(keyAttention);
+    expect(stack.hidden).toBe(true);
+
+    // 模拟退出并重新打开宠物：即使快照仍含未清除的历史或未解除的旧请求，已关闭的气泡也不再重现
+    handle.stop();
+    renderer.setState.mockClear();
+    renderer.setFps.mockClear();
+    handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, vi.fn(), vi.fn());
+    stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+    await vi.waitFor(() => {
+      expect(renderer.setFps).toHaveBeenCalledWith(30);
+      expect(renderer.setState).toHaveBeenLastCalledWith('review', expect.any(Number));
+    });
+    expect(stack.hidden).toBe(true);
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(0);
+
+    // 同一会话收到新的历史完成通知时仍正常弹出
+    update({
+      revision: 2,
+      sessions: [
+        { key: keyHistory, turnId: 't3', status: 'ended', pending: [], unread: true, lastEventAtMs: 300 },
+        initialSnapshot.sessions[1],
+      ],
+      notifications: [
+        initialSnapshot.notifications[0],
+        {
+          id: 'hist-2',
+          key: keyHistory,
+          turnId: 't3',
+          kind: { type: 'turn_ended', outcome: 'completed' },
+          summary: '新任务完成',
+          occurredAtMs: 300,
+          read: false,
+        },
+      ],
+    });
+    expect(stack.hidden).toBe(false);
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(1);
+    expect(stack.textContent).toContain('新任务完成');
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('点击全部关闭按钮可一次性关闭所有可见、排队中及互动气泡并批量标为已读', async () => {
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  const storage = createMemoryStorage();
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('localStorage', storage);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    if (this.dataset.action === 'close_all') return rect(150, 250, 84, 22);
+    if (this.localName === 'aside') {
+      const idx = Number(this.dataset.bubbleIndex ?? 0);
+      return rect(6, 186 - idx * 60, 228, 54);
+    }
+    const parent = this.closest('aside') as HTMLElement | null;
+    const idx = Number(parent?.dataset.bubbleIndex ?? 0);
+    const top = 186 - idx * 60;
+    if (this.dataset.action === 'close') return rect(210, top + 6, 18, 18);
+    return rect(14, top + 30, 56, 18);
+  });
+
+  const keys = Array.from({ length: 5 }, (_, i) => ({
+    source: 'codex' as const,
+    installationId: 'i1',
+    sessionId: `session-${i + 1}`,
+  }));
+  const manySnapshot: PetSnapshot = {
+    revision: 1,
+    sessions: keys.map((key, i) => ({
+      key,
+      turnId: `t-${i + 1}`,
+      status: 'ended' as const,
+      pending: [],
+      unread: true,
+      lastEventAtMs: 100 + i * 10,
+    })),
+    notifications: keys.map((key, i) => ({
+      id: `n-${i + 1}`,
+      key,
+      turnId: `t-${i + 1}`,
+      kind: { type: 'turn_ended' as const, outcome: 'completed' as const },
+      summary: `任务 ${i + 1} 已完成`,
+      occurredAtMs: 100 + i * 10,
+      read: false,
+    })),
+  };
+  const prefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    mutedSources: [],
+    petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshots').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshot').mockResolvedValue(manySnapshot);
+  const markReadMany = vi.spyOn(api, 'markReadMany').mockResolvedValue({
+    ...manySnapshot,
+    revision: 2,
+    sessions: manySnapshot.sessions.map((s) => ({ ...s, unread: false })),
+    notifications: manySnapshot.notifications.map((n) => ({ ...n, read: true })),
+  });
+
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 240;
+  canvas.height = 440;
+  const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
+  const renderer = { setState: vi.fn(), setFps: vi.fn(), triggerInteractionEffect: vi.fn() };
+  let handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
+  try {
+    handle.pose({ width: 240, height: 440, runs: [[300, 80, 160]] }, { x: 0, y: 0, width: 240, height: 440 });
+    let stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+    await vi.waitFor(() => expect(stack.querySelectorAll('aside.bubble')).toHaveLength(4));
+
+    // 再叠加 1 个点击互动气泡，总计 6 个气泡（屏幕显示 4 个）
+    handle.click({ x: 0.5, y: 0.68, clickCount: 1 });
+    const closeAllBtn = stack.querySelector<HTMLButtonElement>('button[data-action="close_all"]')!;
+    expect(closeAllBtn).toBeTruthy();
+    expect(closeAllBtn.textContent).toBe('全部关闭 (6)');
+    expect(poses.mock.lastCall?.[0].bubbleInput?.buttons).toContainEqual({
+      bubble: 0,
+      action: 'close_all',
+      rect: { x: 150, y: 250, width: 84, height: 22 },
+    });
+
+    // 通过原生气泡点击触发 close_all，一次性清空全部 6 个气泡（含排队中的第 5 条历史提醒）
+    const closeAllStamp = poses.mock.lastCall![0].bubbleInput!.stamp;
+    deliverBubbleAction(closeAllStamp, 'close_all', 0);
+
+    expect(stack.hidden).toBe(true);
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(0);
+    expect(stack.querySelector('button[data-action="close_all"]')).toBeNull();
+    expect(poses.mock.lastCall?.[0].bubbleInput).toBeUndefined();
+    expect(poses.mock.lastCall?.[0].mask.runs).toEqual([[300, 80, 160]]);
+    expect(markReadMany).toHaveBeenCalledTimes(1);
+    expect(markReadMany.mock.calls[0][0]).toHaveLength(5);
+
+    // 重新打开宠物后，5 条历史提醒全部保持关闭状态
+    handle.stop();
+    renderer.setState.mockClear();
+    renderer.setFps.mockClear();
+    handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
+    stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+    await vi.waitFor(() => {
+      expect(renderer.setFps).toHaveBeenCalledWith(30);
+      expect(renderer.setState).toHaveBeenCalled();
+    });
+    expect(stack.hidden).toBe(true);
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(0);
   } finally {
     handle.stop();
     vi.restoreAllMocks();

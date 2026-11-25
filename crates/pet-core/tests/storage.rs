@@ -162,6 +162,32 @@ fn read_and_clear_survive_restart() {
 }
 
 #[test]
+fn mark_read_many_marks_multiple_sessions_and_survives_restart() {
+    let (_dir, paths) = sandbox();
+    let mut first = end("end-a", 1);
+    first.session_id = "session-a".into();
+    let mut second = end("end-b", 2);
+    second.session_id = "session-b".into();
+    let mut store = open(&paths, NOW);
+    store.ingest(first.clone()).unwrap();
+    store.ingest(second.clone()).unwrap();
+
+    let key_a = first.session_key();
+    let key_b = second.session_key();
+    let read = store
+        .mark_read_many(&[key_a.clone(), key_b.clone(), key_a])
+        .unwrap();
+    assert!(read.notifications.iter().all(|item| item.read));
+    assert!(read.sessions.iter().all(|session| !session.unread));
+    drop(store);
+
+    let mut reopened = open(&paths, NOW);
+    let recovered = reopened.recover(NOW).unwrap();
+    assert!(recovered.notifications.iter().all(|item| item.read));
+    assert!(recovered.sessions.iter().all(|session| !session.unread));
+}
+
+#[test]
 fn checkpoint_retains_terminal_tombstones_and_deferred_requests() {
     let (_dir, paths) = sandbox();
     let mut store = open(&paths, NOW);

@@ -17,7 +17,7 @@ import {
 } from './pet-interactions';
 import { presentation, withBubbles } from './reminder';
 
-type BubbleAction = 'session' | 'application' | 'copy' | 'close' | InteractionBubbleAction;
+type BubbleAction = 'session' | 'application' | 'copy' | 'close' | 'close_all' | InteractionBubbleAction;
 type BubbleBackdrop = FrameRect & { radius: number };
 type BubbleInput = {
   stamp: number;
@@ -63,11 +63,39 @@ interface BubbleView {
 }
 
 const PET_LOAD_ERROR_ID = 'pet-load-error';
+const DISMISSED_STORAGE_KEY = 'codex-pet:dismissed-reminders:v1';
 const MAX_DISMISSED = 200;
 const DEFAULT_BUBBLE_RADIUS = 14;
 const MAX_VISIBLE_BUBBLES = 4;
 const MAX_EPHEMERAL_BUBBLES = 3;
 const INTERACTION_REPLACE_WINDOW_MS = 450;
+
+function loadDismissed(): Set<string> {
+  try {
+    if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') {
+      return new Set();
+    }
+    const raw = localStorage.getItem(DISMISSED_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    const ids = parsed.filter((item): item is string => typeof item === 'string');
+    return new Set(ids.slice(-MAX_DISMISSED));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveDismissed(dismissed: Set<string>): void {
+  try {
+    if (typeof localStorage === 'undefined' || typeof localStorage.setItem !== 'function') {
+      return;
+    }
+    localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(Array.from(dismissed)));
+  } catch {
+    // 忽略受限环境中的本地存储错误
+  }
+}
 
 export function bindReminder(
   canvas: HTMLCanvasElement,
@@ -81,9 +109,18 @@ export function bindReminder(
   stackEl.className = 'bubble-stack';
   stackEl.hidden = true;
   document.body.append(stackEl);
+  const closeAllButton = document.createElement('button');
+  closeAllButton.type = 'button';
+  closeAllButton.className = 'bubble-close-all';
+  closeAllButton.dataset.action = 'close_all';
+  closeAllButton.setAttribute('aria-label', '关闭全部气泡');
+  closeAllButton.title = '关闭全部气泡';
+  closeAllButton.hidden = true;
+  closeAllButton.onclick = () => dismissAllBubbles();
   const observer = new ResizeObserver(() => measure());
   observer.observe(canvas);
   observer.observe(stackEl);
+  observer.observe(closeAllButton);
 
   let base: Pose | undefined,
     rects: FrameRect[] = [],
@@ -94,12 +131,13 @@ export function bindReminder(
   let targetChanged = false;
   let bubbleOrder = 0;
   let renderedIds: string[] = [];
+  let renderedTotalCount = 0;
   const views = new Map<string, BubbleView>();
   const reminderOrder = new Map<string, number>();
   let petLoadErrorOrder: number | undefined;
   const ephemeralBubbles: EphemeralBubble[] = [];
 
-  const dismissed = new Set<string>();
+  const dismissed = loadDismissed();
   const completedAnimations = new Set<string>();
   let activeAnimation: { state: string; key: string; fallbackState: string } | undefined;
   let snapshot: PetSnapshot | undefined,
@@ -382,7 +420,44 @@ export function bindReminder(
     }
   }
 
-  function computeVisibleBubbles(): RenderBubble[] {
+  function rememberDismissed(ids: Iterable<string>) {
+    let changed = false;
+    for (const id of ids) {
+      if (dismissed.has(id)) continue;
+      dismissed.add(id);
+      changed = true;
+    }
+    while (dismissed.size > MAX_DISMISSED) {
+      const oldest = dismissed.values().next().value;
+      if (oldest === undefined) break;
+      dismissed.delete(oldest);
+      changed = true;
+    }
+    if (changed) saveDismissed(dismissed);
+  }
+
+  function pruneImportedDismissed(value: PetSnapshot) {
+    if (dismissed.size === 0) return;
+    const importedEnds = new Set(value.importedUnreadEnds?.map(keyId));
+    let changed = false;
+    for (const id of Array.from(dismissed)) {
+      if (!id.startsWith('["imported",')) continue;
+      try {
+        const parsed = JSON.parse(id) as unknown;
+        if (Array.isArray(parsed) && parsed[0] === 'imported' && typeof parsed[1] === 'string') {
+          if (!importedEnds.has(parsed[1])) {
+            dismissed.delete(id);
+            changed = true;
+          }
+        }
+      } catch {
+        // 忽略非预期格式
+      }
+    }
+    if (changed) saveDismissed(dismissed);
+  }
+
+  function computeVisibleBubbles(): { visible: RenderBubble[]; totalCount: number } {
     const entries: RenderBubble[] = [];
     const activeReminderIds = new Set<string>();
     if (snapshot) {
@@ -431,9 +506,10 @@ export function bindReminder(
         actions: item.actions,
       });
     }
+    const totalCount = entries.length;
     if (entries.length <= MAX_VISIBLE_BUBBLES) {
       entries.sort((a, b) => a.order - b.order);
-      return entries;
+      return { visible: entries, totalCount };
     }
     // 超过同屏上限时，优先保留错误与待审批/待回答提醒，其余保留最新叠加的气泡
     const pinned = entries.filter((entry) => entry.rank >= 5).sort((a, b) => b.order - a.order);
@@ -442,7 +518,7 @@ export function bindReminder(
     const remaining = MAX_VISIBLE_BUBBLES - kept.length;
     if (remaining > 0) kept.push(...others.slice(0, remaining));
     kept.sort((a, b) => a.order - b.order);
-    return kept;
+    return { visible: kept, totalCount };
   }
 
   function createBubbleView(id: string): BubbleView {
@@ -469,7 +545,7 @@ export function bindReminder(
     return { id, element, title, detail, close, controls };
   }
 
-  function dismissBubble(id: string, kind: BubbleKind) {
+  function dismissBubble(id: string, kind: BubbleKind, key?: SessionKey) {
     if (kind === 'error') {
       petLoadErrorOrder = undefined;
       renderStack(true);
@@ -481,21 +557,55 @@ export function bindReminder(
       }
       return;
     }
-    dismissed.add(id);
-    if (dismissed.size > MAX_DISMISSED) {
-      const oldest = dismissed.values().next().value;
-      if (oldest !== undefined) dismissed.delete(oldest);
-    }
+    rememberDismissed([id]);
     reminderOrder.delete(id);
     renderStack(true);
+    if (key) {
+      void Promise.resolve(api.markRead(key)).catch(console.error);
+    }
+  }
+
+  function dismissAllBubbles() {
+    const reminderIds: string[] = [];
+    const keysToMarkRead: SessionKey[] = [];
+    const seenKeys = new Set<string>();
+    if (snapshot) {
+      const result = presentation(snapshot, settings?.mutedSources);
+      for (const item of result.reminders) {
+        if (!dismissed.has(item.reminderId)) {
+          reminderIds.push(item.reminderId);
+          const sid = keyId(item.key);
+          if (!seenKeys.has(sid)) {
+            seenKeys.add(sid);
+            keysToMarkRead.push(item.key);
+          }
+        }
+        reminderOrder.delete(item.reminderId);
+      }
+    }
+    if (reminderIds.length > 0) {
+      rememberDismissed(reminderIds);
+    }
+    petLoadErrorOrder = undefined;
+    clearAllEphemeralBubbles();
+    renderStack(true);
+    if (keysToMarkRead.length === 1) {
+      void Promise.resolve(api.markRead(keysToMarkRead[0])).catch(console.error);
+    } else if (keysToMarkRead.length > 1) {
+      void Promise.resolve(api.markReadMany(keysToMarkRead)).catch(console.error);
+    }
   }
 
   function renderStack(forceInvalidate = false) {
-    const visible = computeVisibleBubbles();
+    const stackState = computeVisibleBubbles();
+    const visible = stackState.visible;
+    const totalCount = stackState.totalCount;
     const visibleIds = visible.map((entry) => entry.id);
     const visibleSet = new Set(visibleIds);
+    const showCloseAll = totalCount > 1;
     let invalidated =
       forceInvalidate ||
+      totalCount !== renderedTotalCount ||
       visibleIds.length !== renderedIds.length ||
       visibleIds.some((id, index) => renderedIds[index] !== id);
 
@@ -525,7 +635,7 @@ export function bindReminder(
       view.detail.textContent = entry.detail;
       view.close.hidden = false;
       view.close.textContent = '×';
-      view.close.onclick = () => dismissBubble(entry.id, entry.kind);
+      view.close.onclick = () => dismissBubble(entry.id, entry.kind, entry.key);
 
       if (entry.kind === 'reminder' && entry.key) {
         const controlsKey = `nav:${keyId(entry.key)}`;
@@ -578,7 +688,13 @@ export function bindReminder(
       }
     }
 
-    const desiredNodes = visible.map((entry) => views.get(entry.id)!.element);
+    closeAllButton.hidden = !showCloseAll;
+    if (showCloseAll) {
+      closeAllButton.textContent = `全部关闭 (${totalCount})`;
+    }
+    const desiredNodes: HTMLElement[] = showCloseAll
+      ? [closeAllButton, ...visible.map((entry) => views.get(entry.id)!.element)]
+      : visible.map((entry) => views.get(entry.id)!.element);
     const orderMatches =
       stackEl.children.length === desiredNodes.length &&
       desiredNodes.every((node, index) => stackEl.children[index] === node);
@@ -589,6 +705,7 @@ export function bindReminder(
     stackEl.hidden = visible.length === 0;
     stackEl.classList.toggle('is-stacked', visible.length > 1);
     renderedIds = visibleIds;
+    renderedTotalCount = totalCount;
     if (invalidated) {
       ++stamp;
       targetChanged = true;
@@ -672,6 +789,32 @@ export function bindReminder(
               bubble: Number.isFinite(bubbleIndex) ? bubbleIndex : index,
               action: button.dataset.action as BubbleAction,
               rect: buttonRect,
+            });
+          }
+        }
+      }
+      if (!closeAllButton.hidden && closeAllButton.parentNode === stackEl) {
+        const closeAllBox = closeAllButton.getBoundingClientRect();
+        if (closeAllBox.width > 0 && closeAllBox.height > 0) {
+          nextRects.push(bounds(closeAllBox));
+          const backdropRect = clampRect(closeAllBox);
+          if (backdropRect.width > 0 && backdropRect.height > 0) {
+            const cssRadius =
+              typeof getComputedStyle === 'function'
+                ? Number.parseFloat(getComputedStyle(closeAllButton).borderTopLeftRadius)
+                : Number.NaN;
+            const pillRadius = Math.min(closeAllBox.width, closeAllBox.height) / 2;
+            backdrops.push({
+              ...backdropRect,
+              radius: Math.min(
+                Math.max(0, (Number.isFinite(cssRadius) ? cssRadius : pillRadius) * scale),
+                Math.min(backdropRect.width, backdropRect.height) / 2,
+              ),
+            });
+            buttons.push({
+              bubble: 0,
+              action: 'close_all',
+              rect: backdropRect,
             });
           }
         }
@@ -789,6 +932,7 @@ export function bindReminder(
   function observe(value: PetSnapshot) {
     const previous = snapshot;
     snapshot = value;
+    pruneImportedDismissed(value);
     sync();
     if (!previous || !settings?.sound) return;
     const known = new Set(previous.notifications.map((n) => n.id));
@@ -850,6 +994,10 @@ export function bindReminder(
     listen<{ stamp: number; bubble?: number; action: BubbleAction }>('pet:bubble-action', (event) => {
       const payload = event.payload;
       if (stopped || stackEl.hidden || input?.stamp !== payload.stamp || stamp !== payload.stamp) return;
+      if (payload.action === 'close_all') {
+        if (!closeAllButton.hidden && closeAllButton.parentNode === stackEl) closeAllButton.click();
+        return;
+      }
       const bubbleIndex = payload.bubble ?? 0;
       const targetBubble = stackEl.querySelector<HTMLElement>(
         `aside.bubble[data-bubble-index="${bubbleIndex}"]`,

@@ -97,6 +97,7 @@ pub(crate) enum BubbleAction {
     Application,
     Copy,
     Close,
+    CloseAll,
     PetFeed,
     PetPlay,
     PetNotifications,
@@ -375,16 +376,18 @@ mod bubble_tests {
                 {"bubble":0,"action":"close","rect":{"x":424.0,"y":430.0,"width":36.0,"height":36.0}},
                 {"bubble":0,"action":"session","rect":{"x":24.0,"y":510.0,"width":100.0,"height":36.0}},
                 {"bubble":1,"action":"close","rect":{"x":424.0,"y":260.0,"width":36.0,"height":36.0}},
-                {"bubble":1,"action":"pet_feed","rect":{"x":24.0,"y":340.0,"width":80.0,"height":36.0}}
+                {"bubble":1,"action":"pet_feed","rect":{"x":24.0,"y":340.0,"width":80.0,"height":36.0}},
+                {"bubble":0,"action":"close_all","rect":{"x":300.0,"y":580.0,"width":160.0,"height":32.0}}
             ],
             "backdrops": [
                 {"x":12.0,"y":420.0,"width":456.0,"height":150.0,"radius":28.0},
-                {"x":12.0,"y":250.0,"width":456.0,"height":150.0,"radius":28.0}
+                {"x":12.0,"y":250.0,"width":456.0,"height":150.0,"radius":28.0},
+                {"x":300.0,"y":580.0,"width":160.0,"height":32.0,"radius":16.0}
             ]
         }))
         .unwrap();
         assert!(input.validate(&mask));
-        assert_eq!(input.backdrops().len(), 2);
+        assert_eq!(input.backdrops().len(), 3);
         assert_eq!(
             input.action_at(430.0, 440.0),
             Some(BubbleHit {
@@ -409,8 +412,17 @@ mod bubble_tests {
                 action: BubbleAction::PetFeed,
             })
         );
+        assert_eq!(
+            input.action_at(360.0, 590.0),
+            Some(BubbleHit {
+                stamp: 15,
+                bubble: 0,
+                action: BubbleAction::CloseAll,
+            })
+        );
         assert!(input.contains_backdrop(100.0, 460.0));
         assert!(input.contains_backdrop(100.0, 300.0));
+        assert!(input.contains_backdrop(360.0, 590.0));
         // Gap between the two stacked bubbles is outside both backdrops
         assert!(!input.contains_backdrop(100.0, 410.0));
     }

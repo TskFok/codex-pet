@@ -301,6 +301,7 @@ impl Drop for BrokerHandle {
 
 pub enum HistoryAction {
     MarkRead(SessionKey),
+    MarkReadMany(Vec<SessionKey>),
     Clear,
 }
 
@@ -352,6 +353,7 @@ impl Writer {
                 Ok(Work::History(action, reply)) => {
                     let result = match action {
                         HistoryAction::MarkRead(key) => self.journal.mark_read(&key),
+                        HistoryAction::MarkReadMany(keys) => self.journal.mark_read_many(&keys),
                         HistoryAction::Clear => self.journal.clear_history(),
                     };
                     if let Ok(snapshot) = &result {

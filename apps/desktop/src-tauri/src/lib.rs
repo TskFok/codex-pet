@@ -387,6 +387,7 @@ pub fn run() {
             pet_snapshot,
             commands::get_snapshot,
             commands::mark_read,
+            commands::mark_read_many,
             commands::clear_history,
             commands::open_session,
             commands::copy_session_id,

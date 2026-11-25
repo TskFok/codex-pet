@@ -5,7 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions, TryLockError},
     io::{self, BufRead, BufReader, Seek, SeekFrom, Write},
 };
@@ -244,6 +244,20 @@ impl JournalStore {
         Ok(self.snapshot())
     }
 
+    pub fn mark_read_many(&mut self, keys: &[SessionKey]) -> Result<PetSnapshot, StorageError> {
+        self.ensure_recovered((self.clock)())?;
+        let mut seen = HashSet::new();
+        let records: Vec<Record> = keys
+            .iter()
+            .filter(|key| seen.insert(*key))
+            .map(|key| Record::MarkRead { key: key.clone() })
+            .collect();
+        if !records.is_empty() {
+            self.commit_many(records)?;
+        }
+        Ok(self.snapshot())
+    }
+
     pub fn clear_history(&mut self) -> Result<PetSnapshot, StorageError> {
         self.ensure_recovered((self.clock)())?;
         self.commit(Record::ClearHistory)?;
@@ -266,7 +280,17 @@ impl JournalStore {
     }
 
     fn commit(&mut self, record: Record) -> Result<(), StorageError> {
-        let bytes = encode_line(&record)?;
+        self.commit_many(vec![record])
+    }
+
+    fn commit_many(&mut self, records: Vec<Record>) -> Result<(), StorageError> {
+        if records.is_empty() {
+            return Ok(());
+        }
+        let mut bytes = Vec::new();
+        for record in &records {
+            bytes.extend_from_slice(&encode_line(record)?);
+        }
         self.paths.prepare_root()?;
         self.finish_publication()?;
         let mut file = open_regular(&self.paths.journal, OpenOptions::new().write(true))?;
@@ -281,7 +305,10 @@ impl JournalStore {
         file.write_all(&bytes)?;
         file.sync_all()?;
         self.tail += bytes.len() as u64;
-        self.state.apply(record)
+        for record in records {
+            self.state.apply(record)?;
+        }
+        Ok(())
     }
 }
 

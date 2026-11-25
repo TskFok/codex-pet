@@ -70,6 +70,15 @@ pub async fn mark_read(
         .await?)
 }
 #[tauri::command]
+pub async fn mark_read_many(
+    state: State<'_, NotificationRuntime>,
+    keys: Vec<SessionKey>,
+) -> Result<PetSnapshot> {
+    Ok(broker(&state)?
+        .history(HistoryAction::MarkReadMany(keys))
+        .await?)
+}
+#[tauri::command]
 pub async fn clear_history(state: State<'_, NotificationRuntime>) -> Result<PetSnapshot> {
     Ok(broker(&state)?.history(HistoryAction::Clear).await?)
 }

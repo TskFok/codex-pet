@@ -53,6 +53,7 @@ export const api = {
   snapshot: (): Promise<PetSnapshot> => invoke('get_snapshot'),
   snapshots: event<PetSnapshot>('pet:snapshot'),
   markRead: (key: SessionKey): Promise<PetSnapshot> => invoke('mark_read', { key }),
+  markReadMany: (keys: SessionKey[]): Promise<PetSnapshot> => invoke('mark_read_many', { keys }),
   clear: (): Promise<PetSnapshot> => invoke('clear_history'),
   openSession: (key: SessionKey, intent: OpenIntent): Promise<OpenOutcome> =>
     invoke('open_session', { key, intent }),
