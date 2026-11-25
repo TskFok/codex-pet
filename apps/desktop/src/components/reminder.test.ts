@@ -73,5 +73,90 @@ it('来源设置未知或静音时隐藏提醒内容，保持已确认的审批�
     expect(result.state).toBe('review');
     expect(result.title).toBeUndefined();
     expect(result.detail).toBeUndefined();
+    expect(result.reminderId).toBeUndefined();
   }
+});
+
+it('同一提醒在无关快照变化下保持稳定标识，新请求或新通知产生不同标识', () => {
+  const snap = structuredClone(fixture.expected) as PetSnapshot;
+  const first = presentation(snap, []);
+  expect(first.reminderId).toBeTruthy();
+  const unrelated = structuredClone(snap);
+  unrelated.revision += 1;
+  unrelated.sessions.push({
+    key: { source: 'deepseek', installationId: 'other', sessionId: 'bg' },
+    status: 'running',
+    pending: [],
+    unread: false,
+    lastEventAtMs: 999,
+  });
+  expect(presentation(unrelated, []).reminderId).toBe(first.reminderId);
+  const nextReq = structuredClone(snap);
+  nextReq.sessions[0].pending = [{ id: 'req-2', reason: 'answer', summary: '新的问题' }];
+  expect(presentation(nextReq, []).reminderId).not.toBe(first.reminderId);
+});
+
+it('任务结束与失败给出稳定动作键与回退循环状态，失败标为已读后动作键不变', () => {
+  const key = { source: 'codex' as const, installationId: 'i1', sessionId: 's1' };
+  const endedSnap: PetSnapshot = {
+    revision: 1,
+    sessions: [
+      { key, turnId: 't1', status: 'ended', pending: [], unread: true, lastEventAtMs: 100 },
+    ],
+    notifications: [
+      {
+        id: 'n1',
+        key,
+        turnId: 't1',
+        kind: { type: 'turn_ended', outcome: 'completed' },
+        occurredAtMs: 100,
+        read: false,
+      },
+    ],
+  };
+  const idleResult = presentation(endedSnap, []);
+  expect(idleResult.state).toBe('waving');
+  expect(idleResult.fallbackState).toBe('idle');
+  expect(idleResult.animationKey).toBeTruthy();
+
+  const withRunning: PetSnapshot = {
+    ...endedSnap,
+    sessions: [
+      ...endedSnap.sessions,
+      {
+        key: { ...key, sessionId: 's2' },
+        turnId: 't2',
+        status: 'running',
+        pending: [],
+        unread: false,
+        lastEventAtMs: 110,
+      },
+    ],
+  };
+  expect(presentation(withRunning, []).fallbackState).toBe('running');
+
+  const failedUnread: PetSnapshot = {
+    revision: 2,
+    sessions: [
+      { key, turnId: 't1', status: 'failed', pending: [], unread: true, lastEventAtMs: 200 },
+    ],
+    notifications: [
+      {
+        id: 'n2',
+        key,
+        turnId: 't1',
+        kind: { type: 'turn_ended', outcome: 'failed' },
+        occurredAtMs: 200,
+        read: false,
+      },
+    ],
+  };
+  const failedRead: PetSnapshot = {
+    ...failedUnread,
+    revision: 3,
+    sessions: [{ ...failedUnread.sessions[0], unread: false }],
+    notifications: [{ ...failedUnread.notifications[0], read: true }],
+  };
+  expect(presentation(failedUnread, []).state).toBe('failed');
+  expect(presentation(failedUnread, []).animationKey).toBe(presentation(failedRead, []).animationKey);
 });

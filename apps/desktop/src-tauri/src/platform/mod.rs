@@ -31,7 +31,7 @@ pub fn create_pet_window(app: &tauri::AppHandle) -> Result<(), PlatformError> {
     let builder = WebviewWindowBuilder::new(app, "pet", WebviewUrl::App("index.html".into()))
         .title("月影桌宠")
         .visible(false)
-        .inner_size(160.0, 180.0)
+        .inner_size(crate::placement::WIDTH, crate::placement::HEIGHT)
         .resizable(false)
         .decorations(false)
         .shadow(false)

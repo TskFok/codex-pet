@@ -216,6 +216,15 @@ pub fn update_settings(
     commit_settings(&app, &notification_paths()?, patch)
 }
 
+pub(crate) fn apply_settings_patch(
+    app: &tauri::AppHandle,
+    patch: SettingsPatch,
+) -> Result<Settings> {
+    let gate = app.state::<SettingsLock>();
+    let _guard = gate.0.lock().unwrap();
+    commit_settings(app, &notification_paths()?, patch)
+}
+
 fn commit_settings(
     host: &impl SettingsHost,
     paths: &AppPaths,
@@ -283,8 +292,8 @@ fn commit_settings(
 
 #[derive(Serialize)]
 pub struct PetChoice {
-    id: String,
-    name: String,
+    pub(crate) id: String,
+    pub(crate) name: String,
 }
 #[tauri::command]
 pub async fn choose_pet_directory() -> Result<Option<PathBuf>> {
@@ -330,36 +339,37 @@ fn verified_pet(paths: &AppPaths, id: &str) -> Result<(PetManifest, Vec<u8>)> {
     }
     Ok((manifest, bytes))
 }
+pub(crate) fn list_pet_choices(paths: &AppPaths) -> Result<Vec<PetChoice>> {
+    let mut choices = vec![PetChoice {
+        id: DEFAULT_PET.into(),
+        name: "月影".into(),
+    }];
+    paths.prepare_root()?;
+    paths::prepare_directory(&paths.pets)?;
+    for dir in std::fs::read_dir(&paths.pets).map_err(StorageError::from)? {
+        let dir = dir.map_err(StorageError::from)?;
+        if !dir.file_type().map_err(StorageError::from)?.is_dir() {
+            continue;
+        }
+        if let Ok(manifest) = pet_package::describe_pet(&dir.path())
+            && manifest.id != DEFAULT_PET
+            && dir.file_name() == manifest.id.as_str()
+        {
+            choices.push(PetChoice {
+                id: manifest.id,
+                name: manifest.name,
+            });
+        }
+    }
+    choices[1..].sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
+    Ok(choices)
+}
+
 #[tauri::command]
 pub async fn list_pets() -> Result<Vec<PetChoice>> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let paths = notification_paths()?;
-        let mut choices = vec![PetChoice {
-            id: DEFAULT_PET.into(),
-            name: "月影".into(),
-        }];
-        paths.prepare_root()?;
-        paths::prepare_directory(&paths.pets)?;
-        for dir in std::fs::read_dir(&paths.pets).map_err(StorageError::from)? {
-            let dir = dir.map_err(StorageError::from)?;
-            if !dir.file_type().map_err(StorageError::from)?.is_dir() {
-                continue;
-            }
-            if let Ok(manifest) = pet_package::describe_pet(&dir.path())
-                && manifest.id != DEFAULT_PET
-                && dir.file_name() == manifest.id.as_str()
-            {
-                choices.push(PetChoice {
-                    id: manifest.id,
-                    name: manifest.name,
-                });
-            }
-        }
-        choices[1..].sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
-        Ok(choices)
-    })
-    .await
-    .map_err(|e| CommandError::new("pet_package", e))?
+    tauri::async_runtime::spawn_blocking(|| list_pet_choices(&notification_paths()?))
+        .await
+        .map_err(|e| CommandError::new("pet_package", e))?
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

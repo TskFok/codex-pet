@@ -25,3 +25,24 @@ it('不同动作引用同一个图集矩形时沿用已经安装的命中区域'
   expect(cache.sample({ ...frame }, 2, 1, read)).toBeUndefined();
   expect(read).toHaveBeenCalledTimes(1);
 });
+
+it('按子区域采样时把非透明跨度偏移到完整画布坐标', () => {
+  const cache = new PoseMasks();
+  const pixels = new Uint8ClampedArray(4 * 4);
+  [0, 255, 255, 0].forEach((alpha, i) => pixels[i * 4 + 3] = alpha);
+  const mask = cache.sample(
+    { x: 0, y: 0, width: 2, height: 2 },
+    10,
+    12,
+    () => pixels,
+    { x: 3, y: 7, width: 2, height: 2 },
+  );
+  expect(mask).toEqual({
+    width: 10,
+    height: 12,
+    runs: [
+      [7, 4, 5],
+      [8, 3, 4],
+    ],
+  });
+});

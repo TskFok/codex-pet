@@ -4,7 +4,7 @@ import { mountSettings } from './components/settings';
 import { bindReminder, type InputPose } from './components/pet-bindings';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { mountPet, PetVisibility, type PlaybackSignal } from './components/pet';
+import { bindPetInput, mountPet, PetVisibility, type PlaybackSignal } from './components/pet';
 import { FrameMeter } from './diagnostics/frame-meter';
 import { recordReport, runtimeInfo } from './diagnostics/platform-report';
 
@@ -49,6 +49,7 @@ async function start(): Promise<void> {
     playback: await invoke<PlaybackSignal>('get_playback'), validationState: undefined, validationFps: undefined,
   }));
   if (stopped) return;
+  document.body.classList.toggle('native-blur', runtime.os === 'macos');
   let fps: 30 | 60 = runtime.validationFps === 60 ? 60 : 30;
   const staticFrame = runtime.phase === 'idle';
   // IPC 顺序固定。原生线程忙时合并为最新姿态；单次失败后也能恢复静止帧。
@@ -80,6 +81,9 @@ async function start(): Promise<void> {
     onPose: (mask, frame) => {
       reminder?.pose(mask, frame);
     },
+    onAnimationEnd: (state, timestamp) => {
+      reminder?.animationEnded(state, timestamp);
+    },
     onDraw: (timestamp, state, sample) => {
       drawCount += 1;
       animation = { state, frameIndex: sample.frameIndex, fps };
@@ -98,11 +102,13 @@ async function start(): Promise<void> {
   );
 
   const documentVisibility = () => visibility?.setDocumentVisible(!document.hidden, performance.now());
-  const pointerDown = (event: PointerEvent) => {
-    if (runtime.os === 'windows' && event.button === 0) {
-      void invoke('pointer_input').catch(console.error);
-    }
-  };
+  const unbindInput = bindPetInput(
+    window,
+    canvas,
+    runtime.os,
+    (command) => invoke(command),
+    (event) => reminder?.click(event),
+  );
   const resize = () => pet.renderer.resize(Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio)),
     Math.max(1, Math.round(canvas.clientHeight * devicePixelRatio)));
   const observer = new ResizeObserver(resize);
@@ -115,10 +121,9 @@ async function start(): Promise<void> {
   }
   density.addEventListener('change', onDensityChange, { once: true });
   document.addEventListener('visibilitychange', documentVisibility);
-  canvas.addEventListener('pointerdown', pointerDown);
   dispose = () => {
     document.removeEventListener('visibilitychange', documentVisibility);
-    canvas.removeEventListener('pointerdown', pointerDown);
+    unbindInput();
     observer.disconnect();
     reminder?.stop();
     density.removeEventListener('change', onDensityChange);

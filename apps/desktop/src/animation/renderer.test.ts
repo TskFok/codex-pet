@@ -175,3 +175,130 @@ it('静止诊断每次显示只画首帧，保留真正绘制回调的时间', a
   frame(400);
   expect(onDraw.mock.calls.map(([ms]) => ms)).toEqual([0]);
 });
+
+it('指定桌宠视口后只绘制并采样底部桌宠区域，上方留白保持透明', async () => {
+  const { images, frame } = browser();
+  const drawImage = vi.fn();
+  const getImageData = vi.fn((_x: number, _y: number, w: number, h: number) => ({
+    data: new Uint8ClampedArray(w * h * 4).fill(255),
+  }));
+  const context = { clearRect: vi.fn(), drawImage, getImageData };
+  const node = { width: 240, height: 320, getContext: () => context } as unknown as HTMLCanvasElement;
+  const onPose = vi.fn();
+  const renderer = new PetRenderer({
+    resolveAtlasUrl: (atlas) => atlas.path,
+    viewport: () => ({ x: 40, y: 140, width: 160, height: 180 }),
+    onPose,
+    staticFrame: true,
+  });
+  await renderer.mount(node, manifest);
+  renderer.setVisible(true, 0);
+  frame(0);
+  expect(drawImage).toHaveBeenLastCalledWith(images[0], 0, 0, 10, 10, 40, 150, 160, 160);
+  expect(getImageData).toHaveBeenCalledWith(40, 150, 160, 160);
+  expect(onPose).toHaveBeenCalledTimes(1);
+  const [mask] = onPose.mock.calls[0];
+  expect(mask.width).toBe(240);
+  expect(mask.height).toBe(320);
+  expect(mask.runs[0]).toEqual([150, 40, 200]);
+  expect(mask.runs[mask.runs.length - 1]).toEqual([309, 40, 200]);
+});
+
+it('单次动作播放结束后触发结束回调并可在同一帧切回循环动作，避免卡死在末帧', async () => {
+  const { images, canvas, frame } = browser();
+  const target = canvas();
+  const drawn: Array<{ state: string; frameIndex: number }> = [];
+  const ended = vi.fn((_state: string, timestamp: number) => {
+    renderer.setState('idle', timestamp);
+  });
+  const renderer = new PetRenderer({
+    resolveAtlasUrl: (atlas) => atlas.path,
+    onAnimationEnd: ended,
+    onDraw: (_ms, state, sample) => drawn.push({ state, frameIndex: sample.frameIndex }),
+  });
+  await renderer.mount(target.node, manifest);
+  renderer.setVisible(true, 0);
+  renderer.setState('waving', 0);
+
+  frame(0);
+  frame(100);
+  expect(ended).not.toHaveBeenCalled();
+  expect(target.drawImage).toHaveBeenLastCalledWith(images[0], 20, 0, 10, 10, 0, 0, 100, 100);
+
+  // waving 总时长 200ms，到达 200ms 时切回 idle 并立刻绘制 idle 首帧，随后继续按 idle 推进
+  frame(200);
+  expect(ended).toHaveBeenCalledTimes(1);
+  expect(ended).toHaveBeenCalledWith('waving', 200);
+  expect(target.drawImage).toHaveBeenLastCalledWith(images[0], 0, 0, 10, 10, 0, 0, 100, 100);
+
+  frame(310);
+  expect(target.drawImage).toHaveBeenLastCalledWith(images[0], 10, 0, 10, 10, 0, 0, 100, 100);
+  expect(drawn).toEqual([
+    { state: 'waving', frameIndex: 0 },
+    { state: 'waving', frameIndex: 0 },
+    { state: 'idle', frameIndex: 0 },
+    { state: 'idle', frameIndex: 1 },
+  ]);
+
+  // 进行中的单次动作显式重播时重新计时，结束后再次触发回调
+  renderer.setState('waving', 400);
+  frame(450);
+  renderer.setState('waving', 500, true);
+  frame(650);
+  expect(ended).toHaveBeenCalledTimes(1);
+  frame(700);
+  expect(ended).toHaveBeenCalledTimes(2);
+  expect(ended).toHaveBeenLastCalledWith('waving', 700);
+});
+
+it('点击弹跳与粒子特效不污染命中掩码缓存，静止诊断模式忽略互动特效', async () => {
+  const { frame } = browser();
+  const drawImage = vi.fn();
+  const getImageData = vi.fn((_x: number, _y: number, w: number, h: number) => ({
+    data: new Uint8ClampedArray(w * h * 4).fill(255),
+  }));
+  const save = vi.fn();
+  const restore = vi.fn();
+  const context = {
+    clearRect: vi.fn(),
+    drawImage,
+    getImageData,
+    save,
+    restore,
+    translate: vi.fn(),
+    rotate: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    bezierCurveTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+  };
+  const node = { width: 200, height: 200, getContext: () => context } as unknown as HTMLCanvasElement;
+  const onPose = vi.fn();
+  const renderer = new PetRenderer({ resolveAtlasUrl: (atlas) => atlas.path, onPose });
+  await renderer.mount(node, manifest);
+  renderer.setVisible(true, 0);
+
+  // 在首帧未缓存掩码时就触发弹跳特效：仍必须先用原始姿态采样掩码，再用弹跳姿态绘制
+  renderer.triggerInteractionEffect({ x: 0.5, y: 0.5, kind: 'heart', bounce: 1 }, 0);
+  frame(40);
+  expect(onPose).toHaveBeenCalledTimes(1);
+  expect(getImageData).toHaveBeenCalledTimes(1);
+  // 首帧未命中缓存时会先画原姿态供采样，再重画弹跳姿态
+  expect(drawImage).toHaveBeenCalledTimes(2);
+  const [canonical, bounced] = drawImage.mock.calls;
+  expect(canonical[7]).toBe(200);
+  expect(bounced[7]).toBeGreaterThan(200);
+  expect(bounced[8]).toBeLessThan(200);
+  // 粒子已绘制
+  expect(save).toHaveBeenCalled();
+
+  // 下一帧同帧掩码已缓存：不再重复调用 getImageData，也只绘制一次弹跳姿态
+  frame(80);
+  expect(getImageData).toHaveBeenCalledTimes(1);
+  expect(drawImage).toHaveBeenCalledTimes(3);
+  expect(renderer.hasAnimation('idle')).toBe(true);
+  expect(renderer.hasAnimation('missing')).toBe(false);
+});

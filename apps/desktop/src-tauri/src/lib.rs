@@ -307,6 +307,26 @@ fn pointer_input(window: tauri::WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn show_pet_menu(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "pet" {
+        return Err("需要桌宠窗口".into());
+    }
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || tray::show_pet_context_menu(&app))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_notifications(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "pet" {
+        return Err("需要桌宠窗口".into());
+    }
+    tray::open_notifications(window.app_handle()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn update_hit_region(
     window: tauri::WebviewWindow,
     frame: pet_core::pet_package::FrameRect,
@@ -348,6 +368,8 @@ pub fn run() {
             runtime_info,
             record_diagnostic,
             pointer_input,
+            show_pet_menu,
+            open_notifications,
             update_hit_region,
             pet_snapshot,
             commands::get_snapshot,

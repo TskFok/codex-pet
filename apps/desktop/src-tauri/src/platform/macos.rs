@@ -2,9 +2,10 @@ use crate::placement::{HEIGHT, WIDTH, WindowPlacement, WorkArea, clamp_placement
 use crate::windows::{AlphaMask, BubbleAction, BubbleInput};
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained};
 use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSCompositingOperation, NSEvent, NSRectFillList,
-    NSRectFillUsingOperation, NSResponder, NSScreen, NSView, NSWindow, NSWindowOrderingMode,
-    NSWindowStyleMask,
+    NSBackingStoreType, NSColor, NSCompositingOperation, NSEvent, NSEventModifierFlags,
+    NSRectFillList, NSRectFillUsingOperation, NSResponder, NSScreen, NSView,
+    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSWindow, NSWindowOrderingMode, NSWindowStyleMask,
 };
 use objc2_foundation::{MainThreadMarker, NSNumber, NSObject, NSPoint, NSRect, NSSize, NSString};
 use std::cell::{Cell, RefCell};
@@ -72,16 +73,50 @@ define_class!(
         }
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
+            let flags = event.modifierFlags();
+            if flags.contains(NSEventModifierFlags::Control) {
+                self.ivars().pressed.set(None);
+                self.show_context_menu();
+                return;
+            }
             let action = self.bubble_action(event);
             self.ivars().pressed.set(action);
             if action.is_some() { return; }
             if let Some(window) = self.window() {
+                let point = self.convertPoint_fromView(event.locationInWindow(), None);
+                let bounds = self.bounds().size;
+                let in_backdrop = self.in_bubble_backdrop(point, bounds);
+                let origin_before = window.frame().origin;
+                let click_count = event.clickCount().max(1) as u32;
+                let alt_key = flags.contains(NSEventModifierFlags::Option);
+                let shift_key = flags.contains(NSEventModifierFlags::Shift);
                 #[cfg(debug_assertions)]
                 if std::env::var_os("PET_DIAGNOSTICS_DIR").is_some() {
-                    let point = self.convertPoint_fromView(event.locationInWindow(), None);
                     eprintln!("桌宠原生按下：{},{}", point.x, point.y);
                 }
                 window.performWindowDragWithEvent(event);
+                let origin_after = window.frame().origin;
+                let dx = origin_after.x - origin_before.x;
+                let dy = origin_after.y - origin_before.y;
+                if dx.hypot(dy) >= 3.0 {
+                    let _ = self.ivars().app.emit_to(
+                        "pet",
+                        "pet:drag-end",
+                        serde_json::json!({ "dx": dx, "dy": dy }),
+                    );
+                } else if !in_backdrop && bounds.width > 0.0 && bounds.height > 0.0 {
+                    let _ = self.ivars().app.emit_to(
+                        "pet",
+                        "pet:click",
+                        serde_json::json!({
+                            "x": (point.x / bounds.width).clamp(0.0, 1.0),
+                            "y": (point.y / bounds.height).clamp(0.0, 1.0),
+                            "clickCount": click_count,
+                            "altKey": alt_key,
+                            "shiftKey": shift_key,
+                        }),
+                    );
+                }
             }
         }
         #[unsafe(method(mouseUp:))]
@@ -93,17 +128,47 @@ define_class!(
                     serde_json::json!({"stamp":stamp,"action":action}));
             }
         }
+        #[unsafe(method(rightMouseDown:))]
+        fn right_mouse_down(&self, _event: &NSEvent) {
+            self.ivars().pressed.set(None);
+            self.show_context_menu();
+        }
     }
 );
 
 impl PetInputView {
+    fn show_context_menu(&self) {
+        let app = self.ivars().app.clone();
+        if let Err(error) = crate::tray::show_pet_context_menu(&app) {
+            eprintln!("显示桌宠右键菜单失败：{error}");
+        }
+    }
+
     fn bubble_action(&self, event: &NSEvent) -> Option<(u32, BubbleAction)> {
         let bubble = self.ivars().bubble.borrow();
         let bubble = bubble.as_ref()?;
         let point = self.convertPoint_fromView(event.locationInWindow(), None);
         let bounds = self.bounds().size;
+        if bounds.width <= 0.0 || bounds.height <= 0.0 {
+            return None;
+        }
         let mask = self.ivars().mask.borrow();
         bubble.action_at(
+            point.x * f64::from(mask.width) / bounds.width,
+            point.y * f64::from(mask.height) / bounds.height,
+        )
+    }
+
+    fn in_bubble_backdrop(&self, point: NSPoint, bounds: NSSize) -> bool {
+        if bounds.width <= 0.0 || bounds.height <= 0.0 {
+            return false;
+        }
+        let bubble = self.ivars().bubble.borrow();
+        let Some(bubble) = bubble.as_ref() else {
+            return false;
+        };
+        let mask = self.ivars().mask.borrow();
+        bubble.contains_backdrop(
             point.x * f64::from(mask.width) / bounds.width,
             point.y * f64::from(mask.height) / bounds.height,
         )
@@ -114,10 +179,14 @@ struct ProxyPair {
     proxy: Retained<PetProxyWindow>,
     renderer: Retained<NSWindow>,
     view: Retained<PetInputView>,
+    blur: Option<Retained<NSVisualEffectView>>,
     frame: Option<pet_core::pet_package::FrameRect>,
 }
 impl Drop for ProxyPair {
     fn drop(&mut self) {
+        if let Some(blur) = self.blur.take() {
+            blur.removeFromSuperview();
+        }
         self.proxy.removeChildWindow(&self.renderer);
         self.proxy.orderOut(None);
         self.proxy.close();
@@ -151,6 +220,22 @@ pub(super) fn install_input(window: &tauri::WebviewWindow) -> tauri::Result<()> 
         msg_send![super(PetInputView::alloc(mtm).set_ivars(input)), initWithFrame:NSRect::new(NSPoint::new(0.0,0.0),native.frame().size)]
     };
     proxy.setContentView(Some(&view));
+    let blur = renderer.contentView().map(|content| {
+        let effect = NSVisualEffectView::initWithFrame(
+            NSVisualEffectView::alloc(mtm),
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
+        );
+        effect.setMaterial(NSVisualEffectMaterial::Popover);
+        effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        effect.setState(NSVisualEffectState::Active);
+        effect.setWantsLayer(true);
+        if let Some(layer) = effect.layer() {
+            layer.setMasksToBounds(true);
+        }
+        effect.setHidden(true);
+        content.addSubview_positioned_relativeTo(&effect, NSWindowOrderingMode::Below, None);
+        effect
+    });
     native.setIgnoresMouseEvents(true);
     // 代理是 parent，WindowServer 拖动 parent 时自动移动 Canvas child。
     unsafe {
@@ -162,6 +247,7 @@ pub(super) fn install_input(window: &tauri::WebviewWindow) -> tauri::Result<()> 
             proxy,
             renderer,
             view,
+            blur,
             frame: None,
         })
     });
@@ -204,7 +290,7 @@ pub(super) fn route_report(window: &tauri::WebviewWindow) -> Option<serde_json::
     PROXY.with(|state| {
         let state=state.borrow(); let pair=state.as_ref()?;
         let frame=pair.proxy.frame();
-        let body=NSPoint::new(frame.origin.x+80.0,frame.origin.y+frame.size.height-84.0);
+        let body=NSPoint::new(frame.origin.x+frame.size.width*0.5,frame.origin.y+frame.size.height*(90.0/HEIGHT));
         let corner=NSPoint::new(frame.origin.x+5.0,frame.origin.y+frame.size.height-5.0);
         let query=|point,below|NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(point,below,mtm);
         let report=serde_json::json!({
@@ -226,16 +312,47 @@ pub(super) fn update_hit_region(
     mask: AlphaMask,
     bubble_input: Option<BubbleInput>,
 ) -> tauri::Result<()> {
-    let view = PROXY
+    let backdrop = bubble_input.as_ref().and_then(BubbleInput::backdrop);
+    let mask_size = (f64::from(mask.width), f64::from(mask.height));
+    let (view, renderer, blur) = PROXY
         .with(|state| {
             let mut state = state.borrow_mut();
             let pair = state.as_mut()?;
             pair.frame = Some(*frame);
             *pair.view.ivars().mask.borrow_mut() = mask;
             *pair.view.ivars().bubble.borrow_mut() = bubble_input;
-            Some(pair.view.clone())
+            Some((pair.view.clone(), pair.renderer.clone(), pair.blur.clone()))
         })
         .ok_or_else(|| std::io::Error::other("桌宠代理不可用"))?;
+    if let Some(blur) = blur {
+        if let (Some(backdrop), Some(content)) = (backdrop, renderer.contentView()) {
+            let bounds = content.bounds().size;
+            let sx = bounds.width / mask_size.0;
+            let sy = bounds.height / mask_size.1;
+            let x = backdrop.x * sx;
+            let w = backdrop.width * sx;
+            let h = backdrop.height * sy;
+            let y = if content.isFlipped() {
+                backdrop.y * sy
+            } else {
+                bounds.height - (backdrop.y + backdrop.height) * sy
+            };
+            let radius = (backdrop.radius * sx.min(sy)).clamp(0.0, (w.min(h) * 0.5).max(0.0));
+            let rect = NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+            if blur.frame() != rect {
+                blur.setFrame(rect);
+            }
+            if let Some(layer) = blur.layer() {
+                layer.setCornerRadius(radius);
+                layer.setMasksToBounds(true);
+            }
+            if blur.isHidden() {
+                blur.setHidden(false);
+            }
+        } else if !blur.isHidden() {
+            blur.setHidden(true);
+        }
+    }
     view.setNeedsDisplay(true);
     view.displayIfNeeded();
     Ok(())

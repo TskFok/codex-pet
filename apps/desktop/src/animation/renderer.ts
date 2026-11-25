@@ -1,13 +1,16 @@
 import { FrameCadence } from '../diagnostics/frame-cadence';
 import type { Animation, Atlas, FrameRect, PetManifest } from '../types';
 import { AnimationClock, type AnimationSample } from './clock';
+import { PetEffects, type InteractionEffect } from './effects';
 import { PoseMasks, type AlphaMask } from './hit-mask';
 
 interface RendererOptions {
   onPose?: (mask: AlphaMask, frame: FrameRect) => void;
   resolveAtlasUrl: (atlas: Atlas) => string;
+  viewport?: (width: number, height: number) => FrameRect;
   staticFrame?: boolean;
   onDraw?: (timestamp: number, state: string, sample: AnimationSample) => void;
+  onAnimationEnd?: (state: string, timestamp: number) => void;
 }
 
 interface Mount {
@@ -22,10 +25,12 @@ interface Mount {
 export class PetRenderer {
   private readonly clock = new AnimationClock();
   private readonly atlases = new Map<string, Promise<HTMLImageElement>>();
+  private readonly effects = new PetEffects();
   private mounted?: Mount;
   private visible = false;
   private state = 'idle';
   private animationStartedAt = 0;
+  private animationEnded = false;
   private frame?: number;
   private fps: 30 | 60 = 30;
   private cadence = new FrameCadence();
@@ -45,6 +50,7 @@ export class PetRenderer {
       this.state = this.animation(manifest, 'idle') ? 'idle' : Object.keys(manifest.animations)[0];
     }
     this.animationStartedAt = performance.now();
+    this.animationEnded = false;
     this.cadence = new FrameCadence(this.fps);
     const ready = this.atlas(atlasUrl ?? this.options.resolveAtlasUrl(manifest.atlas)).then((image) => {
       if (this.mounted !== mount) return;
@@ -68,11 +74,23 @@ export class PetRenderer {
     this.scheduleFrame();
   }
 
-  setState(state: string, nowMs: number): void {
-    if (state === this.state || !this.animation(this.mounted?.manifest, state)) return;
+  hasAnimation(state: string): boolean {
+    return this.animation(this.mounted?.manifest, state) !== undefined;
+  }
+
+  triggerInteractionEffect(effect: InteractionEffect, nowMs = performance.now()): void {
+    if (this.options.staticFrame) return;
+    this.effects.trigger(effect, nowMs);
+  }
+
+  setState(state: string, nowMs: number, restart = false): boolean {
+    if (!this.animation(this.mounted?.manifest, state)) return false;
+    if (state === this.state && !restart) return true;
     this.state = state;
     this.animationStartedAt = nowMs;
+    this.animationEnded = false;
     if (this.options.staticFrame) this.scheduleFrame();
+    return true;
   }
 
   setVisible(visible: boolean, nowMs: number): void {
@@ -80,9 +98,11 @@ export class PetRenderer {
     this.visible = visible;
     if (!visible) {
       this.cancelFrame();
+      this.effects.clear();
       return;
     }
     this.animationStartedAt = nowMs;
+    this.animationEnded = false;
     this.cadence = new FrameCadence(this.fps);
     this.scheduleFrame();
   }
@@ -95,9 +115,11 @@ export class PetRenderer {
 
   dispose(): void {
     this.cancelFrame();
+    this.effects.clear();
     this.mounted = undefined;
     this.visible = false;
     this.state = 'idle';
+    this.animationEnded = false;
     this.atlases.clear();
   }
 
@@ -141,20 +163,95 @@ export class PetRenderer {
 
     const staticFrame = this.options.staticFrame;
     if (staticFrame || this.cadence.shouldDraw(timestamp)) {
-      const state = this.state;
-      const sample = this.clock.sample(mount.manifest.animations[state], staticFrame ? 0 : timestamp - this.animationStartedAt);
+      let state = this.state;
+      let sample = this.clock.sample(
+        mount.manifest.animations[state],
+        staticFrame ? 0 : timestamp - this.animationStartedAt,
+      );
+      if (!staticFrame && sample.finished && !this.animationEnded) {
+        this.animationEnded = true;
+        this.options.onAnimationEnd?.(state, timestamp);
+        if (!this.visible || this.mounted !== mount || !mount.image) return;
+        if (this.state !== state) {
+          state = this.state;
+          sample = this.clock.sample(
+            mount.manifest.animations[state],
+            timestamp - this.animationStartedAt,
+          );
+        }
+      }
       const canvas = mount.canvas;
       const rect = sample.rect;
-      const scale = Math.min(canvas.width / rect.width, canvas.height / rect.height);
+      const viewport = this.options.viewport?.(canvas.width, canvas.height) ?? {
+        x: 0,
+        y: 0,
+        width: canvas.width,
+        height: canvas.height,
+      };
+      const scale = Math.min(viewport.width / rect.width, viewport.height / rect.height);
       const drawWidth = rect.width * scale;
       const drawHeight = rect.height * scale;
-      mount.context.clearRect(0, 0, canvas.width, canvas.height);
-      mount.context.drawImage(mount.image, rect.x, rect.y, rect.width, rect.height,
-        (canvas.width - drawWidth) / 2, (canvas.height - drawHeight) / 2, drawWidth, drawHeight);
+      const drawX = viewport.x + (viewport.width - drawWidth) / 2;
+      const drawY = viewport.y + (viewport.height - drawHeight) / 2;
+      const bounce = staticFrame ? undefined : this.effects.bounceAt(timestamp);
+      const drawSprite = (withBounce: boolean) => {
+        mount.context.clearRect(0, 0, canvas.width, canvas.height);
+        if (withBounce && bounce) {
+          const bw = drawWidth * bounce.scaleX;
+          const bh = drawHeight * bounce.scaleY;
+          const bx = drawX + (drawWidth - bw) / 2;
+          const by = drawY + (drawHeight - bh) + bounce.offsetY * drawHeight;
+          mount.context.drawImage(mount.image!, rect.x, rect.y, rect.width, rect.height, bx, by, bw, bh);
+        } else {
+          mount.context.drawImage(
+            mount.image!,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            drawX,
+            drawY,
+            drawWidth,
+            drawHeight,
+          );
+        }
+      };
       if (this.options.onPose) {
-        const mask = mount.masks.sample(rect, canvas.width, canvas.height, () =>
-          mount.context.getImageData(0, 0, canvas.width, canvas.height).data);
-        if (mask) this.options.onPose(mask, rect);
+        const left = Math.max(0, Math.floor(drawX));
+        const top = Math.max(0, Math.floor(drawY));
+        const region = {
+          x: left,
+          y: top,
+          width: Math.max(0, Math.min(canvas.width, Math.ceil(drawX + drawWidth)) - left),
+          height: Math.max(0, Math.min(canvas.height, Math.ceil(drawY + drawHeight)) - top),
+        };
+        if (bounce && mount.masks.hasCached(rect, canvas.width, canvas.height, region)) {
+          const mask = mount.masks.sample(
+            rect,
+            canvas.width,
+            canvas.height,
+            () => mount.context.getImageData(region.x, region.y, region.width, region.height).data,
+            region,
+          );
+          if (mask) this.options.onPose(mask, rect);
+          drawSprite(true);
+        } else {
+          drawSprite(false);
+          const mask = mount.masks.sample(
+            rect,
+            canvas.width,
+            canvas.height,
+            () => mount.context.getImageData(region.x, region.y, region.width, region.height).data,
+            region,
+          );
+          if (mask) this.options.onPose(mask, rect);
+          if (bounce) drawSprite(true);
+        }
+      } else {
+        drawSprite(true);
+      }
+      if (!staticFrame) {
+        this.effects.drawParticles(mount.context, canvas.width, canvas.height, timestamp);
       }
       this.options.onDraw?.(performance.now(), state, sample);
     }

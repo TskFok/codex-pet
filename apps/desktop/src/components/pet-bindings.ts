@@ -6,12 +6,29 @@ import type { FrameRect, PetSnapshot, SessionKey, Settings } from '../types';
 import type { mountPet } from './pet';
 import { createNavigation } from './navigation';
 import { keyId } from './notifications';
+import {
+  INTERACTION_ACTION_LABELS,
+  PetInteractionController,
+  type InteractionBubble,
+  type InteractionBubbleAction,
+  type InteractionOutcome,
+  type InteractionStep,
+  type PetClickEvent,
+} from './pet-interactions';
 import { presentation, withBubble } from './reminder';
 
-type BubbleAction = 'session' | 'application' | 'copy';
-type BubbleInput = { stamp: number; buttons: { action: BubbleAction; rect: FrameRect }[] };
+type BubbleAction = 'session' | 'application' | 'copy' | 'close' | InteractionBubbleAction;
+type BubbleBackdrop = FrameRect & { radius: number };
+type BubbleInput = {
+  stamp: number;
+  buttons: { action: BubbleAction; rect: FrameRect }[];
+  backdrop?: BubbleBackdrop;
+};
 type Pose = { mask: AlphaMask; frame: FrameRect };
 export type InputPose = Pose & { bubbleInput?: BubbleInput };
+const PET_LOAD_ERROR_ID = 'pet-load-error';
+const MAX_DISMISSED = 200;
+const DEFAULT_BUBBLE_RADIUS = 14;
 export function bindReminder(
   canvas: HTMLCanvasElement,
   pet: ReturnType<typeof mountPet>,
@@ -23,10 +40,20 @@ export function bindReminder(
   const bubble = document.createElement('aside');
   bubble.className = 'bubble';
   bubble.hidden = true;
-  const title = document.createElement('strong'),
-    detail = document.createElement('span');
+  const header = document.createElement('div');
+  header.className = 'bubble-header';
+  const title = document.createElement('strong');
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'bubble-close';
+  close.dataset.action = 'close';
+  close.setAttribute('aria-label', '关闭提示框');
+  close.title = '关闭';
+  close.hidden = true;
+  header.append(title, close);
+  const detail = document.createElement('span');
   const controls = document.createElement('div');
-  bubble.append(title, detail, controls);
+  bubble.append(header, detail, controls);
   document.body.append(bubble);
   let base: Pose | undefined,
     rect: FrameRect | undefined,
@@ -36,12 +63,167 @@ export function bindReminder(
   let stamp = 0;
   let targetChanged = false;
   let target: string | undefined;
+  let currentReminderId: string | undefined;
+  const dismissed = new Set<string>();
+  const completedAnimations = new Set<string>();
+  let activeAnimation: { state: string; key: string; fallbackState: string } | undefined;
   let snapshot: PetSnapshot | undefined,
     settings: Settings | undefined,
-    selectedPet = 'yueying-cape-dancer';
+    selectedPet = 'yueying-cape-dancer',
+    petName = '月影';
   let change = 0,
     stopped = false;
   const stops: (() => void)[] = [];
+  const interactions = new PetInteractionController();
+  let interactionBubble: InteractionBubble | undefined;
+  let interactionBubbleTimer: ReturnType<typeof setTimeout> | undefined;
+  let interactionQueue: InteractionStep[] = [];
+  let interactionStep: { state: string; timed: boolean } | undefined;
+  let interactionStepTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastTaskKey: string | undefined;
+  function clearInteractionBubble() {
+    if (interactionBubbleTimer !== undefined) {
+      clearTimeout(interactionBubbleTimer);
+      interactionBubbleTimer = undefined;
+    }
+    interactionBubble = undefined;
+  }
+  function clearInteractionAnimation() {
+    if (interactionStepTimer !== undefined) {
+      clearTimeout(interactionStepTimer);
+      interactionStepTimer = undefined;
+    }
+    interactionQueue = [];
+    interactionStep = undefined;
+  }
+  function hasActiveReminder(): boolean {
+    if (currentReminderId === PET_LOAD_ERROR_ID) return true;
+    if (!snapshot) return false;
+    const result = presentation(snapshot, settings?.mutedSources);
+    return Boolean(result.detail && !(result.reminderId && dismissed.has(result.reminderId)));
+  }
+  function updateInteractionControls(actions: InteractionBubbleAction[]) {
+    if (actions.length === 0) {
+      updateControls();
+      return;
+    }
+    const id = `interaction:${actions.join(',')}`;
+    if (id === target) return;
+    target = id;
+    ++stamp;
+    targetChanged = true;
+    const bar = document.createElement('div');
+    bar.className = 'actions';
+    for (const action of actions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.action = action;
+      button.textContent = INTERACTION_ACTION_LABELS[action];
+      button.onclick = () => {
+        if (stopped) return;
+        const now = performance.now();
+        applyInteraction(interactions.handleAction(action, now, { petName, snapshot }), now);
+      };
+      bar.append(button);
+    }
+    controls.replaceChildren(bar);
+  }
+  function renderInteractionBubble() {
+    if (!interactionBubble || hasActiveReminder()) return;
+    currentReminderId = undefined;
+    bubble.hidden = false;
+    close.hidden = false;
+    close.textContent = '×';
+    updateInteractionControls(interactionBubble.actions);
+    title.textContent = interactionBubble.title;
+    detail.textContent = interactionBubble.detail;
+    measure();
+  }
+  function restoreAfterInteraction(timestamp: number) {
+    clearInteractionAnimation();
+    if (snapshot) {
+      sync();
+    } else if (!validationState) {
+      pet.renderer.setState('idle', timestamp);
+    }
+  }
+  function playNextInteractionStep(nowMs: number) {
+    if (stopped || validationState) {
+      clearInteractionAnimation();
+      return;
+    }
+    if (interactionStepTimer !== undefined) {
+      clearTimeout(interactionStepTimer);
+      interactionStepTimer = undefined;
+    }
+    while (interactionQueue.length > 0) {
+      const next = interactionQueue.shift()!;
+      const applied = pet.renderer.setState(next.state, nowMs, true);
+      if (applied === false) continue;
+      const timed = next.durationMs !== undefined;
+      interactionStep = { state: next.state, timed };
+      const timeoutMs = timed ? Math.max(100, next.durationMs!) : 4000;
+      interactionStepTimer = setTimeout(() => {
+        interactionStepTimer = undefined;
+        if (stopped) return;
+        playNextInteractionStep(performance.now());
+      }, timeoutMs);
+      return;
+    }
+    restoreAfterInteraction(nowMs);
+  }
+  function applyInteraction(outcome: InteractionOutcome | undefined, nowMs: number) {
+    if (!outcome || stopped) return;
+    if (outcome.effect) {
+      pet.renderer.triggerInteractionEffect?.(outcome.effect, nowMs);
+    }
+    if (outcome.openNotifications) {
+      void api.openNotifications().catch(console.error);
+    }
+    if (outcome.closeBubble) {
+      clearInteractionBubble();
+      if (!hasActiveReminder()) {
+        ++stamp;
+        targetChanged = true;
+        hideBubble();
+        measure();
+      }
+    }
+    if (!validationState && outcome.steps && outcome.steps.length > 0) {
+      activeAnimation = undefined;
+      interactionQueue = [...outcome.steps];
+      playNextInteractionStep(nowMs);
+    }
+    if (outcome.bubble && !hasActiveReminder()) {
+      clearInteractionBubble();
+      interactionBubble = outcome.bubble;
+      const delayMs = Math.max(0, outcome.bubble.expiresAtMs - nowMs);
+      interactionBubbleTimer = setTimeout(() => {
+        interactionBubbleTimer = undefined;
+        if (stopped || interactionBubble?.id !== outcome.bubble!.id) return;
+        interactionBubble = undefined;
+        if (!hasActiveReminder()) {
+          ++stamp;
+          targetChanged = true;
+          hideBubble();
+          measure();
+        }
+      }, delayMs);
+      ++stamp;
+      targetChanged = true;
+      renderInteractionBubble();
+    }
+  }
+  function handlePetClick(event: PetClickEvent) {
+    if (stopped) return;
+    const now = performance.now();
+    applyInteraction(interactions.handleClick(event, now, { petName, snapshot }), now);
+  }
+  function handleDragEnd() {
+    if (stopped || validationState || hasActiveReminder()) return;
+    const now = performance.now();
+    applyInteraction(interactions.handleDragEnd(now, { petName, snapshot }), now);
+  }
   function queue() {
     if (!base) return;
     const mask = base.mask,
@@ -70,7 +252,7 @@ export function bindReminder(
       width: b.width * sx,
       height: b.height * sy,
     });
-    const clampButton = (b: DOMRect): FrameRect => {
+    const clampRect = (b: DOMRect): FrameRect => {
       const raw = bounds(b);
       const x1 = Math.max(0, Math.min(targetWidth, raw.x));
       const y1 = Math.max(0, Math.min(targetHeight, raw.y));
@@ -79,12 +261,29 @@ export function bindReminder(
       return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
     };
     const showing = !bubble.hidden && !!c.width && !!c.height && targetWidth > 0 && targetHeight > 0;
-    const next = showing ? bounds(bubble.getBoundingClientRect()) : undefined;
+    const bubbleBox = showing ? bubble.getBoundingClientRect() : undefined;
+    const next = bubbleBox ? bounds(bubbleBox) : undefined;
+    const backdropRect = bubbleBox ? clampRect(bubbleBox) : undefined;
+    const cssRadius =
+      showing && typeof getComputedStyle === 'function'
+        ? Number.parseFloat(getComputedStyle(bubble).borderTopLeftRadius)
+        : Number.NaN;
+    const scale = Math.min(sx, sy);
+    const backdrop: BubbleBackdrop | undefined =
+      backdropRect && backdropRect.width > 0 && backdropRect.height > 0
+        ? {
+            ...backdropRect,
+            radius: Math.min(
+              Math.max(0, (Number.isFinite(cssRadius) ? cssRadius : DEFAULT_BUBBLE_RADIUS) * scale),
+              Math.min(backdropRect.width, backdropRect.height) / 2,
+            ),
+          }
+        : undefined;
     const buttons = showing
-      ? Array.from(controls.querySelectorAll<HTMLButtonElement>('button:not([hidden])'))
+      ? Array.from(bubble.querySelectorAll<HTMLButtonElement>('button[data-action]:not([hidden])'))
           .map((button) => ({
             action: button.dataset.action as BubbleAction,
-            rect: clampButton(button.getBoundingClientRect()),
+            rect: clampRect(button.getBoundingClientRect()),
           }))
           .filter((button) => button.rect.width > 0 && button.rect.height > 0)
       : [];
@@ -92,16 +291,17 @@ export function bindReminder(
       base !== undefined &&
       (!measuredSize || measuredSize.width !== targetWidth || measuredSize.height !== targetHeight);
     const shapeChanged = JSON.stringify(next) !== JSON.stringify(rect);
+    const backdropChanged = JSON.stringify(backdrop) !== JSON.stringify(input?.backdrop);
     const buttonsChanged = JSON.stringify(buttons) !== JSON.stringify(input?.buttons ?? []);
     if (base) measuredSize = { width: targetWidth, height: targetHeight };
-    if (!shapeChanged && !buttonsChanged && !targetChanged && !sizeChanged) {
+    if (!shapeChanged && !backdropChanged && !buttonsChanged && !targetChanged && !sizeChanged) {
       if (forceQueue) queue();
       return;
     }
     targetChanged = false;
     rect = next;
     if (shapeChanged || sizeChanged) merged = new WeakMap();
-    input = buttons.length ? { stamp: ++stamp, buttons } : undefined;
+    input = buttons.length ? { stamp: ++stamp, buttons, ...(backdrop ? { backdrop } : {}) } : undefined;
     queue();
   }
   function updateControls(next?: SessionKey) {
@@ -124,14 +324,106 @@ export function bindReminder(
         : []),
     );
   }
+  function hideBubble() {
+    bubble.hidden = true;
+    close.hidden = true;
+    close.textContent = '';
+    title.textContent = '';
+    detail.textContent = '';
+    updateControls();
+  }
+  function dismiss() {
+    if (interactionBubble && !currentReminderId) {
+      clearInteractionBubble();
+      ++stamp;
+      targetChanged = true;
+      hideBubble();
+      measure();
+      return;
+    }
+    if (currentReminderId && currentReminderId !== PET_LOAD_ERROR_ID) {
+      dismissed.add(currentReminderId);
+      if (dismissed.size > MAX_DISMISSED) {
+        const oldest = dismissed.values().next().value;
+        if (oldest !== undefined) dismissed.delete(oldest);
+      }
+    }
+    currentReminderId = undefined;
+    ++stamp;
+    targetChanged = true;
+    hideBubble();
+    measure();
+  }
+  close.onclick = dismiss;
   function sync() {
     if (!snapshot) return;
     const result = presentation(snapshot, settings?.mutedSources);
-    pet.renderer.setState(validationState || result.state, performance.now());
-    bubble.hidden = !result.detail;
+    const now = performance.now();
+    const taskKey = JSON.stringify([result.state, result.animationKey ?? '', result.reminderId ?? '']);
+    const taskChanged = taskKey !== lastTaskKey;
+    lastTaskKey = taskKey;
+    const urgentTask =
+      result.state === 'review' ||
+      result.state === 'waiting' ||
+      Boolean(result.animationKey && !completedAnimations.has(result.animationKey));
+    if (taskChanged && urgentTask) {
+      clearInteractionAnimation();
+    }
+    if (validationState) {
+      clearInteractionAnimation();
+      activeAnimation = undefined;
+      pet.renderer.setState(validationState, now);
+    } else if (!interactionStep) {
+      if (result.animationKey && completedAnimations.has(result.animationKey)) {
+        activeAnimation = undefined;
+        pet.renderer.setState(result.fallbackState, now);
+      } else if (result.animationKey) {
+        const restarted =
+          activeAnimation !== undefined &&
+          activeAnimation.key !== result.animationKey &&
+          activeAnimation.state === result.state;
+        const applied = restarted
+          ? pet.renderer.setState(result.state, now, true)
+          : pet.renderer.setState(result.state, now);
+        if (applied === false) {
+          activeAnimation = undefined;
+          pet.renderer.setState(result.fallbackState, now);
+        } else {
+          activeAnimation = {
+            state: result.state,
+            key: result.animationKey,
+            fallbackState: result.fallbackState,
+          };
+        }
+      } else {
+        activeAnimation = undefined;
+        pet.renderer.setState(result.state, now);
+      }
+    }
+    if (!result.detail || (result.reminderId && dismissed.has(result.reminderId))) {
+      if (currentReminderId !== PET_LOAD_ERROR_ID) {
+        currentReminderId = undefined;
+        if (interactionBubble) {
+          renderInteractionBubble();
+        } else {
+          hideBubble();
+          measure();
+        }
+      }
+      return;
+    }
+    clearInteractionBubble();
+    if (currentReminderId !== result.reminderId) {
+      currentReminderId = result.reminderId;
+      ++stamp;
+      targetChanged = true;
+    }
+    bubble.hidden = false;
+    close.hidden = false;
+    close.textContent = '×';
     updateControls(result.key);
     title.textContent = result.title || '';
-    detail.textContent = result.detail || '';
+    detail.textContent = result.detail;
     measure();
   }
   async function preferences(value: Settings) {
@@ -146,22 +438,36 @@ export function bindReminder(
     try {
       if (selectedPet === 'yueying-cape-dancer') {
         await pet.mountDefault();
+        petName = '月影';
         canvas.setAttribute('aria-label', '月影');
       } else {
         const asset = await api.asset(selectedPet);
         if (token !== change || stopped) return;
         await pet.renderer.mount(canvas, asset.manifest, asset.atlasUrl);
-        if (token === change && !stopped) canvas.setAttribute('aria-label', asset.manifest.name);
+        if (token === change && !stopped) {
+          petName = asset.manifest.name;
+          canvas.setAttribute('aria-label', asset.manifest.name);
+        }
       }
-      if (token === change && !stopped) sync();
+      if (token === change && !stopped) {
+        if (currentReminderId === PET_LOAD_ERROR_ID) currentReminderId = undefined;
+        sync();
+      }
     } catch (e) {
       if (token !== change || stopped) return;
       selectedPet = 'yueying-cape-dancer';
+      petName = '月影';
       await pet.mountDefault();
       console.error(e);
+      clearInteractionBubble();
+      currentReminderId = PET_LOAD_ERROR_ID;
+      ++stamp;
+      targetChanged = true;
       updateControls();
       title.textContent = '无法加载所选桌宠';
       detail.textContent = '请在设置中重新选择宠物';
+      close.textContent = '×';
+      close.hidden = false;
       bubble.hidden = false;
       measure();
     }
@@ -210,10 +516,20 @@ export function bindReminder(
     ),
   );
   subscribe(
+    listen<PetClickEvent>('pet:click', (event) => {
+      handlePetClick(event.payload);
+    }),
+  );
+  subscribe(
+    listen('pet:drag-end', () => {
+      handleDragEnd();
+    }),
+  );
+  subscribe(
     listen<{ stamp: number; action: BubbleAction }>('pet:bubble-action', (event) => {
       const payload = event.payload;
       if (stopped || bubble.hidden || input?.stamp !== payload.stamp || stamp !== payload.stamp) return;
-      const button = Array.from(controls.querySelectorAll<HTMLButtonElement>('button')).find(
+      const button = Array.from(bubble.querySelectorAll<HTMLButtonElement>('button[data-action]')).find(
         (element) => element.dataset.action === payload.action,
       );
       if (button && !button.hidden) button.click();
@@ -230,8 +546,29 @@ export function bindReminder(
       if (!bubble.hidden && sizeChanged) measure(true);
       else queue();
     },
+    click(event: PetClickEvent) {
+      handlePetClick(event);
+    },
+    animationEnded(state: string, timestamp: number) {
+      if (stopped || validationState) return;
+      if (interactionStep && !interactionStep.timed && interactionStep.state === state) {
+        playNextInteractionStep(timestamp);
+        return;
+      }
+      if (!activeAnimation || activeAnimation.state !== state) return;
+      const finished = activeAnimation;
+      activeAnimation = undefined;
+      completedAnimations.add(finished.key);
+      if (completedAnimations.size > MAX_DISMISSED) {
+        const oldest = completedAnimations.values().next().value;
+        if (oldest !== undefined) completedAnimations.delete(oldest);
+      }
+      pet.renderer.setState(finished.fallbackState, timestamp);
+    },
     stop() {
       stopped = true;
+      clearInteractionBubble();
+      clearInteractionAnimation();
       observer.disconnect();
       stops.forEach((stop) => stop());
       bubble.remove();

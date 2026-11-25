@@ -5,9 +5,12 @@ import type { FrameRect, NotificationRecord, PetSnapshot, SessionKey, SessionPro
 
 interface Presentation {
   state: string;
+  fallbackState: string;
+  animationKey?: string;
   title?: string;
   detail?: string;
   key?: SessionKey;
+  reminderId?: string;
 }
 export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Presentation {
   const ends = new Map<string, NotificationRecord>();
@@ -27,7 +30,9 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
   let animation: SessionProjection | undefined, best: SessionProjection | undefined;
   let animationRank = 0,
     rank = 0;
+  let hasRunning = false;
   for (const s of snap.sessions) {
+    if (s.status === 'running') hasRunning = true;
     const value = priority(s);
     if (!value) continue;
     if (value > animationRank || (value === animationRank && s.lastEventAtMs > animation!.lastEventAtMs)) {
@@ -43,8 +48,22 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
   const defaultStates = ['idle', 'idle', 'running', 'waving', 'failed', 'waiting'];
   const singleApproval = animation?.pending.length === 1 && animation.pending[0].reason === 'approval';
   const state = animationRank === 5 && singleApproval ? 'review' : defaultStates[animationRank];
-  if (!best || rank === 2) return { state };
-  const end = ends.get(keyId(best.key));
+  const fallbackState = animationRank === 5 ? state : hasRunning ? 'running' : 'idle';
+  let animationKey: string | undefined;
+  if (animation && animationRank === 4) {
+    animationKey = JSON.stringify(['failed', keyId(animation.key), animation.turnId ?? animation.lastEventAtMs]);
+  } else if (animation && animationRank === 3) {
+    const animId = keyId(animation.key);
+    const animEnd = ends.get(animId);
+    animationKey = animEnd
+      ? JSON.stringify(['notification', animId, animEnd.id])
+      : importedEnds.has(animId)
+        ? JSON.stringify(['imported', animId])
+        : JSON.stringify(['session', animId, animation.status, animation.turnId ?? animation.lastEventAtMs]);
+  }
+  if (!best || rank === 2) return { state, fallbackState, animationKey };
+  const bestId = keyId(best.key);
+  const end = ends.get(bestId);
   const title = [
     sourceName[best.key.source],
     best.project?.name || end?.project?.name || best.key.sessionId,
@@ -54,15 +73,26 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
     const reason = only ? reasonName[only.reason] : '有待处理请求';
     return {
       state,
+      fallbackState,
+      animationKey,
       key: best.key,
+      reminderId: JSON.stringify(['attention', bestId, best.pending.map((p) => p.id)]),
       title,
       detail: [reason, only?.summary].filter(Boolean).join(' · '),
     };
   }
-  if (rank === 4 && !best.unread && !end) return { state };
+  if (rank === 4 && !best.unread && !end) return { state, fallbackState, animationKey };
+  const reminderId = end
+    ? JSON.stringify(['notification', bestId, end.id])
+    : importedEnds.has(bestId)
+      ? JSON.stringify(['imported', bestId])
+      : JSON.stringify(['session', bestId, best.status, best.turnId ?? best.lastEventAtMs]);
   return {
     state,
+    fallbackState,
+    animationKey,
     key: best.key,
+    reminderId,
     title,
     detail: [
       end ? historyName(end.kind) : rank === 4 ? '回合失败' : '收到回合结束提醒',

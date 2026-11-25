@@ -1,6 +1,6 @@
 use super::playback;
 use std::{cell::Cell, ffi::c_void, io};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 type Hwnd = *mut c_void;
 type WindowProc = unsafe extern "system" fn(Hwnd, u32, usize, isize, usize, usize) -> isize;
@@ -45,6 +45,7 @@ unsafe extern "system" fn window_proc(
         WM_EXITSIZEMOVE => {
             watch.moving.set(false);
             super::finish_drag(app);
+            let _ = app.emit_to("pet", "pet:drag-end", serde_json::json!({}));
         }
         WM_DISPLAYCHANGE | WM_DPICHANGED | WM_SETTINGCHANGE
             if !watch.moving.get()

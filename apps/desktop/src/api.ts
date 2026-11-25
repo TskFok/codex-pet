@@ -53,6 +53,7 @@ export const api = {
   clear: (): Promise<PetSnapshot> => invoke('clear_history'),
   openSession: (key: SessionKey, intent: OpenIntent): Promise<OpenOutcome> =>
     invoke('open_session', { key, intent }),
+  openNotifications: (): Promise<void> => invoke('open_notifications'),
   copySession: (key: SessionKey): Promise<void> => invoke('copy_session_id', { key }),
   settings: (): Promise<Settings> => invoke('get_settings'),
   settingsEvents: event<Settings>('pet:settings'),

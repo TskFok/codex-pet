@@ -20,9 +20,12 @@ it('只播放一次开场，随后从 loopStart 循环并能直接跳过 5 秒',
   const animation: Animation = { frames, loopStart: 1 };
   expect([424, 425, 674, 675, 750, 5000].map((elapsed) => clock.sample(animation, elapsed).frameIndex))
     .toEqual([2, 1, 1, 2, 1, 1]);
+  expect(clock.sample(animation, 5000).finished).toBe(false);
 });
 
-it('单次动作结束后一直保持末帧', () => {
+it('单次动作结束后一直保持末帧并标记已结束', () => {
   const animation: Animation = { frames };
-  expect(clock.sample(animation, 5000).frameIndex).toBe(2);
+  expect(clock.sample(animation, 424)).toMatchObject({ frameIndex: 2, finished: false });
+  expect(clock.sample(animation, 425)).toMatchObject({ frameIndex: 2, finished: true });
+  expect(clock.sample(animation, 5000)).toMatchObject({ frameIndex: 2, finished: true });
 });

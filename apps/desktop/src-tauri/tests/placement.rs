@@ -1,4 +1,4 @@
-use pet_desktop::placement::{WindowPlacement, WorkArea, clamp_placement};
+use pet_desktop::placement::{HEIGHT, WIDTH, WindowPlacement, WorkArea, clamp_placement};
 
 fn monitor(id: &str, x: f64, y: f64, w: f64, h: f64, dpi: f64) -> WorkArea {
     WorkArea {
@@ -30,10 +30,16 @@ fn removed_screen_uses_primary_work_area_and_dpi_change_clamps_bottom_right() {
     let primary = monitor("primary", 30., 64., 1200., 900., 1.5);
     let fit = clamp_placement(saved, std::slice::from_ref(&primary));
     assert_eq!(fit.monitor_id.as_deref(), Some("primary"));
-    assert_eq!(primary.position(&fit), (990., 694.));
+    assert_eq!(
+        primary.position(&fit),
+        (30. + (800. - WIDTH) * 1.5, 64. + (600. - HEIGHT) * 1.5)
+    );
     let changed = monitor("primary", 30., 64., 1200., 900., 2.);
     let fit = clamp_placement(fit, std::slice::from_ref(&changed));
-    assert_eq!(changed.position(&fit), (910., 604.));
+    assert_eq!(
+        changed.position(&fit),
+        (30. + (600. - WIDTH) * 2., 64. + (450. - HEIGHT) * 2.)
+    );
 }
 
 #[test]
@@ -48,7 +54,11 @@ fn oversized_pet_fits_even_a_tiny_work_area_and_remains_recoverable() {
         },
         &[area],
     );
-    assert_eq!((fit.x, fit.y, fit.scale), (0., 0., 0.25));
+    let expected_scale = (40. / WIDTH).min(45. / HEIGHT);
+    assert_eq!(
+        (fit.x, fit.y, fit.scale),
+        (40. - WIDTH * expected_scale, 0., expected_scale)
+    );
 }
 
 #[test]

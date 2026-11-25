@@ -93,6 +93,10 @@ pub(crate) enum BubbleAction {
     Session,
     Application,
     Copy,
+    Close,
+    PetFeed,
+    PetPlay,
+    PetNotifications,
 }
 
 #[derive(Deserialize)]
@@ -101,6 +105,19 @@ pub(crate) struct BubbleInput {
     #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
     stamp: u32,
     buttons: Vec<BubbleButton>,
+    #[serde(default)]
+    backdrop: Option<BubbleBackdrop>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BubbleBackdrop {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+    #[serde(default)]
+    pub(crate) radius: f64,
 }
 
 #[derive(Deserialize)]
@@ -122,16 +139,37 @@ struct ButtonRect {
 
 impl BubbleInput {
     pub(crate) fn validate(&self, mask: &AlphaMask) -> bool {
-        (1..=3).contains(&self.buttons.len())
-            && self.buttons.iter().all(|button| {
-                let r = &button.rect;
-                r.x >= 0.0
-                    && r.y >= 0.0
-                    && r.width > 0.0
-                    && r.height > 0.0
-                    && r.x + r.width <= f64::from(mask.width)
-                    && r.y + r.height <= f64::from(mask.height)
+        let valid_rect = |x: f64, y: f64, width: f64, height: f64| {
+            x.is_finite()
+                && y.is_finite()
+                && width.is_finite()
+                && height.is_finite()
+                && x >= 0.0
+                && y >= 0.0
+                && width > 0.0
+                && height > 0.0
+                && x + width <= f64::from(mask.width)
+                && y + height <= f64::from(mask.height)
+        };
+        (1..=4).contains(&self.buttons.len())
+            && self
+                .buttons
+                .iter()
+                .all(|button| valid_rect(button.rect.x, button.rect.y, button.rect.width, button.rect.height))
+            && self.backdrop.as_ref().is_none_or(|b| {
+                valid_rect(b.x, b.y, b.width, b.height) && b.radius.is_finite() && b.radius >= 0.0
             })
+    }
+
+    #[cfg(any(test, target_os = "macos"))]
+    pub(crate) fn backdrop(&self) -> Option<BubbleBackdrop> {
+        self.backdrop
+    }
+
+    #[cfg(any(test, target_os = "macos"))]
+    pub(crate) fn contains_backdrop(&self, x: f64, y: f64) -> bool {
+        self.backdrop
+            .is_some_and(|r| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
     }
 
     #[cfg(any(test, target_os = "macos"))]
@@ -166,5 +204,98 @@ mod bubble_tests {
         assert_eq!(input.action_at(11.0, 38.0), None);
         let outside = AlphaMask { width: 40, ..mask };
         assert!(!input.validate(&outside));
+
+        let with_close: BubbleInput = serde_json::from_value(serde_json::json!({
+            "stamp": 8,
+            "buttons": [
+                {"action":"close","rect":{"x":280.0,"y":6.0,"width":20.0,"height":20.0}},
+                {"action":"session","rect":{"x":10.0,"y":50.0,"width":60.0,"height":20.0}},
+                {"action":"application","rect":{"x":74.0,"y":50.0,"width":60.0,"height":20.0}},
+                {"action":"copy","rect":{"x":138.0,"y":50.0,"width":56.0,"height":20.0}}
+            ]
+        }))
+        .unwrap();
+        assert!(with_close.validate(&AlphaMask {
+            width: 320,
+            height: 360,
+            runs: vec![],
+        }));
+        assert_eq!(
+            with_close.action_at(290.0, 12.0),
+            Some((8, BubbleAction::Close))
+        );
+    }
+
+    #[test]
+    fn bubble_backdrop_validates_bounds_and_radius() {
+        let mask = AlphaMask {
+            width: 480,
+            height: 640,
+            runs: vec![],
+        };
+        let valid: BubbleInput = serde_json::from_value(serde_json::json!({
+            "stamp": 9,
+            "buttons": [{"action":"close","rect":{"x":424.0,"y":120.0,"width":36.0,"height":36.0}}],
+            "backdrop": {"x":12.0,"y":108.0,"width":456.0,"height":160.0,"radius":28.0}
+        }))
+        .unwrap();
+        assert!(valid.validate(&mask));
+        assert_eq!(
+            valid.backdrop(),
+            Some(BubbleBackdrop {
+                x: 12.0,
+                y: 108.0,
+                width: 456.0,
+                height: 160.0,
+                radius: 28.0,
+            })
+        );
+
+        let negative_radius: BubbleInput = serde_json::from_value(serde_json::json!({
+            "stamp": 10,
+            "buttons": [{"action":"close","rect":{"x":10.0,"y":10.0,"width":20.0,"height":20.0}}],
+            "backdrop": {"x":10.0,"y":10.0,"width":100.0,"height":60.0,"radius":-1.0}
+        }))
+        .unwrap();
+        assert!(!negative_radius.validate(&mask));
+
+        let out_of_bounds: BubbleInput = serde_json::from_value(serde_json::json!({
+            "stamp": 11,
+            "buttons": [{"action":"close","rect":{"x":10.0,"y":10.0,"width":20.0,"height":20.0}}],
+            "backdrop": {"x":400.0,"y":10.0,"width":100.0,"height":60.0,"radius":14.0}
+        }))
+        .unwrap();
+        assert!(!out_of_bounds.validate(&mask));
+    }
+
+    #[test]
+    fn interaction_bubble_actions_and_backdrop_hit_test_work() {
+        let mask = AlphaMask {
+            width: 480,
+            height: 640,
+            runs: vec![],
+        };
+        let input: BubbleInput = serde_json::from_value(serde_json::json!({
+            "stamp": 12,
+            "buttons": [
+                {"action":"close","rect":{"x":424.0,"y":120.0,"width":36.0,"height":36.0}},
+                {"action":"pet_feed","rect":{"x":24.0,"y":204.0,"width":80.0,"height":40.0}},
+                {"action":"pet_play","rect":{"x":112.0,"y":204.0,"width":80.0,"height":40.0}},
+                {"action":"pet_notifications","rect":{"x":200.0,"y":204.0,"width":80.0,"height":40.0}}
+            ],
+            "backdrop": {"x":12.0,"y":108.0,"width":456.0,"height":160.0,"radius":28.0}
+        }))
+        .unwrap();
+        assert!(input.validate(&mask));
+        assert_eq!(input.action_at(40.0, 210.0), Some((12, BubbleAction::PetFeed)));
+        assert_eq!(input.action_at(130.0, 210.0), Some((12, BubbleAction::PetPlay)));
+        assert_eq!(
+            input.action_at(220.0, 210.0),
+            Some((12, BubbleAction::PetNotifications))
+        );
+        assert!(input.contains_backdrop(12.0, 108.0));
+        assert!(input.contains_backdrop(400.0, 250.0));
+        assert!(!input.contains_backdrop(468.0, 108.0));
+        assert!(!input.contains_backdrop(240.0, 420.0));
     }
 }

@@ -3,6 +3,7 @@ import type { Animation, FrameRect } from '../types';
 export interface AnimationSample {
   frameIndex: number;
   rect: FrameRect;
+  finished: boolean;
 }
 
 export class AnimationClock {
@@ -21,7 +22,7 @@ export class AnimationClock {
     let time = Math.max(0, elapsedMs);
     if (time >= duration) {
       if (animation.loopStart === undefined) {
-        return { frameIndex: last, rect: animation.frames[last].rect };
+        return { frameIndex: last, rect: animation.frames[last].rect, finished: true };
       }
       const loopTime = ends[animation.loopStart - 1] ?? 0;
       time = loopTime + (time - loopTime) % (duration - loopTime);
@@ -35,6 +36,6 @@ export class AnimationClock {
       if (ends[middle] <= time) first = middle + 1;
       else end = middle;
     }
-    return { frameIndex: first, rect: animation.frames[first].rect };
+    return { frameIndex: first, rect: animation.frames[first].rect, finished: false };
   }
 }

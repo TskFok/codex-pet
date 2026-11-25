@@ -3,8 +3,8 @@ use pet_core::{AppPaths, StorageError, paths};
 use serde::{Deserialize, Serialize};
 use std::{fs::OpenOptions, io::Read};
 
-pub const WIDTH: f64 = 160.;
-pub const HEIGHT: f64 = 180.;
+pub const WIDTH: f64 = 240.;
+pub const HEIGHT: f64 = 320.;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
