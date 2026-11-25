@@ -1,4 +1,6 @@
-use crate::placement::{HEIGHT, WIDTH, WindowPlacement, WorkArea, clamp_placement};
+use crate::placement::{
+    DesktopContext, HEIGHT, WIDTH, WindowPlacement, WorkArea, clamp_placement, desktop_context_for,
+};
 use crate::windows::{AlphaMask, BubbleAction, BubbleInput};
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained};
 use objc2_app_kit::{
@@ -82,6 +84,7 @@ define_class!(
             let action = self.bubble_action(event);
             self.ivars().pressed.set(action);
             if action.is_some() { return; }
+            crate::autonomy::interrupt_user_activity(&self.ivars().app);
             if let Some(window) = self.window() {
                 let point = self.convertPoint_fromView(event.locationInWindow(), None);
                 let bounds = self.bounds().size;
@@ -419,7 +422,9 @@ pub(super) fn position(saved: Option<WindowPlacement>) -> tauri::Result<Option<W
             size,
         );
         if current != frame {
-            proxy.setFrame_display(frame, true);
+            super::macos_power::with_programmatic_move(|| {
+                proxy.setFrame_display(frame, true);
+            });
         }
         if renderer.frame() != frame {
             renderer.setFrame_display(frame, true);
@@ -427,4 +432,27 @@ pub(super) fn position(saved: Option<WindowPlacement>) -> tauri::Result<Option<W
         return Ok(Some(fit));
     }
     Ok(None)
+}
+
+pub(super) fn desktop_context() -> tauri::Result<Option<DesktopContext>> {
+    let mtm =
+        MainThreadMarker::new().ok_or_else(|| std::io::Error::other("查询桌面工作区必须在主线程"))?;
+    let Some(proxy) = PROXY.with(|s| s.borrow().as_ref().map(|p| p.proxy.clone())) else {
+        return Ok(None);
+    };
+    let areas: Vec<_> = NSScreen::screens(mtm)
+        .iter()
+        .map(|screen| area(&screen))
+        .collect();
+    let current = proxy.frame();
+    let Some(screen) = proxy.screen() else {
+        return Ok(None);
+    };
+    let current_area = area(&screen);
+    let placement = current_area.capture(
+        current.origin.x * current_area.scale_factor,
+        -(current.origin.y + current.size.height) * current_area.scale_factor,
+        current.size.width / WIDTH,
+    );
+    Ok(desktop_context_for(placement, &areas))
 }

@@ -583,3 +583,95 @@ it('支持点击桌宠触发部位互动、双击快捷面板按钮及真实任�
     vi.unstubAllGlobals();
   }
 });
+
+it('响应 DeepSeek 自主活动事件，用户点击可打断，真实任务提醒优先抢占', async () => {
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 240, 320);
+    if (this.localName === 'aside') return rect(4, 54, 232, 72);
+    return rect(212, 60, 18, 18);
+  });
+  let update!: (value: PetSnapshot) => void;
+  const idleSnapshot: PetSnapshot = { revision: 1, sessions: [], notifications: [] };
+  const prefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    mutedSources: [],
+    petId: 'yueying-cape-dancer',
+    deepseekEnabled: true,
+    deepseekModel: 'deepseek-chat',
+    deepseekApiKeyConfigured: true,
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshots').mockImplementation(async (receive) => {
+    update = receive;
+    return () => {};
+  });
+  vi.spyOn(api, 'snapshot').mockResolvedValue(idleSnapshot);
+  const interrupt = vi.spyOn(api, 'interruptPetActivity').mockResolvedValue(undefined);
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 240;
+  canvas.height = 320;
+  const renderer = { setState: vi.fn(), setFps: vi.fn(), triggerInteractionEffect: vi.fn() };
+  const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, vi.fn(), vi.fn());
+  const bubble = document.querySelector('aside')!;
+  const deliverEvent = (name: string, payload: unknown) => {
+    const call = [...vi.mocked(listen).mock.calls].reverse().find(([eventName]) => eventName === name);
+    if (!call) throw new Error(`缺少 ${name} 事件监听`);
+    call[1]({ event: name, id: 1, payload });
+  };
+  try {
+    await vi.waitFor(() => expect(renderer.setState).toHaveBeenCalledWith('idle', expect.any(Number)));
+
+    // 1. 收到 DeepSeek 自主漫步事件，播放对应方向动画、特效和想法气泡
+    deliverEvent('pet:activity', {
+      id: 'deepseek-activity:1',
+      phase: 'start',
+      state: 'running-right',
+      effect: { x: 0.5, y: 0.62, kind: 'sparkle', bounce: 0.85, count: 5 },
+      thought: '去桌面右边散散步~',
+      thoughtDurationMs: 3600,
+    });
+    expect(renderer.setState).toHaveBeenLastCalledWith('running-right', expect.any(Number), true);
+    expect(renderer.triggerInteractionEffect).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'sparkle' }),
+      expect.any(Number),
+    );
+    expect(bubble.hidden).toBe(false);
+    expect(bubble.textContent).toContain('去桌面右边散散步~');
+
+    // 2. 活动结束后恢复 idle
+    deliverEvent('pet:activity', { id: 'deepseek-activity:1', phase: 'end' });
+    expect(renderer.setState).toHaveBeenLastCalledWith('idle', expect.any(Number));
+
+    // 3. 自主活动进行中被用户点击，应立即通知后端打断自主移动
+    deliverEvent('pet:activity', { id: 'deepseek-activity:2', phase: 'start', state: 'running-left' });
+    handle.click({ x: 0.5, y: 0.5, clickCount: 1 });
+    expect(interrupt).toHaveBeenCalledTimes(1);
+
+    // 4. 真实待审批提醒到达时抢占自主活动，且提醒存在时忽略新的自主活动气泡
+    const urgent = structuredClone(fixture.expected) as PetSnapshot;
+    urgent.revision = 10;
+    update(urgent);
+    expect(renderer.setState).toHaveBeenLastCalledWith('review', expect.any(Number));
+    deliverEvent('pet:activity', {
+      id: 'deepseek-activity:3',
+      phase: 'start',
+      state: 'jumping',
+      thought: '不应覆盖审批提醒',
+    });
+    expect(bubble.textContent).toContain('待审批');
+    expect(bubble.textContent).not.toContain('不应覆盖审批提醒');
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});

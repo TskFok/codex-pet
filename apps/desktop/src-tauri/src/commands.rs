@@ -1,5 +1,6 @@
 use crate::{
     NotificationConnection, NotificationRuntime,
+    autonomy::{self, AutonomyRuntime, DeepSeekActivityStatus, DeepSeekClient, DeepSeekTestResult},
     broker::{BrokerView, HistoryAction},
     navigation::{self, OpenIntent, OpenOutcome},
     notification_paths,
@@ -168,6 +169,7 @@ impl SettingsHost for tauri::AppHandle {
     }
     fn publish(&self, settings: &Settings) {
         let _ = self.emit("pet:settings", settings);
+        autonomy::on_settings_updated(self);
     }
 }
 
@@ -214,6 +216,77 @@ pub fn update_settings(
 ) -> Result<Settings> {
     let _guard = gate.0.lock().unwrap();
     commit_settings(&app, &notification_paths()?, patch)
+}
+
+#[tauri::command]
+pub fn get_deepseek_activity_status(
+    gate: State<'_, SettingsLock>,
+    runtime: State<'_, AutonomyRuntime>,
+) -> Result<DeepSeekActivityStatus> {
+    let _guard = gate.0.lock().unwrap();
+    let prefs = Preferences::load(&notification_paths()?)?;
+    let mut status = runtime.status();
+    status.configured = !prefs.deepseek_api_key.trim().is_empty();
+    status.enabled = prefs.deepseek_enabled;
+    status.model = prefs.deepseek_model;
+    if !status.configured || !status.enabled {
+        status.running = false;
+    }
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn test_deepseek_connection(
+    gate: State<'_, SettingsLock>,
+    api_key: Option<String>,
+    model: Option<String>,
+) -> Result<DeepSeekTestResult> {
+    let (resolved_key, resolved_model) = {
+        let _guard = gate.0.lock().unwrap();
+        let prefs = Preferences::load(&notification_paths()?)?;
+        let key = api_key
+            .map(|k| k.trim().to_owned())
+            .filter(|k| !k.is_empty())
+            .unwrap_or(prefs.deepseek_api_key);
+        let model = model
+            .map(|m| m.trim().to_owned())
+            .filter(|m| !m.is_empty())
+            .unwrap_or(prefs.deepseek_model);
+        (key, model)
+    };
+    let client = DeepSeekClient::new().map_err(|e| CommandError::new("deepseek", e.message))?;
+    client
+        .test_connection(&resolved_key, &resolved_model)
+        .await
+        .map_err(|e| CommandError::new("deepseek", e.message))
+}
+
+#[tauri::command]
+pub fn trigger_pet_activity(
+    gate: State<'_, SettingsLock>,
+    runtime: State<'_, AutonomyRuntime>,
+) -> Result<()> {
+    let _guard = gate.0.lock().unwrap();
+    let prefs = Preferences::load(&notification_paths()?)?;
+    if prefs.deepseek_api_key.trim().is_empty() {
+        return Err(CommandError::new(
+            "deepseek",
+            "请先配置 DeepSeek API Key 后再触发自由活动",
+        ));
+    }
+    if !prefs.deepseek_enabled {
+        return Err(CommandError::new(
+            "deepseek",
+            "请先启用桌宠自由活动开关",
+        ));
+    }
+    runtime.request_manual_trigger();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn interrupt_pet_activity(runtime: State<'_, AutonomyRuntime>) {
+    runtime.notify_user_interaction();
 }
 
 pub(crate) fn apply_settings_patch(

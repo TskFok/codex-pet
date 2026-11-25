@@ -57,6 +57,15 @@ impl WorkArea {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct DesktopContext {
+    pub placement: WindowPlacement,
+    pub work_area_width: f64,
+    pub work_area_height: f64,
+    pub max_x: f64,
+    pub max_y: f64,
+}
+
 /// 列表首项为主显示器。短时没有工作区时沿用原位置，等待下次显示器事件。
 pub fn clamp_placement(mut value: WindowPlacement, monitors: &[WorkArea]) -> WindowPlacement {
     let usable = monitors.iter().filter(|area| area.usable());
@@ -77,6 +86,24 @@ pub fn clamp_placement(mut value: WindowPlacement, monitors: &[WorkArea]) -> Win
     value.y = value.y.max(0.).min((height - HEIGHT * value.scale).max(0.));
     value.monitor_id = Some(area.id.clone());
     value
+}
+
+pub fn desktop_context_for(value: WindowPlacement, monitors: &[WorkArea]) -> Option<DesktopContext> {
+    let fit = clamp_placement(value, monitors);
+    let area = monitors
+        .iter()
+        .find(|area| area.usable() && Some(&area.id) == fit.monitor_id.as_ref())?;
+    let work_area_width = area.width / area.scale_factor;
+    let work_area_height = area.height / area.scale_factor;
+    let max_x = (work_area_width - WIDTH * fit.scale).max(0.);
+    let max_y = (work_area_height - HEIGHT * fit.scale).max(0.);
+    Some(DesktopContext {
+        placement: fit,
+        work_area_width,
+        work_area_height,
+        max_x,
+        max_y,
+    })
 }
 
 pub(crate) fn load(paths: &AppPaths) -> Result<WindowPlacement, StorageError> {

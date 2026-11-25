@@ -133,6 +133,116 @@ pub(crate) fn apply_placement(
     Ok(())
 }
 
+/// 查询当前显示器工作区和桌宠逻辑坐标，供自主活动规划使用。
+pub(crate) async fn desktop_context(
+    app: &tauri::AppHandle,
+) -> Option<crate::placement::DesktopContext> {
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if app
+            .run_on_main_thread(move || {
+                let _ = tx.send(macos::desktop_context().ok().flatten());
+            })
+            .is_err()
+        {
+            return None;
+        }
+        tokio::time::timeout(std::time::Duration::from_millis(500), rx)
+            .await
+            .ok()
+            .and_then(|res| res.ok())
+            .flatten()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let app_handle = app.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if app
+            .run_on_main_thread(move || {
+                let _ = tx.send(windows::desktop_context(&app_handle).ok().flatten());
+            })
+            .is_err()
+        {
+            return None;
+        }
+        tokio::time::timeout(std::time::Duration::from_millis(500), rx)
+            .await
+            .ok()
+            .and_then(|res| res.ok())
+            .flatten()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// 平滑移动桌宠窗口一步。`persist` 为 false 时仅更新窗口位置，不频繁写盘；
+/// 移动结束时以 `persist = true` 写入最终位置。
+pub(crate) async fn step_placement(
+    app: &tauri::AppHandle,
+    target: crate::placement::WindowPlacement,
+    persist: bool,
+) -> Option<crate::placement::WindowPlacement> {
+    #[cfg(target_os = "macos")]
+    {
+        let app_handle = app.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if app
+            .run_on_main_thread(move || {
+                let moved = macos::position(Some(target)).ok().flatten();
+                if persist
+                    && let Some(ref pos) = moved
+                    && let Some(state) = app_handle.try_state::<crate::placement::PlacementState>()
+                {
+                    state.remember(pos.clone());
+                }
+                let _ = tx.send(moved);
+            })
+            .is_err()
+        {
+            return None;
+        }
+        tokio::time::timeout(std::time::Duration::from_millis(500), rx)
+            .await
+            .ok()
+            .and_then(|res| res.ok())
+            .flatten()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let app_handle = app.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if app
+            .run_on_main_thread(move || {
+                let moved = windows::position(&app_handle, Some(target)).ok().flatten();
+                if persist
+                    && let Some(ref pos) = moved
+                    && let Some(state) = app_handle.try_state::<crate::placement::PlacementState>()
+                {
+                    state.remember(pos.clone());
+                }
+                let _ = tx.send(moved);
+            })
+            .is_err()
+        {
+            return None;
+        }
+        tokio::time::timeout(std::time::Duration::from_millis(500), rx)
+            .await
+            .ok()
+            .and_then(|res| res.ok())
+            .flatten()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (app, target, persist);
+        None
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(super) fn finish_drag(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]

@@ -21,7 +21,7 @@ define_class!(
         }
         #[unsafe(method(petDidMove:))]
         fn did_move(&self,_notification:&NSNotification) {
-            if !super::macos::is_visible() { return; }
+            if !super::macos::is_visible() || PROGRAMMATIC_MOVE.get() { return; }
             PENDING_MOVE.set(true);
             // WindowServer 接管拖动后 mouseUp 不一定送达。只在一批移动通知结束时保存。
             unsafe {
@@ -64,7 +64,20 @@ impl Drop for PowerWatch {
 
 thread_local! {
     static PENDING_MOVE: Cell<bool> = const { Cell::new(false) };
+    static PROGRAMMATIC_MOVE: Cell<bool> = const { Cell::new(false) };
     static WATCH: RefCell<Option<PowerWatch>> = const { RefCell::new(None) };
+}
+
+pub(super) fn with_programmatic_move<R>(f: impl FnOnce() -> R) -> R {
+    struct Guard(bool);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            PROGRAMMATIC_MOVE.set(self.0);
+        }
+    }
+    let previous = PROGRAMMATIC_MOVE.replace(true);
+    let _guard = Guard(previous);
+    f()
 }
 
 pub(super) fn install(app: &tauri::AppHandle) {

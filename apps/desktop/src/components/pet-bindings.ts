@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { api, observeSnapshot } from '../api';
 import type { AlphaMask } from '../animation/hit-mask';
-import type { FrameRect, PetSnapshot, SessionKey, Settings } from '../types';
+import type { FrameRect, PetActivityEvent, PetSnapshot, SessionKey, Settings } from '../types';
 import type { mountPet } from './pet';
 import { createNavigation } from './navigation';
 import { keyId } from './notifications';
@@ -80,7 +80,11 @@ export function bindReminder(
   let interactionQueue: InteractionStep[] = [];
   let interactionStep: { state: string; timed: boolean } | undefined;
   let interactionStepTimer: ReturnType<typeof setTimeout> | undefined;
+  let autonomousActivity: { id: string; state?: string } | undefined;
   let lastTaskKey: string | undefined;
+  function clearAutonomousActivity() {
+    autonomousActivity = undefined;
+  }
   function clearInteractionBubble() {
     if (interactionBubbleTimer !== undefined) {
       clearTimeout(interactionBubbleTimer);
@@ -216,13 +220,70 @@ export function bindReminder(
   }
   function handlePetClick(event: PetClickEvent) {
     if (stopped) return;
+    if (autonomousActivity) {
+      clearAutonomousActivity();
+      void api.interruptPetActivity().catch(() => {});
+    }
     const now = performance.now();
     applyInteraction(interactions.handleClick(event, now, { petName, snapshot }), now);
   }
   function handleDragEnd() {
+    clearAutonomousActivity();
     if (stopped || validationState || hasActiveReminder()) return;
     const now = performance.now();
     applyInteraction(interactions.handleDragEnd(now, { petName, snapshot }), now);
+  }
+  function handleAutonomousActivity(event: PetActivityEvent) {
+    if (stopped || validationState) return;
+    const now = performance.now();
+    if (event.phase === 'end') {
+      if (!autonomousActivity || autonomousActivity.id === event.id) {
+        clearAutonomousActivity();
+        if (!interactionStep) {
+          if (snapshot) sync();
+          else pet.renderer.setState('idle', now);
+        }
+      }
+      return;
+    }
+    if (interactionStep || hasActiveReminder()) return;
+    autonomousActivity = {
+      id: event.id,
+      state: event.state ?? autonomousActivity?.state,
+    };
+    if (event.state) {
+      activeAnimation = undefined;
+      pet.renderer.setState(event.state, now, true);
+    }
+    if (event.effect) {
+      pet.renderer.triggerInteractionEffect?.(event.effect, now);
+    }
+    if (event.thought && !hasActiveReminder() && !interactionBubble) {
+      const bubbleId = `pet-activity:${event.id}`;
+      const durationMs = Math.max(1200, Math.min(8000, event.thoughtDurationMs ?? 3600));
+      clearInteractionBubble();
+      interactionBubble = {
+        id: bubbleId,
+        title: petName,
+        detail: event.thought,
+        actions: [],
+        expiresAtMs: now + durationMs,
+      };
+      interactionBubbleTimer = setTimeout(() => {
+        interactionBubbleTimer = undefined;
+        if (stopped || interactionBubble?.id !== bubbleId) return;
+        interactionBubble = undefined;
+        if (!hasActiveReminder()) {
+          ++stamp;
+          targetChanged = true;
+          hideBubble();
+          measure();
+        }
+      }, durationMs);
+      ++stamp;
+      targetChanged = true;
+      renderInteractionBubble();
+    }
   }
   function queue() {
     if (!base) return;
@@ -368,12 +429,14 @@ export function bindReminder(
       Boolean(result.animationKey && !completedAnimations.has(result.animationKey));
     if (taskChanged && urgentTask) {
       clearInteractionAnimation();
+      clearAutonomousActivity();
     }
     if (validationState) {
       clearInteractionAnimation();
+      clearAutonomousActivity();
       activeAnimation = undefined;
       pet.renderer.setState(validationState, now);
-    } else if (!interactionStep) {
+    } else if (!interactionStep && !autonomousActivity?.state) {
       if (result.animationKey && completedAnimations.has(result.animationKey)) {
         activeAnimation = undefined;
         pet.renderer.setState(result.fallbackState, now);
@@ -526,6 +589,11 @@ export function bindReminder(
     }),
   );
   subscribe(
+    listen<PetActivityEvent>('pet:activity', (event) => {
+      handleAutonomousActivity(event.payload);
+    }),
+  );
+  subscribe(
     listen<{ stamp: number; action: BubbleAction }>('pet:bubble-action', (event) => {
       const payload = event.payload;
       if (stopped || bubble.hidden || input?.stamp !== payload.stamp || stamp !== payload.stamp) return;
@@ -555,6 +623,12 @@ export function bindReminder(
         playNextInteractionStep(timestamp);
         return;
       }
+      if (autonomousActivity && autonomousActivity.state === state) {
+        autonomousActivity.state = undefined;
+        if (snapshot) sync();
+        else pet.renderer.setState('idle', timestamp);
+        return;
+      }
       if (!activeAnimation || activeAnimation.state !== state) return;
       const finished = activeAnimation;
       activeAnimation = undefined;
@@ -569,6 +643,7 @@ export function bindReminder(
       stopped = true;
       clearInteractionBubble();
       clearInteractionAnimation();
+      clearAutonomousActivity();
       observer.disconnect();
       stops.forEach((stop) => stop());
       bubble.remove();

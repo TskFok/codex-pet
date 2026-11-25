@@ -19,6 +19,8 @@ const MENU_HIDE_ID: &str = "pet-menu:hide";
 const MENU_QUIT_ID: &str = "pet-menu:quit";
 const MENU_SOUND_ON_ID: &str = "pet-menu:sound:on";
 const MENU_SOUND_OFF_ID: &str = "pet-menu:sound:off";
+const MENU_AUTONOMY_ON_ID: &str = "pet-menu:autonomy:on";
+const MENU_AUTONOMY_OFF_ID: &str = "pet-menu:autonomy:off";
 const MENU_SCALE_PREFIX: &str = "pet-menu:scale:";
 const MENU_PET_PREFIX: &str = "pet-menu:pet:";
 
@@ -29,6 +31,7 @@ enum MenuAction {
     OpenNotifications,
     OpenSettings,
     SetSound(bool),
+    SetAutonomy(bool),
     SetScale(f64),
     SelectPet(String),
     Quit,
@@ -44,6 +47,8 @@ impl MenuAction {
             "quit" | MENU_QUIT_ID => Some(Self::Quit),
             MENU_SOUND_ON_ID => Some(Self::SetSound(true)),
             MENU_SOUND_OFF_ID => Some(Self::SetSound(false)),
+            MENU_AUTONOMY_ON_ID => Some(Self::SetAutonomy(true)),
+            MENU_AUTONOMY_OFF_ID => Some(Self::SetAutonomy(false)),
             _ => {
                 if let Some(percent) = id.strip_prefix(MENU_SCALE_PREFIX) {
                     let percent: u16 = percent.parse().ok()?;
@@ -73,6 +78,14 @@ fn sound_menu_id(currently_enabled: bool) -> &'static str {
     }
 }
 
+fn autonomy_menu_id(currently_enabled: bool) -> &'static str {
+    if currently_enabled {
+        MENU_AUTONOMY_OFF_ID
+    } else {
+        MENU_AUTONOMY_ON_ID
+    }
+}
+
 fn open_panel(app: &tauri::AppHandle, label: &str, title: &str) -> tauri::Result<()> {
     let window = match app.get_webview_window(label) {
         Some(window) => window,
@@ -82,7 +95,7 @@ fn open_panel(app: &tauri::AppHandle, label: &str, title: &str) -> tauri::Result
             WebviewUrl::App(format!("index.html#{label}").into()),
         )
         .title(title)
-        .inner_size(520., 440.)
+        .inner_size(560., 560.)
         .visible(false)
         .build()?,
     };
@@ -207,6 +220,19 @@ fn build_pet_context_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::W
         prefs.sound,
         None::<&str>,
     )?;
+    let has_deepseek_key = !prefs.deepseek_api_key.trim().is_empty();
+    let autonomy = CheckMenuItem::with_id(
+        app,
+        autonomy_menu_id(prefs.deepseek_enabled),
+        if has_deepseek_key {
+            "自由活动（DeepSeek）"
+        } else {
+            "自由活动（需配置 DeepSeek Key）"
+        },
+        has_deepseek_key,
+        has_deepseek_key && prefs.deepseek_enabled,
+        None::<&str>,
+    )?;
     let separator_bottom = PredefinedMenuItem::separator(app)?;
     let hide = MenuItem::with_id(app, MENU_HIDE_ID, "隐藏桌宠", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, MENU_QUIT_ID, "退出", true, None::<&str>)?;
@@ -220,6 +246,7 @@ fn build_pet_context_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::W
             &pet_submenu,
             &scale_submenu,
             &sound,
+            &autonomy,
             &separator_bottom,
             &hide,
             &quit,
@@ -271,6 +298,15 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
             app,
             SettingsPatch {
                 sound: Some(sound),
+                ..Default::default()
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| e.message),
+        MenuAction::SetAutonomy(enabled) => commands::apply_settings_patch(
+            app,
+            SettingsPatch {
+                deepseek_enabled: Some(enabled),
                 ..Default::default()
             },
         )
@@ -367,6 +403,14 @@ mod tests {
         assert_eq!(
             MenuAction::parse(sound_menu_id(true)),
             Some(MenuAction::SetSound(false))
+        );
+        assert_eq!(
+            MenuAction::parse(autonomy_menu_id(false)),
+            Some(MenuAction::SetAutonomy(true))
+        );
+        assert_eq!(
+            MenuAction::parse(autonomy_menu_id(true)),
+            Some(MenuAction::SetAutonomy(false))
         );
     }
 

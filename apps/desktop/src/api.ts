@@ -1,6 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type {
+  DeepSeekActivityStatus,
+  DeepSeekModel,
+  DeepSeekTestResult,
   InstallReport,
   IntegrationStatus,
   OpenIntent,
@@ -58,6 +61,12 @@ export const api = {
   settings: (): Promise<Settings> => invoke('get_settings'),
   settingsEvents: event<Settings>('pet:settings'),
   update: (patch: SettingsPatch): Promise<Settings> => invoke('update_settings', { patch }),
+  deepseekActivityStatus: (): Promise<DeepSeekActivityStatus> => invoke('get_deepseek_activity_status'),
+  deepseekActivityStatusEvents: event<DeepSeekActivityStatus>('pet:activity-status'),
+  testDeepSeekConnection: (apiKey?: string, model?: DeepSeekModel): Promise<DeepSeekTestResult> =>
+    invoke('test_deepseek_connection', { apiKey, model }),
+  triggerPetActivity: (): Promise<void> => invoke('trigger_pet_activity'),
+  interruptPetActivity: (): Promise<void> => invoke('interrupt_pet_activity'),
   pets: (): Promise<PetChoice[]> => invoke('list_pets'),
   chooseDirectory: (): Promise<string | null> => invoke('choose_pet_directory'),
   importPet: (path: string): Promise<PetManifest> => invoke('import_pet_package', { path }),

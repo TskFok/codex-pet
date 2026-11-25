@@ -6,7 +6,7 @@ use tauri::{Emitter, Manager};
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PlaybackSignal {
     pub(crate) visible: bool,
-    pub(super) suspended: bool,
+    pub(crate) suspended: bool,
     pub(super) revision: u64,
 }
 
@@ -56,6 +56,7 @@ pub(super) fn set_suspended(app: &tauri::AppHandle, suspended: bool) {
 fn emit(app: &tauri::AppHandle, visible: Option<bool>, suspended: Option<bool>) {
     if let Some(signal) = app.state::<Playback>().update(visible, suspended) {
         let _ = app.emit_to("pet", "pet:playback", signal);
+        crate::autonomy::wake(app);
     }
 }
 

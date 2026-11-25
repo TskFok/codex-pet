@@ -21,6 +21,7 @@
     "allow-get-settings",
     "allow-get-playback",
     "allow-get-pet-asset",
-    "allow-play-alert"
+    "allow-play-alert",
+    "allow-interrupt-pet-activity"
   ]
 }

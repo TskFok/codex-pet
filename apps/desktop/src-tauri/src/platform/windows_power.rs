@@ -41,7 +41,10 @@ unsafe extern "system" fn window_proc(
     let watch = unsafe { &*(data as *const WindowWatch) };
     let app = &watch.app;
     match message {
-        WM_ENTERSIZEMOVE => watch.moving.set(true),
+        WM_ENTERSIZEMOVE => {
+            watch.moving.set(true);
+            crate::autonomy::interrupt_user_activity(app);
+        }
         WM_EXITSIZEMOVE => {
             watch.moving.set(false);
             super::finish_drag(app);

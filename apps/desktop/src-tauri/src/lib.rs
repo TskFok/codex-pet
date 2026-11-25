@@ -1,3 +1,4 @@
+pub mod autonomy;
 pub mod broker;
 mod commands;
 mod integrations;
@@ -51,6 +52,17 @@ enum NotificationService {
 }
 
 impl NotificationRuntime {
+    pub(crate) fn has_urgent_attention(&self) -> bool {
+        match &*self.connection.read().unwrap() {
+            NotificationConnection::Ready(view) => view
+                .snapshot()
+                .sessions
+                .iter()
+                .any(|session| session.status == pet_core::SessionStatus::NeedsAttention),
+            _ => false,
+        }
+    }
+
     fn status(&self) -> NotificationService {
         match &*self.connection.read().unwrap() {
             NotificationConnection::Starting => NotificationService::Starting,
@@ -364,6 +376,7 @@ pub fn run() {
         .manage(integrations::IntegrationLock::default())
         .manage(Playback::default())
         .manage(NotificationRuntime::default())
+        .manage(autonomy::AutonomyRuntime::default())
         .invoke_handler(tauri::generate_handler![
             runtime_info,
             record_diagnostic,
@@ -379,6 +392,10 @@ pub fn run() {
             commands::copy_session_id,
             commands::get_settings,
             commands::update_settings,
+            commands::get_deepseek_activity_status,
+            commands::test_deepseek_connection,
+            commands::trigger_pet_activity,
+            commands::interrupt_pet_activity,
             commands::import_pet_package,
             commands::choose_pet_directory,
             commands::list_pets,
@@ -401,6 +418,7 @@ pub fn run() {
             platform::create_pet_window(app.handle())?;
             tray::install(app.handle())?;
             start_notifications(app.handle().clone());
+            autonomy::start(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -413,6 +431,7 @@ pub fn run() {
             platform::flush_placement(app);
         }
         if matches!(event, tauri::RunEvent::Exit) {
+            autonomy::shutdown(app);
             let state = app.state::<NotificationRuntime>();
             state.exit.send_replace(true);
             let worker = state.worker.lock().unwrap().take();

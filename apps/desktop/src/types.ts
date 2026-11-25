@@ -94,6 +94,37 @@ export interface Placement {
   scale: number;
   monitorId: string | null;
 }
+export type DeepSeekModel = 'deepseek-chat' | 'deepseek-reasoner';
+export interface DeepSeekActivityStatus {
+  configured: boolean;
+  enabled: boolean;
+  running: boolean;
+  model: string;
+  lastAction?: string | null;
+  lastThought?: string | null;
+  lastUpdatedAtMs?: number | null;
+  lastError?: string | null;
+}
+export interface DeepSeekTestResult {
+  ok: boolean;
+  model: string;
+  latencyMs: number;
+  reply: string;
+}
+export interface PetActivityEvent {
+  id: string;
+  phase: 'start' | 'update' | 'end';
+  state?: string;
+  effect?: {
+    x: number;
+    y: number;
+    kind: 'heart' | 'sparkle' | 'note' | 'star' | 'snack' | 'dizzy';
+    bounce?: number;
+    count?: number;
+  };
+  thought?: string;
+  thoughtDurationMs?: number;
+}
 export interface Settings {
   revision: number;
   fps: 30 | 60;
@@ -101,9 +132,16 @@ export interface Settings {
   autostart: boolean;
   petId: string;
   mutedSources: Source[];
+  deepseekEnabled?: boolean;
+  deepseekModel?: DeepSeekModel;
+  deepseekApiKeyConfigured?: boolean;
+  deepseekApiKeyHint?: string | null;
   placement: Placement;
 }
-export type SettingsPatch = Partial<Omit<Settings, 'revision' | 'placement'>> & {
+export type SettingsPatch = Partial<
+  Omit<Settings, 'revision' | 'placement' | 'deepseekApiKeyConfigured' | 'deepseekApiKeyHint'>
+> & {
+  deepseekApiKey?: string;
   placement?: Placement | Pick<Placement, 'scale'>;
 };
 export interface PetChoice {

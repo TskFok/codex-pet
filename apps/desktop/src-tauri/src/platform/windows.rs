@@ -1,5 +1,8 @@
 use crate::{
-    placement::{HEIGHT, PlacementState, WIDTH, WindowPlacement, WorkArea, clamp_placement},
+    placement::{
+        DesktopContext, HEIGHT, PlacementState, WIDTH, WindowPlacement, WorkArea, clamp_placement,
+        desktop_context_for,
+    },
     windows::AlphaMask,
 };
 use std::{ffi::c_void, io, sync::Mutex};
@@ -223,4 +226,27 @@ pub(super) fn position(
         window.set_size(size)?;
     }
     Ok(Some(fit))
+}
+
+pub(super) fn desktop_context(app: &tauri::AppHandle) -> tauri::Result<Option<DesktopContext>> {
+    let Some(window) = app.get_webview_window("pet") else {
+        return Ok(None);
+    };
+    let mut areas: Vec<_> = window.available_monitors()?.iter().map(area).collect();
+    if let Some(primary) = window.primary_monitor()? {
+        let id = area(&primary).id;
+        if let Some(i) = areas.iter().position(|a| a.id == id) {
+            areas.swap(0, i);
+        }
+    }
+    let current = window.outer_position()?;
+    let Some(monitor) = window.current_monitor()? else {
+        return Ok(None);
+    };
+    let placement = area(&monitor).capture(
+        f64::from(current.x),
+        f64::from(current.y),
+        app.state::<PlacementState>().current().scale,
+    );
+    Ok(desktop_context_for(placement, &areas))
 }

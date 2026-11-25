@@ -51,7 +51,9 @@ header {
   gap: 1rem;
 }
 button,
-select {
+select,
+input[type='password'],
+input[type='text'] {
   font: inherit;
   padding: 0.25rem 0.55rem;
   border: 1px solid color-mix(in srgb, CanvasText 25%, Canvas);
@@ -64,9 +66,26 @@ button:hover {
 }
 button:focus-visible,
 select:focus-visible,
+input[type='password']:focus-visible,
+input[type='text']:focus-visible,
 summary:focus-visible {
   outline: 2px solid Highlight;
   outline-offset: 2px;
+}
+.input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 1 20rem;
+  min-width: 0;
+}
+.input-group input {
+  flex: 1;
+  min-width: 0;
+}
+.hint {
+  font-size: 0.84rem;
+  opacity: 0.78;
 }
 fieldset {
   border: 0;
