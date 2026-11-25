@@ -1,0 +1,18 @@
+{
+  "codex-pet": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "'/替换为绝对路径/pet-bridge' antigravity --event pre-invocation --installation-id 00000000-0000-4000-8000-000000000000",
+        "timeout": 1
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "'/替换为绝对路径/pet-bridge' antigravity --event stop --installation-id 00000000-0000-4000-8000-000000000000",
+        "timeout": 1
+      }
+    ]
+  }
+}

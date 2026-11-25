@@ -3,9 +3,15 @@ use crate::{
     navigation::{self, Registration, harness, system},
     notification_paths,
 };
-use pet_bridge::hook_install::{
-    HookPatch, apply_hook_patch_with_backup, inspect_hook_entries, plan_hook_install,
-    plan_hook_remove,
+use pet_bridge::{
+    antigravity_install::{
+        apply_antigravity_patch_with_backup, inspect_antigravity_hooks, plan_antigravity_install,
+        plan_antigravity_remove,
+    },
+    hook_install::{
+        HookPatch, apply_hook_patch_with_backup, inspect_hook_entries, plan_hook_install,
+        plan_hook_remove,
+    },
 };
 use pet_core::{AppPaths, Source, paths};
 use serde::{Deserialize, Serialize};
@@ -67,6 +73,7 @@ fn failure(e: impl std::fmt::Display) -> CommandError {
 struct Locations {
     paths: AppPaths,
     config: PathBuf,
+    antigravity_config: PathBuf,
     dsh_home: PathBuf,
     profiles_dir: PathBuf,
     bridge: PathBuf,
@@ -88,9 +95,13 @@ impl Locations {
                 .unwrap_or_else(|| home.join(default))
         };
         let config = profile_home("CODEX_HOME", ".codex").join("hooks.json");
+        let antigravity_config = env::var_os("ANTIGRAVITY_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".gemini").join("config"))
+            .join("hooks.json");
         let dsh_home = profile_home("DSH_HOME", ".dsh");
         let profiles_dir = dsh_home.join("profiles");
-        if !config.is_absolute() || !dsh_home.is_absolute() {
+        if !config.is_absolute() || !antigravity_config.is_absolute() || !dsh_home.is_absolute() {
             return Err(failure("来源配置根目录必须是绝对路径"));
         }
         let exe = env::current_exe().map_err(failure)?;
@@ -114,6 +125,7 @@ impl Locations {
         Ok(Self {
             paths: notification_paths()?,
             config,
+            antigravity_config,
             dsh_home,
             profiles_dir,
             bridge,
@@ -204,6 +216,91 @@ fn codex_versions() -> [Option<String>; 2] {
     #[cfg(not(target_os = "macos"))]
     let desktop = None;
     [cli, desktop]
+}
+fn parse_cli_version(raw: &str) -> Option<String> {
+    let token = raw.lines().next()?.split_whitespace().find_map(|part| {
+        let trimmed = part.trim_start_matches('v');
+        (trimmed.len() <= 80
+            && trimmed.starts_with(|c: char| c.is_ascii_digit())
+            && trimmed.contains('.')
+            && trimmed
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || ".-+".contains(c)))
+        .then_some(trimmed)
+    })?;
+    Some(token.into())
+}
+fn antigravity_version() -> Option<String> {
+    if let Some(cli) = antigravity_cli_version() {
+        return Some(cli);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let desktop = system::desktop(Source::Antigravity)?;
+        let plist = desktop.path.join("Contents/Info.plist");
+        let output = Command::new("/usr/bin/plutil")
+            .args(["-extract", "CFBundleShortVersionString", "raw", "-o", "-"])
+            .arg(&plist)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let ver = parse_cli_version(&String::from_utf8_lossy(&output.stdout))?;
+        let app_name = desktop
+            .path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Antigravity");
+        Some(format!("{app_name} {ver}"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+fn antigravity_cli_version() -> Option<String> {
+    let exe = env::var_os("PATH").and_then(|p| {
+        env::split_paths(&p)
+            .filter(|d| d.is_absolute())
+            .map(|d| d.join(if cfg!(windows) { "agy.exe" } else { "agy" }))
+            .find(|p| p.is_file())
+    })?;
+    let mut cmd = Command::new(&exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let mut child = cmd
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(15)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let mut data = String::new();
+    child
+        .stdout
+        .take()?
+        .take(256)
+        .read_to_string(&mut data)
+        .ok()?;
+    parse_cli_version(&data)
 }
 fn caps(items: &[(&'static str, Level)]) -> Vec<Capability> {
     items
@@ -560,6 +657,141 @@ fn codex_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
     })
 }
 
+fn antigravity_evidence(loc: &Locations) -> Result<(Option<String>, usize, bool)> {
+    read_optional(&loc.antigravity_config).and_then(|bytes| {
+        let bytes = bytes.unwrap_or_default();
+        let (id, mut rows) = inspect_antigravity_hooks(&bytes).map_err(failure)?;
+        let complete = if id.is_some() {
+            let mut expected = plan_antigravity_install(&bytes, &loc.bridge)
+                .map_err(failure)?
+                .owned_entry_ids;
+            expected.sort();
+            rows.sort();
+            rows == expected
+        } else {
+            false
+        };
+        Ok((id, rows.len(), complete))
+    })
+}
+fn antigravity_status(loc: &Locations, version: Option<String>) -> IntegrationStatus {
+    let (id, count, complete, problem) = match antigravity_evidence(loc) {
+        Ok((id, count, complete)) => (id, count, complete, None),
+        Err(e) => (None, 0, false, Some(e.message)),
+    };
+    let problem = problem.or_else(|| {
+        let mut notes = Vec::new();
+        if !loc.antigravity_config.parent().is_some_and(Path::is_dir) {
+            notes.push("尚未发现 Antigravity 全局配置目录，安装时将自动创建。");
+        }
+        if version.is_none() {
+            notes.push("未识别到 Antigravity / Gemini 宿主或 agy CLI 版本。");
+        }
+        if !loc.bridge.is_file() {
+            notes.push("缺少配套 pet-bridge。");
+        }
+        if count > 0 && !complete {
+            notes.push("配置中只有部分或旧路径自有条目，请检查后重新安装。");
+        }
+        notes.push("配置由 Gemini 桌面端 Antigravity、Antigravity 2.0、IDE 与 CLI 共用，仅订阅 PreInvocation 与 Stop。");
+        Some(notes.join(""))
+    });
+    IntegrationStatus {
+        source: Source::Antigravity,
+        host: "Antigravity（桌面 / IDE / CLI）",
+        installation_id: id,
+        installed: complete,
+        target: loc.antigravity_config.clone(),
+        problem,
+        capabilities: caps(&[
+            ("回合开始", Level::Unverified),
+            ("回合结束 / 中断 / 失败", Level::Unverified),
+            ("项目工作区识别", Level::Unverified),
+            ("精确审批、提问与解除", Level::Unsupported),
+            ("精确会话跳转（支持打开应用与复制 ID）", Level::Unsupported),
+        ]),
+        version,
+    }
+}
+fn antigravity_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
+    let bytes = read_optional(&loc.antigravity_config)?.unwrap_or_default();
+    let (_id, owned) = inspect_antigravity_hooks(&bytes).map_err(failure)?;
+    let patch = match action {
+        Action::Install => {
+            if !loc.bridge.is_file() {
+                return Err(failure("缺少配套 pet-bridge，请修复桌宠安装"));
+            }
+            if let Some(parent) = loc.antigravity_config.parent() {
+                match fs::symlink_metadata(parent) {
+                    Ok(meta) => {
+                        if meta.file_type().is_symlink() || !meta.is_dir() {
+                            return Err(failure("Antigravity 配置目录无效"));
+                        }
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                        fs::create_dir_all(parent).map_err(failure)?;
+                    }
+                    Err(e) => return Err(failure(e)),
+                }
+            }
+            plan_antigravity_install(&bytes, &loc.bridge).map_err(failure)?
+        }
+        Action::Remove => {
+            if owned.is_empty() {
+                return Ok(InstallReport::default());
+            }
+            let parent = loc
+                .antigravity_config
+                .parent()
+                .ok_or_else(|| failure("配置路径无父目录"))?;
+            let mut verified = Vec::new();
+            for entry in fs::read_dir(parent).map_err(failure)? {
+                let entry = entry.map_err(failure)?;
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if !name.starts_with(".hooks.json.pet-bridge.")
+                    || !name.ends_with(".manifest.json")
+                    || !entry.file_type().map_err(failure)?.is_file()
+                {
+                    continue;
+                }
+                let Some(data) = read_optional(&entry.path())? else {
+                    continue;
+                };
+                if let Ok(receipt) = serde_json::from_slice::<HookPatch>(&data) {
+                    for hash in receipt.owned_entry_ids {
+                        if owned.contains(&hash) && !verified.contains(&hash) {
+                            verified.push(hash);
+                        }
+                    }
+                }
+            }
+            if verified.len() != owned.len() {
+                return Err(failure("自有配置缺少对应安装清单，请检查备份与来源设置"));
+            }
+            let receipt = HookPatch {
+                before_hash: String::new(),
+                after_bytes: vec![],
+                owned_entry_ids: verified,
+            };
+            plan_antigravity_remove(&bytes, &receipt).map_err(failure)?
+        }
+    };
+    let backup =
+        apply_antigravity_patch_with_backup(&loc.antigravity_config, &patch).map_err(failure)?;
+    Ok(InstallReport {
+        changed: backup.is_some(),
+        backup_path: backup,
+        owned_entry_ids: patch.owned_entry_ids,
+        warnings: if matches!(action, Action::Install) {
+            vec!["已写入 Antigravity 全局 Hooks 配置，将在新会话中自动生效。".into()]
+        } else {
+            Vec::new()
+        },
+        ..Default::default()
+    })
+}
+
 fn harness_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
     if matches!(action, Action::Remove) {
         return Ok(InstallReport {
@@ -707,6 +939,18 @@ fn navigation_target_for_locations(
                 source,
             })))
         }
+        Source::Antigravity => {
+            let (id, _, complete) = antigravity_evidence(loc)?;
+            Ok(id
+                .filter(|id| complete && id == expected_id)
+                .map(|installation_id| {
+                    navigation::Target::Desktop(Registration {
+                        desktop: system::desktop(source),
+                        installation_id,
+                        source,
+                    })
+                }))
+        }
     }
 }
 
@@ -738,6 +982,7 @@ pub async fn integration_status(app: tauri::AppHandle) -> Result<Vec<Integration
                 problem: Some(err.message),
             }),
         );
+        statuses.push(antigravity_status(&loc, antigravity_version()));
         Ok(statuses)
     })
     .await
@@ -756,6 +1001,7 @@ pub async fn apply_integration(
         match source {
             Source::Codex => codex_apply(&loc, action),
             Source::Deepseek => harness_apply(&loc, action),
+            Source::Antigravity => antigravity_apply(&loc, action),
         }
     })
     .await
@@ -772,12 +1018,14 @@ mod tests {
         let root = tmp.path().canonicalize().unwrap();
         let config = root.join("codex/hooks.json");
         fs::create_dir(config.parent().unwrap()).unwrap();
+        let antigravity_config = root.join("gemini/config/hooks.json");
         let bridge = root.join("真实路径 pet-bridge");
         fs::write(&bridge, b"test").unwrap();
         let dsh_home = root.join("dsh");
         Locations {
             paths: AppPaths::under(&root.join("app")),
             config,
+            antigravity_config,
             bridge,
             profiles_dir: dsh_home.join("profiles"),
             dsh_home,
@@ -1060,5 +1308,55 @@ mod tests {
             .err()
             .expect("不同 profile 的冲突安装 ID 不能静默覆写");
         assert!(err.message.contains("安装 ID 冲突"), "{}", err.message);
+    }
+
+    #[test]
+    fn antigravity_install_preserves_foreign_hooks_registers_identity_and_removes_cleanly() {
+        let temp = tempfile::tempdir().unwrap();
+        let loc = locations(&temp);
+        fs::create_dir_all(loc.antigravity_config.parent().unwrap()).unwrap();
+        let foreign = json!({
+            "lint-checker": {
+                "PostToolUse": [{"matcher": "run_command", "hooks": [{"type": "command", "command": "./lint.sh"}]}]
+            }
+        });
+        fs::write(
+            &loc.antigravity_config,
+            serde_json::to_vec(&foreign).unwrap(),
+        )
+        .unwrap();
+
+        let status_before = antigravity_status(&loc, Some("0.5.0".into()));
+        assert!(!status_before.installed);
+        assert_eq!(status_before.version.as_deref(), Some("0.5.0"));
+
+        let report = antigravity_apply(&loc, Action::Install).unwrap();
+        assert!(report.changed && report.backup_path.unwrap().is_file());
+        assert_eq!(report.owned_entry_ids.len(), 1);
+        assert!(!antigravity_apply(&loc, Action::Install).unwrap().changed);
+
+        let status_after = antigravity_status(&loc, None);
+        assert!(status_after.installed);
+        let id = status_after.installation_id.expect("应生成安装 ID");
+        assert!(
+            navigation_target_for_locations(&loc, Source::Antigravity, &id)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            navigation_target_for_locations(
+                &loc,
+                Source::Antigravity,
+                "11111111-1111-4111-8111-111111111111"
+            )
+            .unwrap()
+            .is_none()
+        );
+
+        let removed = antigravity_apply(&loc, Action::Remove).unwrap();
+        assert!(removed.changed);
+        let final_config = read_json(&loc.antigravity_config).unwrap().unwrap();
+        assert_eq!(final_config, foreign);
+        assert!(!antigravity_status(&loc, None).installed);
     }
 }

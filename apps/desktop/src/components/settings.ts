@@ -104,9 +104,10 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
     b.type = 'checkbox';
     return b;
   };
+  const SOURCES = ['codex', 'deepseek', 'antigravity'] as const;
   const sound = checkbox(),
     login = checkbox(),
-    muted = { codex: checkbox(), deepseek: checkbox() };
+    muted = { codex: checkbox(), deepseek: checkbox(), antigravity: checkbox() };
   let current: Settings | undefined;
   let saving = false,
     stopped = false;
@@ -120,8 +121,7 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
     scale.value = String(value.placement.scale);
     sound.checked = value.sound;
     login.checked = value.autostart;
-    muted.codex.checked = value.mutedSources.includes('codex');
-    muted.deepseek.checked = value.mutedSources.includes('deepseek');
+    for (const s of SOURCES) muted[s].checked = value.mutedSources.includes(s);
     form.disabled = saving;
   }
   function showError(e: unknown) {
@@ -158,9 +158,9 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
   };
   sound.onchange = () => update({ sound: sound.checked });
   login.onchange = () => update({ autostart: login.checked });
-  for (const s of ['codex', 'deepseek'] as const)
+  for (const s of SOURCES)
     muted[s].onchange = () =>
-      update({ mutedSources: (['codex', 'deepseek'] as const).filter((key) => muted[key].checked) });
+      update({ mutedSources: SOURCES.filter((key) => muted[key].checked) });
   async function listPets() {
     const choices = await api.pets();
     pet.replaceChildren(...choices.map((p) => option(p.id, p.name)));
@@ -185,7 +185,7 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
     row('显示大小', scale),
     alerts,
     row('播放提醒声音', sound),
-    ...(['codex', 'deepseek'] as const).map((s) => row('静音 ' + sourceName[s], muted[s])),
+    ...SOURCES.map((s) => row('静音 ' + sourceName[s], muted[s])),
     row('登录时启动桌宠', login),
   );
   async function listSources() {
@@ -209,8 +209,9 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
           s,
           (source, action) => {
             void work(async () => {
+              const hookSource = source === 'codex' || source === 'antigravity';
               if (
-                source === 'codex' &&
+                hookSource &&
                 !(await confirmChange(
                   root,
                   (action === 'install'
@@ -224,7 +225,7 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
                 return;
               const result = await api.integrate(source, action);
               const detail = [
-                source === 'codex' ? (result.changed ? '自有配置已更新。' : '自有配置无需更改。') : '',
+                hookSource ? (result.changed ? '自有配置已更新。' : '自有配置无需更改。') : '',
                 ...result.warnings,
                 result.bundlePath,
                 result.backupPath && '备份文件 ' + result.backupPath,

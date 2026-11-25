@@ -80,9 +80,9 @@ pub fn open_session(
         .filter(|r| r.source == key.source && r.installation_id == key.installation_id)
         .ok_or(NavigationError::UnknownInstallation)?;
     let url = match intent {
-        OpenIntent::Session => Some(session_url(key)?),
+        OpenIntent::Session => session_url(key)?,
         OpenIntent::Application => match key.source {
-            Source::Codex => None,
+            Source::Codex | Source::Antigravity => None,
             Source::Deepseek => Some("dsh://open".into()),
         },
     };
@@ -92,7 +92,7 @@ pub fn open_session(
     if !valid_path(&desktop.path) {
         return Err(NavigationError::InvalidHostPath);
     }
-    if matches!(intent, OpenIntent::Session) && !desktop.supports_session {
+    if matches!(intent, OpenIntent::Session) && (!desktop.supports_session || url.is_none()) {
         return Ok(OpenOutcome::ApplicationOnly { opened: false });
     }
     dispatch(&desktop.path, url.as_deref()).map_err(|_| NavigationError::DispatchFailed)?;
@@ -189,14 +189,21 @@ fn encode_harness_session_id(id: &str) -> Result<String, NavigationError> {
     Ok(encoded)
 }
 
-fn session_url(key: &SessionKey) -> Result<String, NavigationError> {
+fn session_url(key: &SessionKey) -> Result<Option<String>, NavigationError> {
     let id = &key.session_id;
     match key.source {
         Source::Codex => uuid::Uuid::parse_str(id)
             .ok()
             .filter(|uuid| uuid.hyphenated().to_string().eq_ignore_ascii_case(id))
-            .map(|uuid| format!("codex://threads/{uuid}"))
+            .map(|uuid| Some(format!("codex://threads/{uuid}")))
             .ok_or(NavigationError::InvalidSessionId),
-        Source::Deepseek => Ok(format!("dsh://session/{}", encode_harness_session_id(id)?)),
+        Source::Deepseek => Ok(Some(format!(
+            "dsh://session/{}",
+            encode_harness_session_id(id)?
+        ))),
+        Source::Antigravity => {
+            encode_harness_session_id(id)?;
+            Ok(None)
+        }
     }
 }

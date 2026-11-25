@@ -255,6 +255,14 @@ pub fn apply_hook_patch_with_backup(
     path: &Path,
     patch: &HookPatch,
 ) -> Result<Option<PathBuf>, InstallError> {
+    apply_patch_with_validator(path, patch, |bytes| parse(bytes).map(|_| ()))
+}
+
+pub(crate) fn apply_patch_with_validator(
+    path: &Path,
+    patch: &HookPatch,
+    validate: impl FnOnce(&[u8]) -> Result<(), InstallError>,
+) -> Result<Option<PathBuf>, InstallError> {
     // 同一安装器互斥；外部编辑在提交前再次检查。拒绝符号链接目标。
     if fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink() || !meta.is_file())
     {
@@ -277,7 +285,7 @@ pub fn apply_hook_patch_with_backup(
     if hash(&before) != patch.before_hash {
         return Err("Hook 配置已并发修改，请重新生成计划".into());
     }
-    parse(&patch.after_bytes)?;
+    validate(&patch.after_bytes)?;
     if before == patch.after_bytes {
         return Ok(None);
     }

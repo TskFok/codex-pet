@@ -304,3 +304,39 @@ fn harness_web_session_rejects_non_loopback_origins_and_invalid_inputs() {
         Err(NavigationError::InvalidSessionId),
     );
 }
+
+#[test]
+fn antigravity_gates_session_intent_to_explicit_application_launch() {
+    let reg = target(Source::Antigravity, false);
+    let session = key(Source::Antigravity, THREAD);
+    assert_eq!(
+        open_session(&session, Some(&reg), OpenIntent::Session, |_, _| panic!(
+            "Antigravity 无会话深链，不能隐式唤起应用"
+        )),
+        Ok(OpenOutcome::ApplicationOnly { opened: false }),
+    );
+    let mut launched = Vec::new();
+    assert_eq!(
+        open_session(
+            &session,
+            Some(&reg),
+            OpenIntent::Application,
+            |path, url| {
+                launched.push((path.to_owned(), url.map(str::to_owned)));
+                Ok(())
+            }
+        ),
+        Ok(OpenOutcome::ApplicationOnly { opened: true }),
+    );
+    assert_eq!(launched, vec![(reg.desktop.unwrap().path, None)]);
+
+    assert_eq!(
+        open_session(
+            &key(Source::Antigravity, "https://evil.example"),
+            Some(&target(Source::Antigravity, false)),
+            OpenIntent::Session,
+            |_, _| panic!("非法会话标识不能派发"),
+        ),
+        Err(NavigationError::InvalidSessionId),
+    );
+}

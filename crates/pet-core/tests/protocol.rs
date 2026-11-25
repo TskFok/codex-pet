@@ -142,3 +142,19 @@ fn recovery_v3_round_trips_shared_fixture_and_enforces_its_version() {
     value["kind"]["snapshotEventCount"] = json!(1);
     assert!(decode_event(&serde_json::to_vec(&value).unwrap()).is_err());
 }
+
+#[test]
+fn antigravity_source_round_trips_as_snake_case() {
+    let mut base = event(
+        "ag-1",
+        Some("execution-1"),
+        None,
+        json!({"type":"turn_ended","outcome":"completed"}),
+    );
+    base.identity.source = Source::Antigravity;
+    let bytes = serde_json::to_vec(&base).unwrap();
+    let decoded = decode_event(&bytes).unwrap();
+    assert_eq!(decoded.identity.source, Source::Antigravity);
+    let value = serde_json::to_value(decoded).unwrap();
+    assert_eq!(value["identity"]["source"], "antigravity");
+}

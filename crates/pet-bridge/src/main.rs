@@ -1,6 +1,10 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 use pet_bridge::{
+    antigravity::{HookEvent, hook_session_id as antigravity_session_id, normalize_antigravity},
+    antigravity_install::{
+        apply_antigravity_patch, plan_antigravity_install, plan_antigravity_remove,
+    },
     codex::{MAX_HOOK_BYTES, hook_session_id, normalize_codex},
     delivery::deliver,
     hook_install::{HookPatch, apply_hook_patch, plan_hook_install, plan_hook_remove},
@@ -28,6 +32,14 @@ fn main() {
             eprintln!("pet-bridge：{error}");
         }
         println!("{{}}");
+    } else if command.as_deref() == Some("antigravity") {
+        // 即使失败也返回非阻断 JSON，避免卡死 Antigravity 执行循环；诊断绝不包含原始 JSON。
+        let arg_list: Vec<String> = args.collect();
+        let response = run_antigravity_hook(&arg_list).unwrap_or_else(|error| {
+            eprintln!("pet-bridge：{error}");
+            antigravity_fallback_response(&arg_list)
+        });
+        println!("{response}");
     } else {
         let all: Vec<_> = std::env::args().skip(1).collect();
         if let Err(error) = run_install(&all) {
@@ -197,6 +209,82 @@ fn run_hook(args: Vec<String>) -> Result<(), String> {
     }
     Ok(())
 }
+
+fn antigravity_fallback_response(args: &[String]) -> &'static str {
+    args.windows(2)
+        .find(|pair| pair[0] == "--event")
+        .and_then(|pair| HookEvent::parse(&pair[1]).ok())
+        .map_or("{}", HookEvent::stdout_response)
+}
+
+fn run_antigravity_hook(args: &[String]) -> Result<&'static str, String> {
+    let options = options(
+        args,
+        &[
+            "--event",
+            "--probe-dir",
+            "--installation-id",
+            "--instance-id",
+        ],
+    )?;
+    let event = HookEvent::parse(required(&options, "--event")?)?;
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take(MAX_HOOK_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "无法读取 Hook 输入")?;
+    if bytes.len() as u64 > MAX_HOOK_BYTES {
+        return Err("Hook 输入超过 8 MiB，已忽略".into());
+    }
+    let input: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| "Hook 输入不是完整有效 JSON")?;
+    let probe = options.get("--probe-dir").map(PathBuf::from);
+    let installation_id = match options.get("--installation-id") {
+        Some(id) => {
+            if let Some(path) = &probe {
+                let _ = probe_identity(path)?;
+            }
+            uuid(id)?
+        }
+        None => probe_identity(
+            probe
+                .as_deref()
+                .ok_or("缺少安装 ID；探测请显式指定 --probe-dir")?,
+        )?,
+    };
+    let session = antigravity_session_id(&input)?;
+    let instance_id = options
+        .get("--instance-id")
+        .cloned()
+        .unwrap_or_else(|| format!("hook-session:{session}"));
+    let identity = SourceIdentity {
+        source: Source::Antigravity,
+        installation_id,
+        instance_id,
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "系统时间无效")?
+        .as_millis()
+        .try_into()
+        .map_err(|_| "系统时间溢出")?;
+    let events = normalize_antigravity(event, &input, &identity, now)?;
+    if let Some(directory) = probe {
+        for normalized in events {
+            let encoded = serde_json::to_vec(&normalized).map_err(|_| "事件序列化失败")?;
+            private_write(
+                &directory.join(format!("{}.json", normalized.event_id)),
+                &encoded,
+            )?;
+        }
+    } else if !events.is_empty() {
+        let paths = AppPaths::for_user().map_err(|error| error.to_string())?;
+        for normalized in events {
+            deliver(&normalized, &paths).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(event.stdout_response())
+}
 enum HarnessFailure {
     InvalidEvent(&'static str),
     Operation(String),
@@ -289,9 +377,13 @@ fn read_patch(path: &str) -> Result<HookPatch, String> {
         .map_err(|_| "计划清单不是有效 HookPatch".into())
 }
 fn run_install(args: &[String]) -> Result<(), String> {
-    if args.first().map(String::as_str) != Some("hooks") {
-        return Err("用法：pet-bridge codex --installation-id ID（探测可用 --probe-dir 路径）；或 pet-bridge hooks plan-install|plan-remove|apply --config 路径 …".into());
-    }
+    let antigravity = match args.first().map(String::as_str) {
+        Some("hooks") => false,
+        Some("antigravity-hooks") => true,
+        _ => {
+            return Err("用法：pet-bridge codex|antigravity …；或 pet-bridge hooks|antigravity-hooks plan-install|plan-remove|apply --config 路径 …".into());
+        }
+    };
     let action = args.get(1).map(String::as_str).ok_or("缺少安装操作")?;
     let allowed = match action {
         "plan-install" => vec!["--config", "--bridge", "--plan"],
@@ -306,15 +398,31 @@ fn run_install(args: &[String]) -> Result<(), String> {
     }
     let plan = required(&options, "--plan")?;
     if action == "apply" {
-        apply_hook_patch(config, &read_patch(plan)?)?;
-        println!("已应用显式 Hook 计划；请在 Codex 中检查并信任配置。");
+        let patch = read_patch(plan)?;
+        if antigravity {
+            apply_antigravity_patch(config, &patch)?;
+            println!("已应用显式 Antigravity Hook 计划；新会话启动后将自动生效。");
+        } else {
+            apply_hook_patch(config, &patch)?;
+            println!("已应用显式 Hook 计划；请在 Codex 中检查并信任配置。");
+        }
         return Ok(());
     }
     let existing = read_config(config)?;
     let patch = if action == "plan-install" {
-        plan_hook_install(&existing, Path::new(required(&options, "--bridge")?))?
+        let bridge = Path::new(required(&options, "--bridge")?);
+        if antigravity {
+            plan_antigravity_install(&existing, bridge)?
+        } else {
+            plan_hook_install(&existing, bridge)?
+        }
     } else {
-        plan_hook_remove(&existing, &read_patch(required(&options, "--manifest")?)?)?
+        let manifest = read_patch(required(&options, "--manifest")?)?;
+        if antigravity {
+            plan_antigravity_remove(&existing, &manifest)?
+        } else {
+            plan_hook_remove(&existing, &manifest)?
+        }
     };
     private_write(
         Path::new(plan),

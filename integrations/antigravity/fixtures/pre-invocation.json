@@ -1,0 +1,14 @@
+{
+  "evidence": "synthetic",
+  "event": "pre-invocation",
+  "input": {
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/codex-pet/"],
+    "transcriptPath": "/workspace/.gemini/antigravity/transcript.jsonl",
+    "artifactDirectoryPath": "/workspace/.gemini/antigravity/artifacts",
+    "modelName": "auto",
+    "lastUserInput": "检查并修复单元测试",
+    "invocationNum": 1,
+    "initialNumSteps": 0
+  }
+}

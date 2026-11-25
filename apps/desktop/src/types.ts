@@ -32,7 +32,7 @@ export interface PetManifest {
   lookDirections?: FrameRect[];
 }
 
-export type Source = 'codex' | 'deepseek';
+export type Source = 'codex' | 'deepseek' | 'antigravity';
 export interface SessionKey {
   source: Source;
   installationId: string;

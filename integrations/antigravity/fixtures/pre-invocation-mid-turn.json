@@ -1,0 +1,10 @@
+{
+  "evidence": "synthetic",
+  "event": "pre-invocation",
+  "input": {
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/codex-pet"],
+    "invocationNum": 3,
+    "initialNumSteps": 10
+  }
+}

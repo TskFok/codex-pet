@@ -1,6 +1,6 @@
 # Codex Pet
 
-macOS / Windows 双平台独立桌宠（基于 Tauri 2、Rust 与 TypeScript/Canvas），用于接收 Codex 与官方 DeepSeek Harness 的任务提醒并打开对应原会话。首版聚焦提醒与会话跳转，不提供任务回答、批准或执行控制；现有 `pet-output/` 原始素材保持只读不被覆盖。
+macOS / Windows 双平台独立桌宠（基于 Tauri 2、Rust 与 TypeScript/Canvas），用于接收 Codex、DeepSeek Harness 与 Antigravity 的任务提醒并打开对应原会话或来源应用。首版聚焦提醒与会话跳转，不提供任务回答、批准或执行控制；现有 `pet-output/` 原始素材保持只读不被覆盖。
 
 ## 开发环境
 
@@ -55,9 +55,10 @@ pnpm run test:release   # 运行发布脚本单元测试
 ## 目录与模块
 
 - `crates/pet-core`：统一事件协议（生产协议 v2/v3，兼容读取旧 v1/v2）、可重放多会话状态机（`SessionStore`）、持久化日志与去重存储（`JournalStore`）、旧 v1/v2 宠物包导入与独立动画格式（`pet_package`）。无 GUI 或宿主依赖。
-- `crates/pet-bridge`：原生转发器与安全安装器（`codex` / `harness` / `hooks` 子命令），负责 8 MiB 原始 Hook 归一化、64 KiB 统一事件校验、有界待发送区（2,000 条 / 10 MiB / 24 小时）与 200 ms 本机 HTTP 投递。
+- `crates/pet-bridge`：原生转发器与安全安装器（`codex` / `antigravity` / `harness` / `hooks` / `antigravity-hooks` 子命令），负责 8 MiB 原始 Hook 归一化、64 KiB 统一事件校验、有界待发送区（2,000 条 / 10 MiB / 24 小时）与 200 ms 本机 HTTP 投递。
 - `apps/desktop`：Tauri 2 桌面应用与 TypeScript/Canvas 前端，包含本机 loopback broker、透明窗口与逐帧命中区域、系统托盘、通知历史面板、设置与来源接入状态、原会话安全导航。
 - `integrations/codex`：Codex 分级生命周期 Hook 模板、能力兼容表与接入/撤销文档（[Codex 接入说明](integrations/codex/README.md) · [Codex 兼容表](integrations/codex/compatibility.json)）。
+- `integrations/antigravity`：Antigravity（2.0 桌面 / IDE / CLI）分级生命周期 Hook 模板、能力兼容表与接入/撤销文档（[Antigravity 接入说明](integrations/antigravity/README.md) · [Antigravity 兼容表](integrations/antigravity/compatibility.json)）。
 - `integrations/deepseek-harness`：DeepSeek Harness 完整待处理与精确解除插件、离线 `dsh.bundle` 安装包生成器与最小宿主补丁（[Harness 接入说明](integrations/deepseek-harness/README.md) · [Harness 兼容表](integrations/deepseek-harness/compatibility.json)）。
 - `scripts/desktop-pet`：发行资源准备脚本（`prepare-resources.mjs`）、发行验收守卫（`validate-release.mjs`）及行为测试。
 - `docs/validation/desktop-pet`：双平台窗口与性能实测（[platforms.md](docs/validation/desktop-pet/platforms.md)）、来源验证（[codex.md](docs/validation/desktop-pet/codex.md)、[harness.md](docs/validation/desktop-pet/harness.md)）及发行检查清单（[release-checklist.md](docs/validation/desktop-pet/release-checklist.md)）。
@@ -81,5 +82,6 @@ pnpm run test:release   # 运行发布脚本单元测试
 ## 兼容范围与当前验收状态
 
 - **Codex（分级支持）**：提供可验证生命周期提醒（`UserPromptSubmit`、`Stop`、`Interrupt`、`SubagentStart`、`SubagentStop`）与会话跳转；**不支持**精确审批/提问等待与解除同步。
+- **Antigravity（分级支持）**：通过全局 `~/.gemini/config/hooks.json` 订阅 `PreInvocation` 与 `Stop`，提供回合开始、精确回合结束/中断/失败提醒与项目名识别；**不支持**精确审批/提问等待同步，导航降级为打开应用 + 复制 `conversationId`。
 - **DeepSeek Harness（完整待处理目标）**：支持审批、直接提问与跨回合定时提问的精确解除、观察器重载恢复与 JSONL 崩溃代次隔离（后两项需配套宿主补丁）。
 - 完整架构设计见 [双平台桌宠设计](docs/superpowers/specs/2026-11-11-tauri-desktop-pet-design.md)，当前已验证项与剩余发行阻断项（含 Windows 真机全链路、macOS Intel、双平台 3 真实宿主会话跳转及 5 分钟正式资源实测）详见 [发行检查清单](docs/validation/desktop-pet/release-checklist.md)。

@@ -1,9 +1,10 @@
 import type { NotificationKind, SessionProjection } from '../types';
-export const sourceName = { codex: 'Codex', deepseek: 'DeepSeek Harness' };
+export const sourceName = { codex: 'Codex', deepseek: 'DeepSeek Harness', antigravity: 'Antigravity' };
 export const reasonName = { answer: '待回答', approval: '待审批' };
 export const levelName = { verified: '已验证', unsupported: '不支持', unverified: '未验证' };
 export function statusName(s: SessionProjection): string {
-  if (s.status === 'running' && s.key.source === 'codex') return '最近观测到回合开始';
+  if (s.status === 'running' && (s.key.source === 'codex' || s.key.source === 'antigravity'))
+    return '最近观测到回合开始';
   return {
     running: '工作中',
     needs_attention: '待处理',

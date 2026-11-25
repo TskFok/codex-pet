@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-11-25",
+  "supportScope": {
+    "antigravity": "tiered_lifecycle_notifications_and_application_launch",
+    "precisePendingSync": "unsupported_by_current_adapter",
+    "preciseSessionDeepLink": "unsupported_by_host_fallback_to_application_only_and_copy_id"
+  },
+  "hosts": [
+    {
+      "kind": "global_hooks",
+      "surfaces": [
+        "antigravity_2_0_desktop",
+        "antigravity_ide",
+        "antigravity_cli"
+      ],
+      "configPath": "~/.gemini/config/hooks.json",
+      "liveHookExecution": "unverified"
+    }
+  ],
+  "normalization": {
+    "SessionStart": "turn_started_optional_manual_hook",
+    "PreInvocation": "turn_started_when_invocation_num_is_1_or_omitted_skip_mid_turn_repeats",
+    "Stop": {
+      "NO_TOOL_CALL": "turn_ended_completed",
+      "USER_CANCELED": "turn_ended_interrupted",
+      "ERROR": "turn_ended_failed",
+      "otherOrMissing": "turn_ended_unknown"
+    },
+    "PreToolUse_PostToolUse": "unsubscribed_to_avoid_interfering_with_host_permission_decisions"
+  },
+  "identity": {
+    "installation": "persisted_uuid_in_hook_command_and_manifest",
+    "sessionId": "conversationId",
+    "turnId": "execution-<executionNum>_on_Stop_omitted_on_PreInvocation",
+    "fallbackInstance": "hook-session:<conversationId>",
+    "projectContext": "basename_only_from_first_workspacePaths_entry_without_directory",
+    "sequence": null,
+    "snapshots": false,
+    "disconnectionInference": false
+  },
+  "installation": {
+    "namedHookKey": "codex-pet",
+    "defaultEvents": [
+      "PreInvocation",
+      "Stop"
+    ],
+    "installationUuid": "preserved_across_path_upgrade",
+    "changedOwnedSpec": "conflict_error_without_overwriting",
+    "uninstall": "use_latest_applied_manifest_preserve_third_party"
+  },
+  "eventSchemaVersion": 2,
+  "navigation": {
+    "macosOfficialBundleIds": [
+      "com.google.antigravity",
+      "com.google.GeminiMacOS"
+    ],
+    "windowsProtocolScheme": "antigravity",
+    "supportsSessionDeepLink": false,
+    "applicationOnlyRequiresExplicitAction": true,
+    "fallbackAction": "copy_conversation_id"
+  }
+}

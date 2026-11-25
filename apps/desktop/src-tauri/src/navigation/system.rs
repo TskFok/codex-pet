@@ -13,32 +13,38 @@ mod native {
     };
 
     pub(super) fn desktop(source: Source) -> Option<Desktop> {
-        let (link, id) = match source {
-            Source::Codex => ("codex://threads", "com.openai.codex"),
-            Source::Deepseek => ("dsh://open", "com.deepseek.harness"),
+        let (link, ids): (Option<&str>, &[&str]) = match source {
+            Source::Codex => (Some("codex://threads"), &["com.openai.codex"]),
+            Source::Deepseek => (Some("dsh://open"), &["com.deepseek.harness"]),
+            Source::Antigravity => (None, &["com.google.antigravity", "com.google.GeminiMacOS"]),
         };
-        let url = NSURL::URLWithString(&NSString::from_str(link))?;
         let workspace = NSWorkspace::sharedWorkspace();
-        let matches_bundle = |url: &NSURL| {
+        let matches_bundle = |url: &NSURL, expected_id: &str| {
             NSBundle::bundleWithURL(url).is_some_and(|bundle| {
                 bundle
                     .bundleIdentifier()
-                    .is_some_and(|value| value.to_string() == id)
+                    .is_some_and(|value| value.to_string() == expected_id)
                     && bundle
                         .executableURL()
                         .and_then(|url| url.path())
                         .is_some_and(|path| Path::new(&path.to_string()).is_file())
             })
         };
-        let handler = workspace
-            .URLForApplicationToOpenURL(&url)
-            .filter(|url| matches_bundle(url));
+        let handler = link
+            .and_then(|scheme| NSURL::URLWithString(&NSString::from_str(scheme)))
+            .and_then(|url| workspace.URLForApplicationToOpenURL(&url))
+            .filter(|url| ids.iter().any(|id| matches_bundle(url, id)));
         let registered = handler.is_some();
         let app = handler.or_else(|| {
-            (source == Source::Codex)
-                .then(|| workspace.URLForApplicationWithBundleIdentifier(&NSString::from_str(id)))
+            matches!(source, Source::Codex | Source::Antigravity)
+                .then(|| {
+                    ids.iter().find_map(|id| {
+                        workspace
+                            .URLForApplicationWithBundleIdentifier(&NSString::from_str(id))
+                            .filter(|url| matches_bundle(url, id))
+                    })
+                })
                 .flatten()
-                .filter(|url| matches_bundle(url))
         })?;
         let path = PathBuf::from(app.path()?.to_string()).canonicalize().ok()?;
         if !valid_path(&path) {
@@ -59,6 +65,7 @@ mod native {
             Source::Deepseek => {
                 super::super::harness::archive_support(&path.join("Contents/Resources/app.asar"))?
             }
+            Source::Antigravity => false,
         };
         Some(Desktop {
             path,
@@ -199,6 +206,7 @@ mod native {
         let scheme = match source {
             Source::Codex => "codex",
             Source::Deepseek => "dsh",
+            Source::Antigravity => "antigravity",
         };
         let path = PathBuf::from(association(scheme, ASSOCSTR_EXECUTABLE)?);
         if !valid_path(&path) || !path.is_file() {
@@ -219,6 +227,7 @@ mod native {
                 }
                 super::super::harness::archive_support(&path.parent()?.join("resources/app.asar"))?
             }
+            Source::Antigravity => false,
         };
         Some(Desktop {
             path,
@@ -230,8 +239,8 @@ mod native {
         if !path.is_file() {
             return Err(io::Error::other("来源应用已卸载"));
         }
-        if source == Source::Deepseek {
-            // Windows Electron cold/second-instance 接收单独的 URL 参数。
+        if matches!(source, Source::Deepseek | Source::Antigravity) {
+            // Windows Electron cold/second-instance 接收单独的 URL 参数；Antigravity 仅唤起应用。
             Command::new(path).args(url).spawn()?;
             return Ok(());
         }

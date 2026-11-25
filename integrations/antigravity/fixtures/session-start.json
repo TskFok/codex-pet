@@ -1,0 +1,11 @@
+{
+  "evidence": "synthetic",
+  "event": "session-start",
+  "input": {
+    "conversationId": "ec33ebf9-0cba-4100-8142-c61503f6c587",
+    "workspacePaths": ["/workspace/codex-pet"],
+    "transcriptPath": "/workspace/.gemini/antigravity/transcript.jsonl",
+    "artifactDirectoryPath": "/workspace/.gemini/antigravity/artifacts",
+    "modelName": "auto"
+  }
+}

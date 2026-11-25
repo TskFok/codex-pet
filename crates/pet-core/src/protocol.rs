@@ -10,6 +10,7 @@ pub const MAX_SUMMARY_CHARS: usize = 512;
 pub enum Source {
     Codex,
     Deepseek,
+    Antigravity,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
