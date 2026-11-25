@@ -31,10 +31,6 @@ importers:
         version: 4.0.18(@types/node@24.10.1)(yaml@2.9.1)
 
   integrations/deepseek-harness:
-    dependencies:
-      zod:
-        specifier: 4.4.3
-        version: 4.4.3
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.1.0
@@ -75,6 +71,9 @@ importers:
       vitest:
         specifier: 4.0.18
         version: 4.0.18(@types/node@24.10.1)(yaml@2.9.1)
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
 packages:
 

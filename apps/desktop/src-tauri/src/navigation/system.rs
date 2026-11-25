@@ -81,6 +81,19 @@ mod native {
         Ok(())
     }
 
+    pub(super) fn dispatch_url(url: &str) -> io::Result<()> {
+        let status = Command::new("/usr/bin/open")
+            .arg(url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        if !status.success() {
+            return Err(io::Error::other("系统未接受打开请求"));
+        }
+        Ok(())
+    }
+
     pub(super) fn copy(_window: &tauri::WebviewWindow, id: &str) -> io::Result<()> {
         let pasteboard = NSPasteboard::generalPasteboard();
         pasteboard.clearContents();
@@ -242,6 +255,25 @@ mod native {
         Ok(())
     }
 
+    pub(super) fn dispatch_url(url: &str) -> io::Result<()> {
+        let target = wide(url);
+        // SAFETY: 参数为经校验的本地回环 HTTP(S) URL，且为 NUL 结尾。
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                wide("open").as_ptr(),
+                target.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+            )
+        };
+        if result <= 32 {
+            return Err(io::Error::other("系统未接受打开请求"));
+        }
+        Ok(())
+    }
+
     pub(super) fn copy(window: &tauri::WebviewWindow, id: &str) -> io::Result<()> {
         let owner = window.hwnd().map_err(io::Error::other)?;
         let data = wide(id);
@@ -282,6 +314,9 @@ mod native {
     pub(super) fn dispatch(_: Source, _: &Path, _: Option<&str>) -> io::Result<()> {
         Err(io::ErrorKind::Unsupported.into())
     }
+    pub(super) fn dispatch_url(_: &str) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     pub(super) fn copy(_: &tauri::WebviewWindow, _: &str) -> io::Result<()> {
         Err(io::ErrorKind::Unsupported.into())
     }
@@ -292,6 +327,9 @@ pub(crate) fn desktop(source: Source) -> Option<Desktop> {
 }
 pub(crate) fn dispatch(source: Source, path: &Path, url: Option<&str>) -> io::Result<()> {
     native::dispatch(source, path, url)
+}
+pub(crate) fn dispatch_url(url: &str) -> io::Result<()> {
+    native::dispatch_url(url)
 }
 pub(crate) fn copy(window: &tauri::WebviewWindow, id: &str) -> io::Result<()> {
     native::copy(window, id)

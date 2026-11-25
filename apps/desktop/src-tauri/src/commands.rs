@@ -94,11 +94,30 @@ pub async fn open_session(
 ) -> Result<OpenOutcome> {
     known_session(&state, &key)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let registration =
+        let target =
             crate::integrations::navigation_registration(&app, key.source, &key.installation_id)?;
-        navigation::open_session(&key, registration.as_ref(), intent, |path, url| {
-            navigation::system::dispatch(key.source, path, url)
-        })
+        match target {
+            Some(navigation::Target::Desktop(registration)) => {
+                navigation::open_session(&key, Some(&registration), intent, |path, url| {
+                    navigation::system::dispatch(key.source, path, url)
+                })
+            }
+            Some(navigation::Target::Web {
+                source,
+                installation_id,
+                target,
+            }) => navigation::open_web_session(
+                &key,
+                source,
+                &installation_id,
+                target.as_ref(),
+                intent,
+                navigation::system::dispatch_url,
+            ),
+            None => navigation::open_session(&key, None, intent, |path, url| {
+                navigation::system::dispatch(key.source, path, url)
+            }),
+        }
         .map_err(|error| CommandError::new("navigation", error))
     })
     .await

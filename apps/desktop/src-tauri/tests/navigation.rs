@@ -1,6 +1,7 @@
 use pet_core::{SessionKey, Source};
 use pet_desktop::navigation::{
-    Desktop, NavigationError, OpenIntent, OpenOutcome, Registration, open_session,
+    Desktop, NavigationError, OpenIntent, OpenOutcome, Registration, WebTarget, open_session,
+    open_web_session,
 };
 use std::path::PathBuf;
 
@@ -176,5 +177,130 @@ fn missing_desktop_and_rejected_system_request_have_distinct_results() {
             |_, _| Err(std::io::Error::other("系统拒绝"))
         ),
         Err(NavigationError::DispatchFailed),
+    );
+}
+
+#[test]
+fn harness_web_session_dispatches_encoded_loopback_hash_and_gates_application_only() {
+    let session = key(Source::Deepseek, "会话/a ?#%&");
+    let supported = WebTarget {
+        origin: "http://127.0.0.1:3080".into(),
+        supports_session: true,
+    };
+    assert_eq!(
+        open_web_session(
+            &session,
+            Source::Deepseek,
+            INSTALL,
+            Some(&supported),
+            OpenIntent::Session,
+            |url| {
+                assert_eq!(
+                    url,
+                    "http://127.0.0.1:3080/#codex-pet-session=%E4%BC%9A%E8%AF%9D%2Fa%20%3F%23%25%26"
+                );
+                Ok(())
+            },
+        ),
+        Ok(OpenOutcome::Requested),
+    );
+
+    let legacy_client = WebTarget {
+        origin: "http://[::1]:3080/".into(),
+        supports_session: false,
+    };
+    assert_eq!(
+        open_web_session(
+            &session,
+            Source::Deepseek,
+            INSTALL,
+            Some(&legacy_client),
+            OpenIntent::Session,
+            |_| panic!("旧版 Web 客户端不能隐式打开应用"),
+        ),
+        Ok(OpenOutcome::ApplicationOnly { opened: false }),
+    );
+    assert_eq!(
+        open_web_session(
+            &session,
+            Source::Deepseek,
+            INSTALL,
+            Some(&legacy_client),
+            OpenIntent::Application,
+            |url| {
+                assert_eq!(url, "http://[::1]:3080/");
+                Ok(())
+            },
+        ),
+        Ok(OpenOutcome::ApplicationOnly { opened: true }),
+    );
+
+    assert_eq!(
+        open_web_session(
+            &session,
+            Source::Deepseek,
+            INSTALL,
+            None,
+            OpenIntent::Session,
+            |_| panic!("未运行本地 Web 服务不能派发"),
+        ),
+        Ok(OpenOutcome::Unavailable),
+    );
+}
+
+#[test]
+fn harness_web_session_rejects_non_loopback_origins_and_invalid_inputs() {
+    let session = key(Source::Deepseek, "session-1");
+    for origin in [
+        "https://evil.example:3080",
+        "http://0.0.0.0:3080",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:3080/path",
+        "http://evil@127.0.0.1:3080",
+        "javascript:alert(1)",
+    ] {
+        let bad = WebTarget {
+            origin: origin.into(),
+            supports_session: true,
+        };
+        assert_eq!(
+            open_web_session(
+                &session,
+                Source::Deepseek,
+                INSTALL,
+                Some(&bad),
+                OpenIntent::Session,
+                |_| panic!("非法来源不能派发: {origin}"),
+            ),
+            Err(NavigationError::InvalidHostPath),
+            "{origin}"
+        );
+    }
+
+    let ok_target = WebTarget {
+        origin: "http://localhost:3080".into(),
+        supports_session: true,
+    };
+    assert_eq!(
+        open_web_session(
+            &session,
+            Source::Deepseek,
+            "12d59cdc-1904-43b3-acbf-44114fd82332",
+            Some(&ok_target),
+            OpenIntent::Session,
+            |_| panic!("未登记安装不能派发"),
+        ),
+        Err(NavigationError::UnknownInstallation),
+    );
+    assert_eq!(
+        open_web_session(
+            &key(Source::Deepseek, "https://evil.example"),
+            Source::Deepseek,
+            INSTALL,
+            Some(&ok_target),
+            OpenIntent::Session,
+            |_| panic!("非法会话标识不能派发"),
+        ),
+        Err(NavigationError::InvalidSessionId),
     );
 }

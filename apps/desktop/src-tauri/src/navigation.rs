@@ -1,5 +1,4 @@
-#[cfg(any(windows, target_os = "macos"))]
-mod harness;
+pub(crate) mod harness;
 pub(crate) mod system;
 
 use pet_core::{SessionKey, Source};
@@ -56,6 +55,21 @@ pub struct Desktop {
     pub supports_session: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WebTarget {
+    pub origin: String,
+    pub supports_session: bool,
+}
+
+pub(crate) enum Target {
+    Desktop(Registration),
+    Web {
+        source: Source,
+        installation_id: String,
+        target: Option<WebTarget>,
+    },
+}
+
 pub fn open_session(
     key: &SessionKey,
     registration: Option<&Registration>,
@@ -88,6 +102,45 @@ pub fn open_session(
     })
 }
 
+pub fn open_web_session(
+    key: &SessionKey,
+    expected_source: Source,
+    expected_installation_id: &str,
+    web: Option<&WebTarget>,
+    intent: OpenIntent,
+    dispatch: impl FnOnce(&str) -> io::Result<()>,
+) -> Result<OpenOutcome, NavigationError> {
+    if expected_source != key.source
+        || expected_installation_id != key.installation_id
+        || key.source != Source::Deepseek
+    {
+        return Err(NavigationError::UnknownInstallation);
+    }
+    let encoded_session = match intent {
+        OpenIntent::Session => Some(encode_harness_session_id(&key.session_id)?),
+        OpenIntent::Application => None,
+    };
+    let Some(web) = web else {
+        return Ok(OpenOutcome::Unavailable);
+    };
+    if !valid_loopback_origin(&web.origin) {
+        return Err(NavigationError::InvalidHostPath);
+    }
+    if matches!(intent, OpenIntent::Session) && !web.supports_session {
+        return Ok(OpenOutcome::ApplicationOnly { opened: false });
+    }
+    let origin = web.origin.trim_end_matches('/');
+    let url = match encoded_session {
+        Some(encoded) => format!("{origin}/#codex-pet-session={encoded}"),
+        None => format!("{origin}/"),
+    };
+    dispatch(&url).map_err(|_| NavigationError::DispatchFailed)?;
+    Ok(match intent {
+        OpenIntent::Session => OpenOutcome::Requested,
+        OpenIntent::Application => OpenOutcome::ApplicationOnly { opened: true },
+    })
+}
+
 fn valid_path(path: &Path) -> bool {
     path.is_absolute()
         && path
@@ -98,6 +151,44 @@ fn valid_path(path: &Path) -> bool {
             .any(|component| matches!(component, std::path::Component::ParentDir))
 }
 
+pub(crate) fn valid_loopback_origin(origin: &str) -> bool {
+    let origin = origin.trim_end_matches('/');
+    let Some(rest) = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    if rest.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return false;
+    }
+    let Some((host, port)) = rest.rsplit_once(':') else {
+        return false;
+    };
+    matches!(host, "127.0.0.1" | "localhost" | "[::1]") && port.parse::<u16>().is_ok_and(|p| p > 0)
+}
+
+fn encode_harness_session_id(id: &str) -> Result<String, NavigationError> {
+    if id.trim().is_empty()
+        || id.encode_utf16().count() > 1024
+        || matches!(id, "." | "..")
+        || id.contains("://")
+        || id.chars().any(char::is_control)
+    {
+        return Err(NavigationError::InvalidSessionId);
+    }
+    let mut encoded = String::with_capacity(id.len());
+    for byte in id.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write;
+            write!(encoded, "%{byte:02X}").expect("写入字符串");
+        }
+    }
+    Ok(encoded)
+}
+
 fn session_url(key: &SessionKey) -> Result<String, NavigationError> {
     let id = &key.session_id;
     match key.source {
@@ -106,25 +197,6 @@ fn session_url(key: &SessionKey) -> Result<String, NavigationError> {
             .filter(|uuid| uuid.hyphenated().to_string().eq_ignore_ascii_case(id))
             .map(|uuid| format!("codex://threads/{uuid}"))
             .ok_or(NavigationError::InvalidSessionId),
-        Source::Deepseek => {
-            if id.trim().is_empty()
-                || id.encode_utf16().count() > 1024
-                || matches!(id.as_str(), "." | "..")
-                || id.contains("://")
-                || id.chars().any(char::is_control)
-            {
-                return Err(NavigationError::InvalidSessionId);
-            }
-            let mut url = "dsh://session/".to_owned();
-            for byte in id.bytes() {
-                if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
-                    url.push(char::from(byte));
-                } else {
-                    use std::fmt::Write;
-                    write!(url, "%{byte:02X}").expect("写入字符串");
-                }
-            }
-            Ok(url)
-        }
+        Source::Deepseek => Ok(format!("dsh://session/{}", encode_harness_session_id(id)?)),
     }
 }

@@ -1,5 +1,8 @@
+import {Context} from '@deepseek-ai/cordis';
+import SessionStore from '@deepseek-ai/dsh-session';
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection';
 import{beforeAll,it,expect}from'vitest';
-import{execFileSync}from'node:child_process';import{mkdtemp,readFile,access,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';import{fileURLToPath}from'node:url';import vm from'node:vm';
+import{execFileSync}from'node:child_process';import{mkdtemp,readFile,access,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';import{fileURLToPath,pathToFileURL}from'node:url';import vm from'node:vm';
 import{createInstallPackage}from'../create-install.mjs';
 function resolvePnpmInvocation(args:string[]):{command:string;args:string[]}{
  if(process.platform!=='win32')return {command:'pnpm',args};
@@ -23,8 +26,21 @@ it('离线生成可解析bundle：中文空格新路径、精确构建文件、�
   expect(manifest.engines.dsh).toBe('>=0.2.2-rc.1 <0.3.0-0');
   expect(manifest.peerDependencies['@deepseek-ai/cordis']).toBe('^4.1.0 || ^4.2.0-alpha.1');
   expect(manifest.peerDependencies['@deepseek-ai/dsh-session']).toBe('^0.2.2-rc.1 || ^0.2.3-alpha.1');
+  expect(manifest.dependencies).toBeUndefined();
   expect(Object.values({...manifest.dependencies,...manifest.peerDependencies}).every(value=>typeof value==='string'&&!/^(?:file:|link:|workspace:|\/)/.test(value))).toBe(true);
   expect(await readFile(join(output,'dist/index.js'),'utf8')).toBe(await readFile(new URL('../dist/index.js',import.meta.url),'utf8'));
+  const isolatedHost=await import(pathToFileURL(join(output,'dist/index.js')).href);
+  expect(typeof isolatedHost.apply).toBe('function');
+  expect(isolatedHost.inject).toEqual(['sessions','sessionProjections']);
+  expect(isolatedHost.Config.parse(patch[0].insert[0].config)).toEqual(patch[0].insert[0].config);
+  expect(()=>isolatedHost.Config.parse({bridgePath:'relative/pet-bridge',installationId:'not-a-uuid'})).toThrow();
+  const ctx=new Context();
+  await ctx.plugin(SessionStore);
+  await ctx.plugin(SessionProjectionRegistry);
+  await ctx.plugin(isolatedHost,patch[0].insert[0].config);
+  await ctx.fiber.dispose();
+  const isolatedOpenSession=await import(pathToFileURL(join(output,'dist/open-session.js')).href);
+  expect(typeof isolatedOpenSession.openHarnessSession).toBe('function');
   let factory: {id:string;factory:(require:(name:string)=>never)=>{apply:unknown}}|undefined;
   vm.runInNewContext(await readFile(join(output,'dist/client.js'),'utf8'),{window:{__ModuleLoader__:{load:(row:typeof factory)=>{factory=row;}}}});
   expect(factory?.id).toBe('@codex-pet/deepseek-integration');expect(typeof factory?.factory(()=>{throw Error('未声明外部依赖');}).apply).toBe('function');

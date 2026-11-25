@@ -1,6 +1,6 @@
 use crate::{
     commands::{CommandError, Result},
-    navigation::{Registration, system},
+    navigation::{self, Registration, harness, system},
     notification_paths,
 };
 use pet_bridge::hook_install::{
@@ -67,7 +67,8 @@ fn failure(e: impl std::fmt::Display) -> CommandError {
 struct Locations {
     paths: AppPaths,
     config: PathBuf,
-    profile: PathBuf,
+    dsh_home: PathBuf,
+    profiles_dir: PathBuf,
     bridge: PathBuf,
     template: PathBuf,
 }
@@ -87,8 +88,9 @@ impl Locations {
                 .unwrap_or_else(|| home.join(default))
         };
         let config = profile_home("CODEX_HOME", ".codex").join("hooks.json");
-        let profile = profile_home("DSH_HOME", ".dsh").join("profiles/desktop");
-        if !config.is_absolute() || !profile.is_absolute() {
+        let dsh_home = profile_home("DSH_HOME", ".dsh");
+        let profiles_dir = dsh_home.join("profiles");
+        if !config.is_absolute() || !dsh_home.is_absolute() {
             return Err(failure("来源配置根目录必须是绝对路径"));
         }
         let exe = env::current_exe().map_err(failure)?;
@@ -112,7 +114,8 @@ impl Locations {
         Ok(Self {
             paths: notification_paths()?,
             config,
-            profile,
+            dsh_home,
+            profiles_dir,
             bridge,
             template,
         })
@@ -302,22 +305,75 @@ fn installation_id(row: &Value) -> Option<String> {
         .and_then(|s| uuid::Uuid::parse_str(s).ok())
         .map(|id| id.to_string())
 }
-fn harness_registration(loc: &Locations) -> Result<(Option<String>, Option<PathBuf>, Value)> {
-    let profile = read_json(&loc.profile.join("package.json"))?.unwrap_or(Value::Null);
-    let selected = profile
+const WEB_APP_BUNDLE: &str = "@deepseek-ai/dsh-web-app";
+
+struct HarnessProfile {
+    name: String,
+    dir: PathBuf,
+    installation_id: Option<String>,
+    bridge_path: Option<PathBuf>,
+    package_dir: PathBuf,
+    manifest: Value,
+    has_web_app: bool,
+    has_package_dep: bool,
+}
+
+fn harness_profile_dirs(profiles_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut dirs = Vec::new();
+    for preferred in ["desktop", "web"] {
+        let candidate = profiles_dir.join(preferred);
+        if candidate.is_dir() {
+            dirs.push(candidate);
+        }
+    }
+    let entries = match fs::read_dir(profiles_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(dirs),
+        Err(e) => return Err(failure(e)),
+    };
+    let mut extras = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(failure)?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if matches!(name.as_str(), "desktop" | "web" | "node_modules") || name.starts_with('.') {
+            continue;
+        }
+        extras.push((name, path));
+    }
+    extras.sort_by(|a, b| a.0.cmp(&b.0));
+    dirs.extend(extras.into_iter().map(|(_, path)| path));
+    Ok(dirs)
+}
+
+fn inspect_harness_profile(dir: &Path) -> Result<HarnessProfile> {
+    let name = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("desktop")
+        .to_owned();
+    let manifest = read_json(&dir.join("package.json"))?.unwrap_or(Value::Null);
+    let bundles = manifest
         .pointer("/dsh/profile/bundles")
-        .and_then(Value::as_array)
-        .is_some_and(|layers| layers.iter().any(|v| v == PACKAGE));
-    let package = loc.profile.join("node_modules").join(PACKAGE);
-    let metadata = read_json(&package.join("package.json"))?.unwrap_or(Value::Null);
-    let (id, bridge_path) = if selected
+        .and_then(Value::as_array);
+    let selected = bundles.is_some_and(|layers| layers.iter().any(|v| v == PACKAGE));
+    let has_web_app = bundles.is_some_and(|layers| layers.iter().any(|v| v == WEB_APP_BUNDLE));
+    let has_package_dep = !manifest.is_null() && manifest["dependencies"].get(PACKAGE).is_some();
+    let package_dir = dir.join("node_modules").join(PACKAGE);
+    let metadata = read_json(&package_dir.join("package.json"))?.unwrap_or(Value::Null);
+    let (installation_id, bridge_path) = if selected
         && metadata["name"] == PACKAGE
         && metadata
             .pointer("/dsh/bundle/patch")
             .and_then(Value::as_str)
             == Some("./cordis.patch.json")
     {
-        match read_json(&package.join("cordis.patch.json"))? {
+        match read_json(&package_dir.join("cordis.patch.json"))? {
             Some(row) => {
                 let id = installation_id(&row);
                 let bridge = installation_entry(&row)
@@ -330,33 +386,88 @@ fn harness_registration(loc: &Locations) -> Result<(Option<String>, Option<PathB
     } else {
         (None, None)
     };
-    Ok((id, bridge_path, profile))
+    Ok(HarnessProfile {
+        name,
+        dir: dir.to_path_buf(),
+        installation_id,
+        bridge_path,
+        package_dir,
+        manifest,
+        has_web_app,
+        has_package_dep,
+    })
+}
+
+fn harness_registrations(loc: &Locations) -> Result<Vec<HarnessProfile>> {
+    harness_profile_dirs(&loc.profiles_dir)?
+        .into_iter()
+        .map(|dir| inspect_harness_profile(&dir))
+        .collect()
+}
+
+fn harness_primary_profile(loc: &Locations) -> Result<HarnessProfile> {
+    let profiles = harness_registrations(loc)?;
+    let chosen = profiles
+        .iter()
+        .position(|p| p.installation_id.is_some())
+        .or_else(|| profiles.iter().position(|p| p.has_package_dep))
+        .or_else(|| profiles.iter().position(|p| !p.manifest.is_null()));
+    if let Some(index) = chosen {
+        return Ok(profiles.into_iter().nth(index).unwrap());
+    }
+    let dir = loc.profiles_dir.join("desktop");
+    Ok(HarnessProfile {
+        name: "desktop".into(),
+        package_dir: dir.join("node_modules").join(PACKAGE),
+        dir,
+        installation_id: None,
+        bridge_path: None,
+        manifest: Value::Null,
+        has_web_app: false,
+        has_package_dep: false,
+    })
+}
+
+fn harness_sdk_version(loc: &Locations, profile_dir: &Path) -> Result<Option<String>> {
+    for root in [profile_dir, &loc.profiles_dir] {
+        let version = read_json(&root.join("node_modules/@deepseek-ai/dsh-session/package.json"))?
+            .and_then(|v| v["version"].as_str().map(str::to_owned));
+        if version.is_some() {
+            return Ok(version);
+        }
+    }
+    Ok(None)
 }
 
 fn harness_status(loc: &Locations) -> Result<IntegrationStatus> {
-    let (id, bridge_path, profile) = harness_registration(loc)?;
+    let profile = harness_primary_profile(loc)?;
     // 这里能证实 profile 中选中的真实配置包；运行期启用和 Fiber 状态须在宿主检查。
-    let installed = id.is_some();
+    let installed = profile.installation_id.is_some();
     let bridge_missing = installed
-        && !bridge_path
+        && !profile
+            .bridge_path
             .as_deref()
             .is_some_and(|path| path.is_absolute() && path.is_file());
-    let hint = if installed && bridge_missing {
-        "已在桌面 profile 选择配置包，但其中配置的 bridgePath 在磁盘上不存在，请重新生成并在宿主更新。"
-    } else if installed {
-        "已在桌面 profile 选择配置包。运行状态请在宿主插件页核对。"
-    } else if !profile.is_null() && profile["dependencies"].get(PACKAGE).is_some() {
-        "同名依赖已存在但未确认有效配置层。迁移旧 plain 库前，请在宿主插件页保留安装 ID 并移除自有旧层。"
-    } else if profile.is_null() {
-        "未发现 Harness 桌面 profile。"
+    let label = if profile.name == "desktop" {
+        "桌面 profile".to_owned()
     } else {
-        "请在宿主插件页安装并启用配置包。"
+        format!("{} profile", profile.name)
     };
-    let sdk_version = read_json(
-        &loc.profile
-            .join("node_modules/@deepseek-ai/dsh-session/package.json"),
-    )?
-    .and_then(|v| v["version"].as_str().map(str::to_owned));
+    let hint = if installed && bridge_missing {
+        format!(
+            "已在 {label} 选择配置包，但其中配置的 bridgePath 在磁盘上不存在，请重新生成并在宿主更新。"
+        )
+    } else if installed {
+        format!("已在 {label} 选择配置包。运行状态请在宿主插件页核对。")
+    } else if profile.has_package_dep {
+        "同名依赖已存在但未确认有效配置层。迁移旧 plain 库前，请在宿主插件页保留安装 ID 并移除自有旧层。"
+            .into()
+    } else if profile.manifest.is_null() {
+        "未发现 Harness profile。".into()
+    } else {
+        "请在宿主插件页安装并启用配置包。".into()
+    };
+    let sdk_version = harness_sdk_version(loc, &profile.dir)?;
     let sdk_verified = sdk_version.as_deref() == Some("0.2.2-rc.1")
         && cfg!(all(target_os = "macos", target_arch = "aarch64"));
     let sdk = if sdk_verified {
@@ -367,10 +478,10 @@ fn harness_status(loc: &Locations) -> Result<IntegrationStatus> {
     Ok(IntegrationStatus {
         source: Source::Deepseek,
         host: "DeepSeek Harness · 会话 SDK",
-        installation_id: id,
+        installation_id: profile.installation_id,
         version: sdk_version,
         installed,
-        target: loc.profile.clone(),
+        target: profile.dir,
         capabilities: caps(&[
             ("SDK 连续观察审批与精确解除", sdk),
             ("SDK 连续观察提问与精确解除", sdk),
@@ -451,32 +562,50 @@ fn codex_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
 
 fn harness_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
     if matches!(action, Action::Remove) {
-        return Ok(InstallReport{warnings:vec!["在 Harness 桌面的插件页停用并移除 @codex-pet/deepseek-integration，然后刷新接入状态。".into()],..Default::default()});
+        return Ok(InstallReport {
+            warnings: vec![
+                "在 Harness 插件页停用并移除 @codex-pet/deepseek-integration，然后刷新接入状态。"
+                    .into(),
+            ],
+            ..Default::default()
+        });
     }
     if !loc.bridge.is_file() || !loc.template.join("dist/index.js").is_file() {
         return Err(failure(
             "缺少配套的 pet-bridge 或 Harness 配置包资源，请修复桌宠安装",
         ));
     }
-    let status = harness_status(loc)?;
+    let profiles = harness_registrations(loc)?;
+    let mut distinct_ids: Vec<String> = Vec::new();
+    for id in profiles
+        .iter()
+        .filter_map(|profile| profile.installation_id.as_ref())
+    {
+        if !distinct_ids.contains(id) {
+            distinct_ids.push(id.clone());
+        }
+    }
+    if distinct_ids.len() > 1 {
+        return Err(failure(
+            "多个 Harness profile 中的安装 ID 冲突，请先在宿主核对",
+        ));
+    }
+    let actual_id = distinct_ids.into_iter().next();
     let root = loc.paths.root.join("integrations/harness");
     paths::prepare_directory(&root)?;
     let id_file = root.join("installation-id");
     let saved = read_optional(&id_file)?
         .map(|bytes| String::from_utf8(bytes).map_err(failure))
         .transpose()?;
-    if status.installation_id.is_none()
-        && read_json(&loc.profile.join("package.json"))?
-            .is_some_and(|p| p["dependencies"].get(PACKAGE).is_some())
-    {
+    if actual_id.is_none() && profiles.iter().any(|profile| profile.has_package_dep) {
         return Err(failure(
             "现有同名依赖的安装 ID 未确认，请在宿主核对原 ID 并用正式生成器的 --installation-id 选项迁移",
         ));
     }
-    let id = match (status.installation_id, saved) {
+    let id = match (actual_id, saved) {
         (Some(actual), Some(previous)) if actual != previous => {
             return Err(failure(
-                "桌面 profile 与本机保存的安装 ID 冲突，请先在宿主核对",
+                "Harness profile 与本机保存的安装 ID 冲突，请先在宿主核对",
             ));
         }
         (Some(actual), _) | (_, Some(actual)) => uuid::Uuid::parse_str(&actual).map_err(failure)?,
@@ -515,7 +644,7 @@ fn harness_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
             &serde_json::to_vec_pretty(&patch).map_err(failure)?,
         )?;
         paths::sync_directory(&dir)?;
-        Ok(InstallReport{bundle_path:Some(dir.clone()),warnings:vec!["配置包已生成。请在 Harness 桌面插件页添加下面的本地目录，核对 bridgePath 和 installationId 后启用。已有 bundle 请核对原启用状态。".into()],..Default::default()})
+        Ok(InstallReport{bundle_path:Some(dir.clone()),warnings:vec!["配置包已生成。请在 Harness 插件页添加下面的本地目录，核对 bridgePath 和 installationId 后启用。已有 bundle 请核对原启用状态。".into()],..Default::default()})
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(&dir);
@@ -523,29 +652,74 @@ fn harness_apply(loc: &Locations, action: Action) -> Result<InstallReport> {
     result
 }
 
-/// 已登记的 Hooks 或已由桌面 profile 选择的 Harness 包才提供安装身份。
+fn navigation_target_for_locations(
+    loc: &Locations,
+    source: Source,
+    expected_id: &str,
+) -> Result<Option<navigation::Target>> {
+    match source {
+        Source::Codex => {
+            let (id, _, complete) = codex_evidence(loc)?;
+            Ok(id
+                .filter(|id| complete && id == expected_id)
+                .map(|installation_id| {
+                    navigation::Target::Desktop(Registration {
+                        desktop: system::desktop(source),
+                        installation_id,
+                        source,
+                    })
+                }))
+        }
+        Source::Deepseek => {
+            let Some(profile) = harness_registrations(loc)?
+                .into_iter()
+                .find(|p| p.installation_id.as_deref() == Some(expected_id))
+            else {
+                return Ok(None);
+            };
+            let installation_id = profile.installation_id.unwrap();
+            if profile.name != "desktop" && profile.has_web_app {
+                if let Some(web) =
+                    harness::web_target(&profile.dir, Some(&loc.dsh_home), &profile.package_dir)
+                {
+                    return Ok(Some(navigation::Target::Web {
+                        source,
+                        installation_id,
+                        target: Some(web),
+                    }));
+                }
+                if let Some(desktop) = system::desktop(source) {
+                    return Ok(Some(navigation::Target::Desktop(Registration {
+                        desktop: Some(desktop),
+                        installation_id,
+                        source,
+                    })));
+                }
+                return Ok(Some(navigation::Target::Web {
+                    source,
+                    installation_id,
+                    target: None,
+                }));
+            }
+            Ok(Some(navigation::Target::Desktop(Registration {
+                desktop: system::desktop(source),
+                installation_id,
+                source,
+            })))
+        }
+    }
+}
+
+/// 已登记的 Hooks 或已由 Harness profile 选择的配置包才提供安装身份。
 pub(crate) fn navigation_registration(
     app: &tauri::AppHandle,
     source: Source,
     expected_id: &str,
-) -> Result<Option<Registration>> {
+) -> Result<Option<navigation::Target>> {
     let lock = app.state::<IntegrationLock>();
     let _guard = lock.0.lock().unwrap();
     let loc = Locations::new(app)?;
-    let id = match source {
-        Source::Codex => {
-            let (id, _, complete) = codex_evidence(&loc)?;
-            id.filter(|_| complete)
-        }
-        Source::Deepseek => harness_registration(&loc)?.0,
-    };
-    Ok(id
-        .filter(|id| id == expected_id)
-        .map(|installation_id| Registration {
-            desktop: system::desktop(source),
-            installation_id,
-            source,
-        }))
+    navigation_target_for_locations(&loc, source, expected_id)
 }
 #[tauri::command]
 pub async fn integration_status(app: tauri::AppHandle) -> Result<Vec<IntegrationStatus>> {
@@ -556,7 +730,7 @@ pub async fn integration_status(app: tauri::AppHandle) -> Result<Vec<Integration
             harness_status(&loc).unwrap_or_else(|err| IntegrationStatus {
                 source: Source::Deepseek,
                 host: "DeepSeek Harness",
-                target: loc.profile.clone(),
+                target: loc.profiles_dir.join("desktop"),
                 installation_id: None,
                 version: None,
                 installed: false,
@@ -592,17 +766,21 @@ pub async fn apply_integration(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::net::{Ipv4Addr, TcpListener};
+
     fn locations(tmp: &tempfile::TempDir) -> Locations {
         let root = tmp.path().canonicalize().unwrap();
         let config = root.join("codex/hooks.json");
         fs::create_dir(config.parent().unwrap()).unwrap();
         let bridge = root.join("真实路径 pet-bridge");
         fs::write(&bridge, b"test").unwrap();
+        let dsh_home = root.join("dsh");
         Locations {
             paths: AppPaths::under(&root.join("app")),
             config,
             bridge,
-            profile: root.join("profiles/desktop"),
+            profiles_dir: dsh_home.join("profiles"),
+            dsh_home,
             template: root.join("template"),
         }
     }
@@ -644,10 +822,11 @@ mod tests {
     fn plain_harness_has_no_verified_install_and_does_not_issue_new_identity() {
         let temp = tempfile::tempdir().unwrap();
         let loc = locations(&temp);
-        fs::create_dir_all(&loc.profile).unwrap();
+        let desktop_profile = loc.profiles_dir.join("desktop");
+        fs::create_dir_all(&desktop_profile).unwrap();
         let original =
             serde_json::to_vec(&json!({"dependencies":{PACKAGE:"file:plain-old"}})).unwrap();
-        fs::write(loc.profile.join("package.json"), &original).unwrap();
+        fs::write(desktop_profile.join("package.json"), &original).unwrap();
         fs::create_dir_all(loc.template.join("dist")).unwrap();
         fs::write(loc.template.join("dist/index.js"), "").unwrap();
         assert!(!harness_status(&loc).unwrap().installed);
@@ -673,19 +852,25 @@ mod tests {
             "12345678-1234-4234-8234-123456789012"
         );
         assert_eq!(
-            fs::read(loc.profile.join("package.json")).unwrap(),
+            fs::read(desktop_profile.join("package.json")).unwrap(),
             original
         );
     }
-    fn harness_bundle_fixture(loc: &Locations, id: &str, layers: &[&str]) -> Value {
-        let host_bundle = loc.profile.join("node_modules").join(PACKAGE);
+    fn harness_bundle_fixture_in(
+        loc: &Locations,
+        profile_name: &str,
+        id: &str,
+        layers: &[&str],
+    ) -> Value {
+        let profile = loc.profiles_dir.join(profile_name);
+        let host_bundle = profile.join("node_modules").join(PACKAGE);
         fs::create_dir_all(&host_bundle).unwrap();
         let manifest = json!({"name":PACKAGE,"dsh":{"bundle":{"patch":"./cordis.patch.json"}}});
         let row = json!([{"insert":[{"name":PACKAGE,"id":"desktop-pet-notify","config":{"installationId":id,"bridgePath":loc.bridge}}]}]);
         fs::write(host_bundle.join("package.json"), manifest.to_string()).unwrap();
         fs::write(host_bundle.join("cordis.patch.json"), row.to_string()).unwrap();
         fs::write(
-            loc.profile.join("package.json"),
+            profile.join("package.json"),
             json!({"dependencies":{PACKAGE:"file:bundle"},"dsh":{"profile":{"bundles":layers}}})
                 .to_string(),
         )
@@ -697,6 +882,10 @@ mod tests {
         fs::write(loc.template.join("package.json"), manifest.to_string()).unwrap();
         fs::write(loc.template.join("cordis.patch.json"), row.to_string()).unwrap();
         row
+    }
+
+    fn harness_bundle_fixture(loc: &Locations, id: &str, layers: &[&str]) -> Value {
+        harness_bundle_fixture_in(loc, "desktop", id, layers)
     }
 
     #[test]
@@ -740,7 +929,7 @@ mod tests {
         let loc = locations(&temp);
         let id = "12345678-1234-4234-8234-123456789012";
         let row = harness_bundle_fixture(&loc, id, &[PACKAGE]);
-        let host_bundle = loc.profile.join("node_modules").join(PACKAGE);
+        let host_bundle = loc.profiles_dir.join("desktop/node_modules").join(PACKAGE);
         let root = loc.paths.root.join("integrations/harness");
         paths::prepare_directory(&root).unwrap();
         fs::write(root.join("installation-id"), id).unwrap();
@@ -777,5 +966,99 @@ mod tests {
                 .as_deref()
                 .is_some_and(|text| text.contains("bridgePath 在磁盘上不存在"))
         );
+    }
+
+    #[test]
+    fn web_profile_is_recognized_for_status_upgrade_and_navigation() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let temp = tempfile::tempdir().unwrap();
+        let loc = locations(&temp);
+        let id = "fa6a6b01-aa37-4670-bfa7-7a6268e65289";
+        harness_bundle_fixture_in(
+            &loc,
+            "web",
+            id,
+            &["@deepseek-ai/dsh-base", WEB_APP_BUNDLE, PACKAGE],
+        );
+        // 共享 profiles/node_modules 中的 SDK 版本和目录忽略逻辑
+        let hoisted_sdk = loc
+            .profiles_dir
+            .join("node_modules/@deepseek-ai/dsh-session");
+        fs::create_dir_all(&hoisted_sdk).unwrap();
+        fs::write(
+            hoisted_sdk.join("package.json"),
+            json!({"name": "@deepseek-ai/dsh-session", "version": "0.2.3-alpha.2"}).to_string(),
+        )
+        .unwrap();
+        fs::write(
+            loc.profiles_dir.join("web/cordis.patch.yml"),
+            format!("- id: webserver\n  config:\n    port: {port}\n"),
+        )
+        .unwrap();
+        let client_js = loc
+            .profiles_dir
+            .join("web/node_modules")
+            .join(PACKAGE)
+            .join("dist/client.js");
+        fs::create_dir_all(client_js.parent().unwrap()).unwrap();
+        fs::write(&client_js, "const h = '#codex-pet-session=';").unwrap();
+
+        let status = harness_status(&loc).unwrap();
+        assert!(status.installed);
+        assert_eq!(status.installation_id.as_deref(), Some(id));
+        assert_eq!(status.version.as_deref(), Some("0.2.3-alpha.2"));
+        assert_eq!(status.target, loc.profiles_dir.join("web"));
+
+        let target = navigation_target_for_locations(&loc, Source::Deepseek, id)
+            .unwrap()
+            .expect("web profile 应通过安装身份校验");
+        match target {
+            navigation::Target::Web {
+                source,
+                installation_id,
+                target,
+            } => {
+                assert_eq!(source, Source::Deepseek);
+                assert_eq!(installation_id, id);
+                let web = target.expect("监听中的本地 Web 入口应可用");
+                assert_eq!(web.origin, format!("http://127.0.0.1:{port}"));
+                assert!(web.supports_session);
+            }
+            navigation::Target::Desktop(_) => panic!("应优先返回运行中的本地 Web 入口"),
+        }
+
+        assert!(
+            navigation_target_for_locations(
+                &loc,
+                Source::Deepseek,
+                "11111111-1111-4111-8111-111111111111"
+            )
+            .unwrap()
+            .is_none()
+        );
+        drop(listener);
+    }
+
+    #[test]
+    fn conflicting_installation_ids_across_profiles_are_rejected_on_apply() {
+        let temp = tempfile::tempdir().unwrap();
+        let loc = locations(&temp);
+        harness_bundle_fixture_in(
+            &loc,
+            "desktop",
+            "11111111-1111-4111-8111-111111111111",
+            &[PACKAGE],
+        );
+        harness_bundle_fixture_in(
+            &loc,
+            "web",
+            "22222222-2222-4222-8222-222222222222",
+            &[WEB_APP_BUNDLE, PACKAGE],
+        );
+        let err = harness_apply(&loc, Action::Install)
+            .err()
+            .expect("不同 profile 的冲突安装 ID 不能静默覆写");
+        assert!(err.message.contains("安装 ID 冲突"), "{}", err.message);
     }
 }
