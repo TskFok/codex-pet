@@ -7,7 +7,10 @@ use crate::{
     NotificationRuntime, notification_paths,
     placement::{DesktopContext, WindowPlacement},
     platform,
-    settings::{DEEPSEEK_DEFAULT_MODEL, DEFAULT_PET, Preferences, valid_deepseek_model},
+    settings::{
+        ActivityRange, DEEPSEEK_DEFAULT_MODEL, DEFAULT_PET, MAX_ACTIVITY_SPEED, MIN_ACTIVITY_SPEED,
+        Preferences, valid_deepseek_model,
+    },
 };
 use pet_core::paths::wall_clock_ms;
 use serde::{Deserialize, Serialize};
@@ -29,10 +32,13 @@ const MAX_PAUSE_MS: u64 = 35_000;
 const DEFAULT_PAUSE_MS: u64 = 16_000;
 const USER_INTERACTION_COOLDOWN_MS: u64 = 7_000;
 const MOVE_STEP_MS: u64 = 33;
-const WALK_SPEED_PX_PER_SEC: f64 = 175.0;
+pub const WALK_SPEED_PX_PER_SEC: f64 = 175.0;
 const MIN_WALK_DURATION_MS: u64 = 900;
 const MAX_WALK_DURATION_MS: u64 = 4_200;
-const MAX_THOUGHT_CHARS: usize = 36;
+const BASE_HOP_DURATION_MS: f64 = 760.0;
+const MIN_HOP_DURATION_MS: f64 = 450.0;
+const MAX_HOP_DURATION_MS: f64 = 1_200.0;
+const MAX_THOUGHT_CHARS: usize = 64;
 const MAX_HISTORY_ITEMS: usize = 6;
 const INITIAL_RETRY_BACKOFF: Duration = Duration::from_secs(15);
 const MAX_RETRY_BACKOFF: Duration = Duration::from_secs(300);
@@ -154,6 +160,7 @@ pub struct ActivityPromptInput {
     pub work_area_height: u32,
     pub current_norm_x: f64,
     pub current_norm_y: f64,
+    pub activity_range: ActivityRange,
     pub active_minutes: u64,
     pub recent_actions: Vec<String>,
 }
@@ -423,9 +430,9 @@ impl DeepSeekClient {
 pub fn build_system_prompt() -> &'static str {
     "你是桌面宠物的自主行为控制器，仅负责决定桌宠在电脑桌面上的自由活动（走动、巡逻、蹦跳、招手、小憩、张望）和简短自言自语。\n\
 请严格只输出一个 JSON 对象，不要包含额外解释，字段如下：\n\
-- action: 字符串，必须是 \"walk\" | \"patrol\" | \"hop\" | \"wave\" | \"rest\" | \"look_around\" 之一；优先在桌面上多自由走动（walk/patrol/hop）并穿插原地动作。\n\
-- targetX: 0.05 到 0.95 之间的小数，表示目标横向位置比例（0 在桌面最左，1 在最右）。\n\
-- targetY: 0.08 到 0.94 之间的小数，表示目标纵向位置比例（0 在桌面最上，1 在最下；桌宠喜欢待在桌面边缘或中下方，也可以偶尔逛去上方）。\n\
+- action: 字符串，必须是 \"walk\" | \"patrol\" | \"hop\" | \"wave\" | \"rest\" | \"look_around\" 之一；优先在允许活动范围内多自由走动（walk/patrol/hop）并穿插原地动作。\n\
+- targetX: 0.00 到 1.00 之间的小数，表示目标横向位置比例（0 在桌面最左，1 在最右），请保持在用户给出的允许活动范围 x 区间内。\n\
+- targetY: 0.00 到 1.00 之间的小数，表示目标纵向位置比例（0 在桌面最上，1 在最下），请保持在用户给出的允许活动范围 y 区间内。\n\
 - durationMs: 动作持续毫秒数（1500 到 5000）。\n\
 - pauseMs: 本次活动结束后休息毫秒数（12000 到 30000）。\n\
 - effect: \"sparkle\" | \"heart\" | \"note\" | \"star\" | \"none\" 之一。\n\
@@ -438,11 +445,17 @@ pub fn build_user_prompt(input: &ActivityPromptInput) -> String {
     } else {
         input.recent_actions.join(" -> ")
     };
+    let range = input.activity_range.normalized();
     format!(
-        "宠物名称：{}\n桌面活动区域：{}x{}（逻辑像素）\n当前位置比例：x={:.2}, y={:.2}\n已自由活动时长：{} 分钟\n最近活动记录：{}\n请规划下一次桌宠自由活动，避免反复停留在相同位置或重复同一句话。",
+        "宠物名称：{}\n桌面活动区域：{}x{}（逻辑像素）\n允许活动范围：{}（x={:.2}..{:.2}, y={:.2}..{:.2}）\n当前位置比例：x={:.2}, y={:.2}\n已自由活动时长：{} 分钟\n最近活动记录：{}\n请规划下一次桌宠自由活动，targetX 与 targetY 需落在允许活动范围内，避免反复停留在相同位置或重复同一句话。",
         input.pet_name,
         input.work_area_width,
         input.work_area_height,
+        range.preset.label_zh(),
+        range.min_x.clamp(0.0, 1.0),
+        range.max_x.clamp(0.0, 1.0),
+        range.min_y.clamp(0.0, 1.0),
+        range.max_y.clamp(0.0, 1.0),
         input.current_norm_x.clamp(0.0, 1.0),
         input.current_norm_y.clamp(0.0, 1.0),
         input.active_minutes,
@@ -763,6 +776,12 @@ fn emit_activity(app: &tauri::AppHandle, event: &PetActivityEvent) {
     let _ = app.emit_to("pet", "pet:activity", event);
 }
 
+fn thought_duration_ms(thought: Option<&str>, base_ms: u64) -> Option<u64> {
+    let chars = thought?.chars().count() as u64;
+    let extra = chars.saturating_sub(14) * 80;
+    Some((base_ms + extra).clamp(3_200, 6_500))
+}
+
 fn effect_payload(kind: Option<&str>, bounce: f64) -> Option<ActivityEffectPayload> {
     kind.map(|kind| ActivityEffectPayload {
         x: 0.5,
@@ -773,10 +792,102 @@ fn effect_payload(kind: Option<&str>, bounce: f64) -> Option<ActivityEffectPaylo
     })
 }
 
+pub fn range_bounds_px(ctx: &DesktopContext, range: &ActivityRange) -> (f64, f64, f64, f64) {
+    let range = range.normalized();
+    let min_x = (range.min_x.clamp(0.0, 1.0) * ctx.max_x).clamp(0.0, ctx.max_x);
+    let max_x = (range.max_x.clamp(0.0, 1.0) * ctx.max_x).clamp(min_x, ctx.max_x);
+    let min_y = (range.min_y.clamp(0.0, 1.0) * ctx.max_y).clamp(0.0, ctx.max_y);
+    let max_y = (range.max_y.clamp(0.0, 1.0) * ctx.max_y).clamp(min_y, ctx.max_y);
+    (min_x, max_x, min_y, max_y)
+}
+
+pub fn resolve_walk_target(
+    ctx: &DesktopContext,
+    range: &ActivityRange,
+    target_x: f64,
+    target_y: f64,
+) -> (f64, f64) {
+    let (min_x, max_x, min_y, max_y) = range_bounds_px(ctx, range);
+    let start_x = ctx.placement.x;
+    let start_y = ctx.placement.y;
+    let mut end_x = (target_x * ctx.max_x).clamp(min_x, max_x);
+    let mut end_y = (target_y * ctx.max_y).clamp(min_y, max_y);
+    let dist = (end_x - start_x).hypot(end_y - start_y);
+    if dist < 48.0 {
+        let span_x = max_x - min_x;
+        let span_y = max_y - min_y;
+        if span_x > 96.0 {
+            let shift = (span_x * 0.25).clamp(56.0, 260.0);
+            let base_x = start_x.clamp(min_x, max_x);
+            end_x = if base_x + shift <= max_x {
+                base_x + shift
+            } else {
+                (base_x - shift).max(min_x)
+            };
+        } else if span_y > 96.0 {
+            let shift = (span_y * 0.25).clamp(56.0, 260.0);
+            let base_y = start_y.clamp(min_y, max_y);
+            end_y = if base_y + shift <= max_y {
+                base_y + shift
+            } else {
+                (base_y - shift).max(min_y)
+            };
+        }
+    }
+    (end_x.clamp(min_x, max_x), end_y.clamp(min_y, max_y))
+}
+
+pub fn resolve_hop_target(
+    ctx: &DesktopContext,
+    range: &ActivityRange,
+    target_x: f64,
+    target_y: f64,
+) -> (f64, f64) {
+    let (min_x, max_x, min_y, max_y) = range_bounds_px(ctx, range);
+    let start_x = ctx.placement.x;
+    let start_y = ctx.placement.y;
+    let desired_x = (target_x * ctx.max_x).clamp(min_x, max_x);
+    let desired_y = (target_y * ctx.max_y).clamp(min_y, max_y);
+    let raw_dx = (desired_x - start_x).clamp(-200.0, 200.0);
+    let raw_dy = (desired_y - start_y).clamp(-120.0, 120.0);
+    (
+        (start_x + raw_dx).clamp(min_x, max_x),
+        (start_y + raw_dy).clamp(min_y, max_y),
+    )
+}
+
+pub fn compute_walk_duration_ms(dist_px: f64, speed_multiplier: f64) -> u64 {
+    let multiplier = if speed_multiplier.is_finite() {
+        speed_multiplier.clamp(MIN_ACTIVITY_SPEED, MAX_ACTIVITY_SPEED)
+    } else {
+        1.0
+    };
+    let speed_px_per_sec = WALK_SPEED_PX_PER_SEC * multiplier;
+    let min_ms = (MIN_WALK_DURATION_MS as f64 / multiplier).round();
+    let max_ms = (MAX_WALK_DURATION_MS as f64 / multiplier).round();
+    ((dist_px.max(0.0) / speed_px_per_sec) * 1000.0)
+        .clamp(min_ms, max_ms)
+        .round() as u64
+}
+
+pub fn compute_hop_duration_ms(speed_multiplier: f64) -> u64 {
+    let multiplier = if speed_multiplier.is_finite() {
+        speed_multiplier.clamp(MIN_ACTIVITY_SPEED, MAX_ACTIVITY_SPEED)
+    } else {
+        1.0
+    };
+    (BASE_HOP_DURATION_MS / multiplier)
+        .clamp(MIN_HOP_DURATION_MS, MAX_HOP_DURATION_MS)
+        .round() as u64
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn execute_plan(
     app: &tauri::AppHandle,
     state: &AutonomyRuntime,
     ctx: &DesktopContext,
+    range: &ActivityRange,
+    speed_multiplier: f64,
     plan: &PetActivityPlan,
     activity_id: &str,
     start_gen: u64,
@@ -792,26 +903,14 @@ async fn execute_plan(
         ActivityAction::Walk | ActivityAction::Patrol => {
             let start_x = ctx.placement.x;
             let start_y = ctx.placement.y;
-            let mut end_x = (plan.target_x * ctx.max_x).clamp(0.0, ctx.max_x);
-            let end_y = (plan.target_y * ctx.max_y).clamp(0.0, ctx.max_y);
-            let dist = (end_x - start_x).hypot(end_y - start_y);
-            if dist < 48.0 && ctx.max_x > 120.0 {
-                let shift = (ctx.max_x * 0.25).clamp(72.0, 260.0);
-                end_x = if start_x + shift <= ctx.max_x {
-                    start_x + shift
-                } else {
-                    (start_x - shift).max(0.0)
-                };
-            }
+            let (end_x, end_y) = resolve_walk_target(ctx, range, plan.target_x, plan.target_y);
             let dist = (end_x - start_x).hypot(end_y - start_y);
             let run_state = if end_x >= start_x {
                 "running-right"
             } else {
                 "running-left"
             };
-            let walk_ms = ((dist / WALK_SPEED_PX_PER_SEC) * 1000.0)
-                .clamp(MIN_WALK_DURATION_MS as f64, MAX_WALK_DURATION_MS as f64)
-                as u64;
+            let walk_ms = compute_walk_duration_ms(dist, speed_multiplier);
 
             emit_activity(
                 app,
@@ -894,7 +993,7 @@ async fn execute_plan(
                     state: arrival_state,
                     effect: effect_payload(plan.effect.as_deref(), 0.85),
                     thought: plan.thought.clone(),
-                    thought_duration_ms: Some(3_800),
+                    thought_duration_ms: thought_duration_ms(plan.thought.as_deref(), 3_800),
                 },
             );
             if plan.action == ActivityAction::Patrol {
@@ -919,11 +1018,8 @@ async fn execute_plan(
         ActivityAction::Hop => {
             let start_x = ctx.placement.x;
             let start_y = ctx.placement.y;
-            let raw_dx = (plan.target_x * ctx.max_x - start_x).clamp(-200.0, 200.0);
-            let raw_dy = (plan.target_y * ctx.max_y - start_y).clamp(-120.0, 120.0);
-            let end_x = (start_x + raw_dx).clamp(0.0, ctx.max_x);
-            let end_y = (start_y + raw_dy).clamp(0.0, ctx.max_y);
-            let hop_ms = 760u64;
+            let (end_x, end_y) = resolve_hop_target(ctx, range, plan.target_x, plan.target_y);
+            let hop_ms = compute_hop_duration_ms(speed_multiplier);
 
             emit_activity(
                 app,
@@ -933,7 +1029,7 @@ async fn execute_plan(
                     state: Some("jumping"),
                     effect: effect_payload(plan.effect.as_deref().or(Some("star")), 1.05),
                     thought: plan.thought.clone(),
-                    thought_duration_ms: Some(3_400),
+                    thought_duration_ms: thought_duration_ms(plan.thought.as_deref(), 3_400),
                 },
             );
 
@@ -991,7 +1087,7 @@ async fn execute_plan(
                     state: Some(anim_state),
                     effect: effect_payload(plan.effect.as_deref().or(default_effect), 0.9),
                     thought: plan.thought.clone(),
-                    thought_duration_ms: Some(3_600),
+                    thought_duration_ms: thought_duration_ms(plan.thought.as_deref(), 3_600),
                 },
             );
             let started = Instant::now();
@@ -1145,6 +1241,7 @@ async fn run_loop(app: tauri::AppHandle) {
             work_area_height: ctx.work_area_height.round().max(1.0) as u32,
             current_norm_x: norm_x,
             current_norm_y: norm_y,
+            activity_range: prefs.activity_range.clone(),
             active_minutes: started_at.elapsed().as_secs() / 60,
             recent_actions: recent_actions.iter().cloned().collect(),
         };
@@ -1175,6 +1272,8 @@ async fn run_loop(app: tauri::AppHandle) {
                         &app,
                         &state,
                         &ctx,
+                        &latest_prefs.activity_range,
+                        latest_prefs.activity_speed,
                         &plan,
                         &activity_id,
                         start_gen,
@@ -1274,19 +1373,80 @@ mod tests {
 
     #[test]
     fn prompt_only_contains_pet_desktop_activity_context() {
+        use crate::settings::ActivityRangePreset;
         let prompt = build_user_prompt(&ActivityPromptInput {
             pet_name: "月影".into(),
             work_area_width: 1440,
             work_area_height: 900,
             current_norm_x: 0.25,
             current_norm_y: 0.75,
+            activity_range: ActivityRange::from_preset(ActivityRangePreset::Bottom),
             active_minutes: 12,
             recent_actions: vec!["walk(0.25,0.75)".into()],
         });
         assert!(prompt.contains("月影"));
         assert!(prompt.contains("1440x900"));
+        assert!(prompt.contains("屏幕底部"));
+        assert!(prompt.contains("x=0.00..1.00, y=0.70..1.00"));
         assert!(prompt.contains("x=0.25, y=0.75"));
         assert!(prompt.contains("walk(0.25,0.75)"));
+    }
+
+    #[test]
+    fn walk_and_hop_targets_respect_configured_activity_range() {
+        use crate::settings::ActivityRangePreset;
+        let ctx = DesktopContext {
+            placement: WindowPlacement {
+                x: 600.0,
+                y: 500.0,
+                scale: 1.0,
+                monitor_id: Some("main".into()),
+            },
+            work_area_width: 1440.0,
+            work_area_height: 900.0,
+            max_x: 1200.0,
+            max_y: 580.0,
+        };
+
+        let bottom = ActivityRange::from_preset(ActivityRangePreset::Bottom);
+        let (x, y) = resolve_walk_target(&ctx, &bottom, 0.2, 0.1);
+        assert!((x - 240.0).abs() < 1e-6);
+        assert!((y - 580.0 * 0.7).abs() < 1e-6);
+
+        let right_edge = ActivityRange::from_preset(ActivityRangePreset::RightEdge);
+        let (rx, ry) = resolve_walk_target(&ctx, &right_edge, 0.1, 0.4);
+        assert!((rx - 1200.0 * 0.75).abs() < 1e-6);
+        assert!((ry - 580.0 * 0.4).abs() < 1e-6);
+
+        let custom = ActivityRange {
+            preset: ActivityRangePreset::Custom,
+            min_x: 0.2,
+            max_x: 0.4,
+            min_y: 0.5,
+            max_y: 0.8,
+        };
+        let (hx, hy) = resolve_hop_target(&ctx, &custom, 0.9, 0.1);
+        assert!((240.0..=480.0).contains(&hx));
+        assert!((290.0..=464.0).contains(&hy));
+    }
+
+    #[test]
+    fn walk_and_hop_durations_scale_with_activity_speed_and_bounds() {
+        // 基准 1.0x：525px / 175px/s = 3000ms
+        assert_eq!(compute_walk_duration_ms(525.0, 1.0), 3_000);
+        // 0.5x 慢速：速度减半，时长翻倍，且上限随之放宽到 8400ms
+        assert_eq!(compute_walk_duration_ms(525.0, 0.5), 6_000);
+        assert_eq!(compute_walk_duration_ms(2000.0, 0.5), 8_400);
+        assert_eq!(compute_walk_duration_ms(10.0, 0.5), 1_800);
+        // 2.0x 快速：速度翻倍，时长减半，上下限同步缩放到 450..=2100ms
+        assert_eq!(compute_walk_duration_ms(525.0, 2.0), 1_500);
+        assert_eq!(compute_walk_duration_ms(2000.0, 2.0), 2_100);
+        assert_eq!(compute_walk_duration_ms(10.0, 2.0), 450);
+
+        // 蹦跳时长随速率联动且在合理上下限内
+        assert_eq!(compute_hop_duration_ms(1.0), 760);
+        assert_eq!(compute_hop_duration_ms(0.5), 1_200);
+        assert_eq!(compute_hop_duration_ms(2.0), 450);
     }
 
     #[derive(Default)]
@@ -1351,6 +1511,7 @@ mod tests {
             work_area_height: 900,
             current_norm_x: 0.4,
             current_norm_y: 0.7,
+            activity_range: ActivityRange::default(),
             active_minutes: 3,
             recent_actions: vec![],
         };
@@ -1396,5 +1557,22 @@ mod tests {
         assert!(captured[1].1.get("temperature").is_none());
 
         server.abort();
+    }
+
+    #[test]
+    fn thought_sanitization_keeps_longer_sentences_and_scales_reading_duration() {
+        let forty_five = "今天桌面好安静呀，我去右边巡逻一圈顺便伸个大大的懒腰，等你忙完随时可以叫我一起玩哦~";
+        assert!(forty_five.chars().count() > 36 && forty_five.chars().count() <= MAX_THOUGHT_CHARS);
+        assert_eq!(sanitize_thought(forty_five).as_deref(), Some(forty_five));
+
+        let too_long: String = "喵".repeat(MAX_THOUGHT_CHARS + 10);
+        let sanitized = sanitize_thought(&too_long).unwrap();
+        assert_eq!(sanitized.chars().count(), MAX_THOUGHT_CHARS + 1);
+        assert!(sanitized.ends_with('…'));
+
+        assert_eq!(thought_duration_ms(None, 3_600), None);
+        assert_eq!(thought_duration_ms(Some("出去逛逛~"), 3_600), Some(3_600));
+        let long_ms = thought_duration_ms(Some(forty_five), 3_600).unwrap();
+        assert!(long_ms > 3_600 && long_ms <= 6_500);
     }
 }

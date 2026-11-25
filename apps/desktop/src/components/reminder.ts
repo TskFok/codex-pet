@@ -3,7 +3,16 @@ import { reasonName, sourceName, historyName } from '../locales/zh-CN';
 import { keyId } from './notifications';
 import type { FrameRect, NotificationRecord, PetSnapshot, SessionKey, SessionProjection, Source } from '../types';
 
-interface Presentation {
+export interface ReminderPresentation {
+  reminderId: string;
+  title: string;
+  detail: string;
+  key: SessionKey;
+  rank: number;
+  lastEventAtMs: number;
+}
+
+export interface Presentation {
   state: string;
   fallbackState: string;
   animationKey?: string;
@@ -11,6 +20,7 @@ interface Presentation {
   detail?: string;
   key?: SessionKey;
   reminderId?: string;
+  reminders: ReminderPresentation[];
 }
 export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Presentation {
   const ends = new Map<string, NotificationRecord>();
@@ -27,10 +37,10 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
       return 3;
     return s.status === 'running' ? 2 : 0;
   };
-  let animation: SessionProjection | undefined, best: SessionProjection | undefined;
-  let animationRank = 0,
-    rank = 0;
+  let animation: SessionProjection | undefined;
+  let animationRank = 0;
   let hasRunning = false;
+  const reminders: ReminderPresentation[] = [];
   for (const s of snap.sessions) {
     if (s.status === 'running') hasRunning = true;
     const value = priority(s);
@@ -39,12 +49,44 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
       animation = s;
       animationRank = value;
     }
-    if (!muted || muted.includes(s.key.source)) continue;
-    if (value > rank || (value === rank && s.lastEventAtMs > best!.lastEventAtMs)) {
-      best = s;
-      rank = value;
+    if (!muted || muted.includes(s.key.source) || value < 3) continue;
+    const sid = keyId(s.key);
+    const end = ends.get(sid);
+    const title = [sourceName[s.key.source], s.project?.name || end?.project?.name || s.key.sessionId].join(' · ');
+    if (value === 5) {
+      const only = s.pending.length === 1 ? s.pending[0] : undefined;
+      const reason = only ? reasonName[only.reason] : '有待处理请求';
+      reminders.push({
+        key: s.key,
+        reminderId: JSON.stringify(['attention', sid, s.pending.map((p) => p.id)]),
+        title,
+        detail: [reason, only?.summary].filter(Boolean).join(' · '),
+        rank: value,
+        lastEventAtMs: s.lastEventAtMs,
+      });
+      continue;
     }
+    if (value === 4 && !s.unread && !end) continue;
+    const reminderId = end
+      ? JSON.stringify(['notification', sid, end.id])
+      : importedEnds.has(sid)
+        ? JSON.stringify(['imported', sid])
+        : JSON.stringify(['session', sid, s.status, s.turnId ?? s.lastEventAtMs]);
+    reminders.push({
+      key: s.key,
+      reminderId,
+      title,
+      detail: [
+        end ? historyName(end.kind) : value === 4 ? '回合失败' : '收到回合结束提醒',
+        end?.summary || (s.status === 'running' ? undefined : s.summary),
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      rank: value,
+      lastEventAtMs: s.lastEventAtMs,
+    });
   }
+  reminders.sort((a, b) => b.rank - a.rank || b.lastEventAtMs - a.lastEventAtMs);
   const defaultStates = ['idle', 'idle', 'running', 'waving', 'failed', 'waiting'];
   const singleApproval = animation?.pending.length === 1 && animation.pending[0].reason === 'approval';
   const state = animationRank === 5 && singleApproval ? 'review' : defaultStates[animationRank];
@@ -61,46 +103,25 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
         ? JSON.stringify(['imported', animId])
         : JSON.stringify(['session', animId, animation.status, animation.turnId ?? animation.lastEventAtMs]);
   }
-  if (!best || rank === 2) return { state, fallbackState, animationKey };
-  const bestId = keyId(best.key);
-  const end = ends.get(bestId);
-  const title = [
-    sourceName[best.key.source],
-    best.project?.name || end?.project?.name || best.key.sessionId,
-  ].join(' · ');
-  if (rank === 5) {
-    const only = best.pending.length === 1 ? best.pending[0] : undefined;
-    const reason = only ? reasonName[only.reason] : '有待处理请求';
-    return {
-      state,
-      fallbackState,
-      animationKey,
-      key: best.key,
-      reminderId: JSON.stringify(['attention', bestId, best.pending.map((p) => p.id)]),
-      title,
-      detail: [reason, only?.summary].filter(Boolean).join(' · '),
-    };
-  }
-  if (rank === 4 && !best.unread && !end) return { state, fallbackState, animationKey };
-  const reminderId = end
-    ? JSON.stringify(['notification', bestId, end.id])
-    : importedEnds.has(bestId)
-      ? JSON.stringify(['imported', bestId])
-      : JSON.stringify(['session', bestId, best.status, best.turnId ?? best.lastEventAtMs]);
+  const primary = reminders[0];
+  if (!primary) return { state, fallbackState, animationKey, reminders };
   return {
     state,
     fallbackState,
     animationKey,
-    key: best.key,
-    reminderId,
-    title,
-    detail: [
-      end ? historyName(end.kind) : rank === 4 ? '回合失败' : '收到回合结束提醒',
-      end?.summary || (best.status === 'running' ? undefined : best.summary),
-    ]
-      .filter(Boolean)
-      .join(' · '),
+    key: primary.key,
+    reminderId: primary.reminderId,
+    title: primary.title,
+    detail: primary.detail,
+    reminders,
   };
+}
+
+/** 合并按行有序的图集跨度和多个气泡矩形，保留其外部和气泡间隙的穿透区域。 */
+export function withBubbles(mask: AlphaMask, rects: readonly FrameRect[]): AlphaMask {
+  let current = mask;
+  for (const rect of rects) current = withBubble(current, rect);
+  return current;
 }
 
 /** 合并按行有序的图集跨度和气泡矩形，保留二者外部的穿透区域。 */

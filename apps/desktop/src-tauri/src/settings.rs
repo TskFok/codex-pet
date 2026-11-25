@@ -6,7 +6,119 @@ use std::{fmt, fs::OpenOptions, io::Read};
 pub const DEFAULT_PET: &str = "yueying-cape-dancer";
 pub const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-chat";
 pub const DEEPSEEK_MODELS: &[&str] = &["deepseek-chat", "deepseek-reasoner"];
+pub const DEFAULT_ACTIVITY_SPEED: f64 = 1.0;
+pub const MIN_ACTIVITY_SPEED: f64 = 0.5;
+pub const MAX_ACTIVITY_SPEED: f64 = 2.0;
+pub const MIN_ACTIVITY_RANGE_SPAN: f64 = 0.1;
 const MAX_API_KEY_LEN: usize = 512;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityRangePreset {
+    #[default]
+    Full,
+    Bottom,
+    LowerHalf,
+    LeftEdge,
+    RightEdge,
+    Custom,
+}
+
+impl ActivityRangePreset {
+    pub fn bounds(self) -> Option<(f64, f64, f64, f64)> {
+        match self {
+            Self::Full => Some((0.0, 1.0, 0.0, 1.0)),
+            Self::Bottom => Some((0.0, 1.0, 0.7, 1.0)),
+            Self::LowerHalf => Some((0.0, 1.0, 0.5, 1.0)),
+            Self::LeftEdge => Some((0.0, 0.25, 0.0, 1.0)),
+            Self::RightEdge => Some((0.75, 1.0, 0.0, 1.0)),
+            Self::Custom => None,
+        }
+    }
+
+    pub fn label_zh(self) -> &'static str {
+        match self {
+            Self::Full => "全屏工作区",
+            Self::Bottom => "屏幕底部",
+            Self::LowerHalf => "屏幕下半区",
+            Self::LeftEdge => "左侧边缘",
+            Self::RightEdge => "右侧边缘",
+            Self::Custom => "自定义区域",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActivityRange {
+    pub preset: ActivityRangePreset,
+    pub min_x: f64,
+    pub max_x: f64,
+    pub min_y: f64,
+    pub max_y: f64,
+}
+
+impl Default for ActivityRange {
+    fn default() -> Self {
+        Self::from_preset(ActivityRangePreset::Full)
+    }
+}
+
+impl ActivityRange {
+    pub fn from_preset(preset: ActivityRangePreset) -> Self {
+        let (min_x, max_x, min_y, max_y) = preset.bounds().unwrap_or((0.0, 1.0, 0.0, 1.0));
+        Self {
+            preset,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+        }
+    }
+
+    pub fn normalized(&self) -> Self {
+        if let Some((min_x, max_x, min_y, max_y)) = self.preset.bounds() {
+            Self {
+                preset: self.preset,
+                min_x,
+                max_x,
+                min_y,
+                max_y,
+            }
+        } else {
+            self.clone()
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), StorageError> {
+        let values = [self.min_x, self.max_x, self.min_y, self.max_y];
+        if !values
+            .into_iter()
+            .all(|v| v.is_finite() && (0.0..=1.0).contains(&v))
+        {
+            return Err(StorageError::InvalidData(
+                "自由活动范围坐标必须在 0 到 1 之间",
+            ));
+        }
+        const EPS: f64 = 1e-6;
+        if self.max_x - self.min_x + EPS < MIN_ACTIVITY_RANGE_SPAN
+            || self.max_y - self.min_y + EPS < MIN_ACTIVITY_RANGE_SPAN
+        {
+            return Err(StorageError::InvalidData(
+                "自由活动范围宽高至少需占屏幕 10%",
+            ));
+        }
+        if let Some((min_x, max_x, min_y, max_y)) = self.preset.bounds()
+            && ((self.min_x - min_x).abs() > EPS
+                || (self.max_x - max_x).abs() > EPS
+                || (self.min_y - min_y).abs() > EPS
+                || (self.max_y - max_y).abs() > EPS)
+        {
+            return Err(StorageError::InvalidData("自由活动范围预设与坐标不匹配"));
+        }
+        Ok(())
+    }
+}
 
 pub fn valid_deepseek_model(model: &str) -> bool {
     DEEPSEEK_MODELS.contains(&model)
@@ -39,6 +151,8 @@ pub struct Preferences {
     pub deepseek_enabled: bool,
     pub deepseek_api_key: String,
     pub deepseek_model: String,
+    pub activity_range: ActivityRange,
+    pub activity_speed: f64,
 }
 impl fmt::Debug for Preferences {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -59,6 +173,8 @@ impl fmt::Debug for Preferences {
                 },
             )
             .field("deepseek_model", &self.deepseek_model)
+            .field("activity_range", &self.activity_range)
+            .field("activity_speed", &self.activity_speed)
             .finish()
     }
 }
@@ -74,6 +190,8 @@ impl Default for Preferences {
             deepseek_enabled: true,
             deepseek_api_key: String::new(),
             deepseek_model: DEEPSEEK_DEFAULT_MODEL.into(),
+            activity_range: ActivityRange::default(),
+            activity_speed: DEFAULT_ACTIVITY_SPEED,
         }
     }
 }
@@ -89,6 +207,8 @@ pub struct SettingsPatch {
     pub deepseek_enabled: Option<bool>,
     pub deepseek_api_key: Option<String>,
     pub deepseek_model: Option<String>,
+    pub activity_range: Option<ActivityRange>,
+    pub activity_speed: Option<f64>,
 }
 impl fmt::Debug for SettingsPatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -108,6 +228,8 @@ impl fmt::Debug for SettingsPatch {
                     .map(|key| if key.is_empty() { "" } else { "[redacted]" }),
             )
             .field("deepseek_model", &self.deepseek_model)
+            .field("activity_range", &self.activity_range)
+            .field("activity_speed", &self.activity_speed)
             .finish()
     }
 }
@@ -148,6 +270,8 @@ struct SettingsWire<'a> {
     deepseek_model: &'a str,
     deepseek_api_key_configured: bool,
     deepseek_api_key_hint: Option<String>,
+    activity_range: &'a ActivityRange,
+    activity_speed: f64,
     placement: &'a WindowPlacement,
 }
 
@@ -166,6 +290,8 @@ impl Serialize for Settings {
             deepseek_model: &prefs.deepseek_model,
             deepseek_api_key_configured: hint.is_some(),
             deepseek_api_key_hint: hint,
+            activity_range: &prefs.activity_range,
+            activity_speed: prefs.activity_speed,
             placement: &self.placement,
         }
         .serialize(serializer)
@@ -209,6 +335,14 @@ impl Preferences {
         {
             return Err(StorageError::InvalidData("DeepSeek API Key 格式无效"));
         }
+        self.activity_range.validate()?;
+        if !self.activity_speed.is_finite()
+            || !(MIN_ACTIVITY_SPEED..=MAX_ACTIVITY_SPEED).contains(&self.activity_speed)
+        {
+            return Err(StorageError::InvalidData(
+                "跑动速率必须在 0.5x 到 2.0x 之间",
+            ));
+        }
         Ok(())
     }
     pub fn patched(&self, patch: &SettingsPatch) -> Result<Self, StorageError> {
@@ -238,6 +372,12 @@ impl Preferences {
         }
         if let Some(model) = &patch.deepseek_model {
             next.deepseek_model = model.trim().to_owned();
+        }
+        if let Some(range) = &patch.activity_range {
+            next.activity_range = range.normalized();
+        }
+        if let Some(speed) = patch.activity_speed {
+            next.activity_speed = speed;
         }
         if let Some(p) = patch
             .placement

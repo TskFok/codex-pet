@@ -1,7 +1,7 @@
 use crate::placement::{
     DesktopContext, HEIGHT, WIDTH, WindowPlacement, WorkArea, clamp_placement, desktop_context_for,
 };
-use crate::windows::{AlphaMask, BubbleAction, BubbleInput};
+use crate::windows::{AlphaMask, BubbleHit, BubbleInput};
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, rc::Retained};
 use objc2_app_kit::{
     NSBackingStoreType, NSColor, NSCompositingOperation, NSEvent, NSEventModifierFlags,
@@ -40,7 +40,7 @@ struct PetInput {
     app: tauri::AppHandle,
     mask: RefCell<AlphaMask>,
     bubble: RefCell<Option<BubbleInput>>,
-    pressed: Cell<Option<(u32, BubbleAction)>>,
+    pressed: Cell<Option<BubbleHit>>,
 }
 
 define_class!(
@@ -124,11 +124,18 @@ define_class!(
         }
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            if let Some((stamp, action)) = self.ivars().pressed.take()
-                && self.bubble_action(event) == Some((stamp, action))
+            if let Some(hit) = self.ivars().pressed.take()
+                && self.bubble_action(event) == Some(hit)
             {
-                let _ = self.ivars().app.emit_to("pet", "pet:bubble-action",
-                    serde_json::json!({"stamp":stamp,"action":action}));
+                let _ = self.ivars().app.emit_to(
+                    "pet",
+                    "pet:bubble-action",
+                    serde_json::json!({
+                        "stamp": hit.stamp,
+                        "bubble": hit.bubble,
+                        "action": hit.action,
+                    }),
+                );
             }
         }
         #[unsafe(method(rightMouseDown:))]
@@ -147,7 +154,7 @@ impl PetInputView {
         }
     }
 
-    fn bubble_action(&self, event: &NSEvent) -> Option<(u32, BubbleAction)> {
+    fn bubble_action(&self, event: &NSEvent) -> Option<BubbleHit> {
         let bubble = self.ivars().bubble.borrow();
         let bubble = bubble.as_ref()?;
         let point = self.convertPoint_fromView(event.locationInWindow(), None);
@@ -178,16 +185,33 @@ impl PetInputView {
     }
 }
 
+fn create_blur_view(mtm: MainThreadMarker, content: &NSView) -> Retained<NSVisualEffectView> {
+    let effect = NSVisualEffectView::initWithFrame(
+        NSVisualEffectView::alloc(mtm),
+        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
+    );
+    effect.setMaterial(NSVisualEffectMaterial::Popover);
+    effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+    effect.setState(NSVisualEffectState::Active);
+    effect.setWantsLayer(true);
+    if let Some(layer) = effect.layer() {
+        layer.setMasksToBounds(true);
+    }
+    effect.setHidden(true);
+    content.addSubview_positioned_relativeTo(&effect, NSWindowOrderingMode::Below, None);
+    effect
+}
+
 struct ProxyPair {
     proxy: Retained<PetProxyWindow>,
     renderer: Retained<NSWindow>,
     view: Retained<PetInputView>,
-    blur: Option<Retained<NSVisualEffectView>>,
+    blurs: Vec<Retained<NSVisualEffectView>>,
     frame: Option<pet_core::pet_package::FrameRect>,
 }
 impl Drop for ProxyPair {
     fn drop(&mut self) {
-        if let Some(blur) = self.blur.take() {
+        for blur in self.blurs.drain(..) {
             blur.removeFromSuperview();
         }
         self.proxy.removeChildWindow(&self.renderer);
@@ -223,22 +247,10 @@ pub(super) fn install_input(window: &tauri::WebviewWindow) -> tauri::Result<()> 
         msg_send![super(PetInputView::alloc(mtm).set_ivars(input)), initWithFrame:NSRect::new(NSPoint::new(0.0,0.0),native.frame().size)]
     };
     proxy.setContentView(Some(&view));
-    let blur = renderer.contentView().map(|content| {
-        let effect = NSVisualEffectView::initWithFrame(
-            NSVisualEffectView::alloc(mtm),
-            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
-        );
-        effect.setMaterial(NSVisualEffectMaterial::Popover);
-        effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
-        effect.setState(NSVisualEffectState::Active);
-        effect.setWantsLayer(true);
-        if let Some(layer) = effect.layer() {
-            layer.setMasksToBounds(true);
-        }
-        effect.setHidden(true);
-        content.addSubview_positioned_relativeTo(&effect, NSWindowOrderingMode::Below, None);
-        effect
-    });
+    let blurs = renderer
+        .contentView()
+        .map(|content| vec![create_blur_view(mtm, &content)])
+        .unwrap_or_default();
     native.setIgnoresMouseEvents(true);
     // 代理是 parent，WindowServer 拖动 parent 时自动移动 Canvas child。
     unsafe {
@@ -250,7 +262,7 @@ pub(super) fn install_input(window: &tauri::WebviewWindow) -> tauri::Result<()> 
             proxy,
             renderer,
             view,
-            blur,
+            blurs,
             frame: None,
         })
     });
@@ -315,45 +327,66 @@ pub(super) fn update_hit_region(
     mask: AlphaMask,
     bubble_input: Option<BubbleInput>,
 ) -> tauri::Result<()> {
-    let backdrop = bubble_input.as_ref().and_then(BubbleInput::backdrop);
+    let backdrops = bubble_input
+        .as_ref()
+        .map(BubbleInput::backdrops)
+        .unwrap_or_default();
     let mask_size = (f64::from(mask.width), f64::from(mask.height));
-    let (view, renderer, blur) = PROXY
+    let (view, renderer, blurs) = PROXY
         .with(|state| {
             let mut state = state.borrow_mut();
             let pair = state.as_mut()?;
             pair.frame = Some(*frame);
             *pair.view.ivars().mask.borrow_mut() = mask;
             *pair.view.ivars().bubble.borrow_mut() = bubble_input;
-            Some((pair.view.clone(), pair.renderer.clone(), pair.blur.clone()))
+            if let (Some(mtm), Some(content)) = (MainThreadMarker::new(), pair.renderer.contentView())
+            {
+                while pair.blurs.len() < backdrops.len() {
+                    pair.blurs.push(create_blur_view(mtm, &content));
+                }
+            }
+            Some((pair.view.clone(), pair.renderer.clone(), pair.blurs.clone()))
         })
         .ok_or_else(|| std::io::Error::other("桌宠代理不可用"))?;
-    if let Some(blur) = blur {
-        if let (Some(backdrop), Some(content)) = (backdrop, renderer.contentView()) {
+    if !blurs.is_empty() {
+        if let Some(content) = renderer.contentView() {
             let bounds = content.bounds().size;
             let sx = bounds.width / mask_size.0;
             let sy = bounds.height / mask_size.1;
-            let x = backdrop.x * sx;
-            let w = backdrop.width * sx;
-            let h = backdrop.height * sy;
-            let y = if content.isFlipped() {
-                backdrop.y * sy
-            } else {
-                bounds.height - (backdrop.y + backdrop.height) * sy
-            };
-            let radius = (backdrop.radius * sx.min(sy)).clamp(0.0, (w.min(h) * 0.5).max(0.0));
-            let rect = NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
-            if blur.frame() != rect {
-                blur.setFrame(rect);
+            let flipped = content.isFlipped();
+            for (index, blur) in blurs.iter().enumerate() {
+                if let Some(backdrop) = backdrops.get(index) {
+                    let x = backdrop.x * sx;
+                    let w = backdrop.width * sx;
+                    let h = backdrop.height * sy;
+                    let y = if flipped {
+                        backdrop.y * sy
+                    } else {
+                        bounds.height - (backdrop.y + backdrop.height) * sy
+                    };
+                    let radius =
+                        (backdrop.radius * sx.min(sy)).clamp(0.0, (w.min(h) * 0.5).max(0.0));
+                    let rect = NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+                    if blur.frame() != rect {
+                        blur.setFrame(rect);
+                    }
+                    if let Some(layer) = blur.layer() {
+                        layer.setCornerRadius(radius);
+                        layer.setMasksToBounds(true);
+                    }
+                    if blur.isHidden() {
+                        blur.setHidden(false);
+                    }
+                } else if !blur.isHidden() {
+                    blur.setHidden(true);
+                }
             }
-            if let Some(layer) = blur.layer() {
-                layer.setCornerRadius(radius);
-                layer.setMasksToBounds(true);
+        } else {
+            for blur in &blurs {
+                if !blur.isHidden() {
+                    blur.setHidden(true);
+                }
             }
-            if blur.isHidden() {
-                blur.setHidden(false);
-            }
-        } else if !blur.isHidden() {
-            blur.setHidden(true);
         }
     }
     view.setNeedsDisplay(true);

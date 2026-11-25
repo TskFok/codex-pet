@@ -89,15 +89,23 @@ fn autonomy_menu_id(currently_enabled: bool) -> &'static str {
 fn open_panel(app: &tauri::AppHandle, label: &str, title: &str) -> tauri::Result<()> {
     let window = match app.get_webview_window(label) {
         Some(window) => window,
-        None => WebviewWindowBuilder::new(
-            app,
-            label,
-            WebviewUrl::App(format!("index.html#{label}").into()),
-        )
-        .title(title)
-        .inner_size(560., 560.)
-        .visible(false)
-        .build()?,
+        None => {
+            let (width, height, min_width, min_height) = if label == "settings" {
+                (780., 600., 620., 460.)
+            } else {
+                (560., 560., 420., 360.)
+            };
+            WebviewWindowBuilder::new(
+                app,
+                label,
+                WebviewUrl::App(format!("index.html#{label}").into()),
+            )
+            .title(title)
+            .inner_size(width, height)
+            .min_inner_size(min_width, min_height)
+            .visible(false)
+            .build()?
+        }
     };
     window.unminimize()?;
     window.show()?;

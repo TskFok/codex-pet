@@ -10,10 +10,17 @@ import fixture from '../../../../tests/fixtures/events/child-folding.json';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
 
-function deliverBubbleAction(stamp: number, action: string) {
+function deliverBubbleAction(stamp: number, action: string, bubble = 0) {
   const handler = vi.mocked(listen).mock.lastCall?.[1];
   if (!handler) throw new Error('缺少气泡输入监听');
-  handler({ event: 'pet:bubble-action', id: 1, payload: { stamp, action } });
+  handler({ event: 'pet:bubble-action', id: 1, payload: { stamp, bubble, action } });
+}
+
+function singleAttentionSnapshot(): PetSnapshot {
+  const snap = structuredClone(fixture.expected) as PetSnapshot;
+  snap.sessions = [snap.sessions[0]];
+  snap.notifications = snap.notifications.filter((n) => n.key.sessionId === snap.sessions[0].key.sessionId);
+  return snap;
 }
 
 it('设置读取失败或晚到时，连续快照也不泄露已静音的项目或摘要', async () => {
@@ -52,7 +59,7 @@ it('设置读取失败或晚到时，连续快照也不泄露已静音的项目�
     vi.fn(),
     vi.fn(),
   );
-  const bubble = document.querySelector('aside')!;
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
   const prefs: Settings = {
     revision: 3,
     fps: 30,
@@ -64,22 +71,22 @@ it('设置读取失败或晚到时，连续快照也不泄露已静音的项目�
   };
   try {
     await vi.waitFor(() => expect(renderer.setState).toHaveBeenCalledWith('review', expect.any(Number)));
-    expect(bubble.hidden).toBe(true);
-    expect(bubble.textContent).toBe('');
+    expect(stack.hidden).toBe(true);
+    expect(stack.textContent).toBe('');
     fail(new Error('读取失败'));
     await Promise.resolve();
     update({ ...snapshot, revision: snapshot.revision + 1 });
-    expect(bubble.textContent).toBe('');
+    expect(stack.textContent).toBe('');
     receive(prefs);
-    expect(bubble.hidden).toBe(true);
-    expect(bubble.textContent).toBe('');
+    expect(stack.hidden).toBe(true);
+    expect(stack.textContent).toBe('');
     expect(invoke).not.toHaveBeenCalled();
     expect(renderer.setState).toHaveBeenLastCalledWith('review', expect.any(Number));
     receive({ ...prefs, revision: 2, mutedSources: [] });
-    expect(bubble.hidden).toBe(true);
+    expect(stack.hidden).toBe(true);
     receive({ ...prefs, revision: 4, mutedSources: [] });
-    expect(bubble.hidden).toBe(false);
-    expect(bubble.textContent).toContain('私有项目');
+    expect(stack.hidden).toBe(false);
+    expect(stack.textContent).toContain('私有项目');
   } finally {
     handle.stop();
     vi.restoreAllMocks();
@@ -99,7 +106,7 @@ it('按气泡真实按钮位置发布命中，并忽略上一会话晚到的原�
     return this.dataset.action === 'session' ? rect(12, 102, 66, 20) : rect(82, 102, 56, 20);
   });
   let update!: (value: PetSnapshot) => void;
-  const snapshot = structuredClone(fixture.expected) as PetSnapshot;
+  const snapshot = singleAttentionSnapshot();
   const prefs: Settings = {
     revision: 3, fps: 30, sound: false, autostart: false, mutedSources: [], petId: 'yueying-cape-dancer',
     placement: { x: 0, y: 0, scale: 1, monitorId: null },
@@ -118,17 +125,19 @@ it('按气泡真实按钮位置发布命中，并忽略上一会话晚到的原�
   try {
     handle.pose({ width: 480, height: 640, runs: [] }, { x: 0, y: 0, width: 240, height: 320 });
     await vi.waitFor(() => expect(poses.mock.lastCall?.[0].bubbleInput?.buttons).toEqual([
-      { action: 'close', rect: { x: 424, y: 120, width: 36, height: 36 } },
-      { action: 'session', rect: { x: 24, y: 204, width: 132, height: 40 } },
-      { action: 'copy', rect: { x: 164, y: 204, width: 112, height: 40 } },
+      { bubble: 0, action: 'close', rect: { x: 424, y: 120, width: 36, height: 36 } },
+      { bubble: 0, action: 'session', rect: { x: 24, y: 204, width: 132, height: 40 } },
+      { bubble: 0, action: 'copy', rect: { x: 164, y: 204, width: 112, height: 40 } },
     ]));
-    expect(poses.mock.lastCall?.[0].bubbleInput?.backdrop).toEqual({
-      x: 8,
-      y: 108,
-      width: 464,
-      height: 160,
-      radius: 28,
-    });
+    expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toEqual([
+      {
+        x: 8,
+        y: 108,
+        width: 464,
+        height: 160,
+        radius: 28,
+      },
+    ]);
     const before = poses.mock.lastCall![0].bubbleInput!.stamp;
     const changed = structuredClone(snapshot);
     changed.revision++;
@@ -161,7 +170,7 @@ it('缩放或 DPI 变化及气泡按钮越界时按新掩码重测并裁剪，�
     // 故意让 copy 按钮稍微越出右边界，模拟窄窗口溢出
     return this.dataset.action === 'session' ? rect(12, 98, 60, 20) : rect(cssWidth - 30, 98, 40, 20);
   });
-  const snapshot = structuredClone(fixture.expected) as PetSnapshot;
+  const snapshot = singleAttentionSnapshot();
   const prefs: Settings = {
     revision: 3, fps: 30, sound: false, autostart: false, mutedSources: [], petId: 'yueying-cape-dancer',
     placement: { x: 0, y: 0, scale: 1.5, monitorId: null },
@@ -191,7 +200,7 @@ it('缩放或 DPI 变化及气泡按钮越界时按新掩码重测并裁剪，�
     handle.pose({ width: 240, height: 320, runs: [] }, { x: 0, y: 0, width: 240, height: 320 });
     const shrunk = poses.mock.lastCall![0];
     expect(shrunk.mask.width).toBe(240);
-    expect(shrunk.bubbleInput?.buttons[1]).toEqual({ action: 'session', rect: { x: 12, y: 98, width: 60, height: 20 } });
+    expect(shrunk.bubbleInput?.buttons[1]).toEqual({ bubble: 0, action: 'session', rect: { x: 12, y: 98, width: 60, height: 20 } });
     for (const button of shrunk.bubbleInput!.buttons) {
       expect(button.rect.x).toBeGreaterThanOrEqual(0);
       expect(button.rect.y).toBeGreaterThanOrEqual(0);
@@ -218,7 +227,7 @@ it('气泡外框尺寸不变时降级显示打开应用按钮，仍立即同步�
     if (this.dataset.action === 'application') return rect(76, 102, 60, 20);
     return rect(140, 102, 56, 20);
   });
-  const snapshot = structuredClone(fixture.expected) as PetSnapshot;
+  const snapshot = singleAttentionSnapshot();
   const prefs: Settings = {
     revision: 3, fps: 30, sound: false, autostart: false, mutedSources: [], petId: 'yueying-cape-dancer',
     placement: { x: 0, y: 0, scale: 1, monitorId: null },
@@ -269,7 +278,7 @@ it('点击关闭按钮隐藏提示框并释放气泡热区，无关刷新不重�
     return this.dataset.action === 'session' ? rect(12, 102, 60, 20) : rect(76, 102, 56, 20);
   });
   let update!: (value: PetSnapshot) => void;
-  const snapshot = structuredClone(fixture.expected) as PetSnapshot;
+  const snapshot = singleAttentionSnapshot();
   const prefs: Settings = {
     revision: 3, fps: 30, sound: false, autostart: false, mutedSources: [], petId: 'yueying-cape-dancer',
     placement: { x: 0, y: 0, scale: 1, monitorId: null },
@@ -284,14 +293,14 @@ it('点击关闭按钮隐藏提示框并释放气泡热区，无关刷新不重�
   const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
   const renderer = { setState: vi.fn(), setFps: vi.fn() };
   const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
-  const bubble = document.querySelector('aside')!;
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
   try {
     handle.pose({ width: 240, height: 320, runs: [[200, 80, 160]] }, { x: 0, y: 0, width: 240, height: 320 });
-    await vi.waitFor(() => expect(bubble.hidden).toBe(false));
+    await vi.waitFor(() => expect(stack.hidden).toBe(false));
     const closeStamp = poses.mock.lastCall![0].bubbleInput!.stamp;
     deliverBubbleAction(closeStamp, 'close');
-    expect(bubble.hidden).toBe(true);
-    expect(bubble.textContent).toBe('');
+    expect(stack.hidden).toBe(true);
+    expect(stack.textContent).toBe('');
     expect(poses.mock.lastCall?.[0].bubbleInput).toBeUndefined();
     expect(poses.mock.lastCall?.[0].mask.runs).toEqual([[200, 80, 160]]);
 
@@ -299,18 +308,18 @@ it('点击关闭按钮隐藏提示框并释放气泡热区，无关刷新不重�
     const unrelated = structuredClone(snapshot);
     unrelated.revision += 1;
     update(unrelated);
-    expect(bubble.hidden).toBe(true);
+    expect(stack.hidden).toBe(true);
 
     // 收到新的待处理请求时重新弹出提示框，且直接点击关闭按钮也可关闭
     const fresh = structuredClone(unrelated);
     fresh.revision += 1;
     fresh.sessions[0].pending = [{ id: 'req-new', reason: 'answer', summary: '请确认下一步' }];
     update(fresh);
-    expect(bubble.hidden).toBe(false);
-    expect(bubble.textContent).toContain('请确认下一步');
-    const closeButton = bubble.querySelector<HTMLButtonElement>('button[data-action="close"]')!;
+    expect(stack.hidden).toBe(false);
+    expect(stack.textContent).toContain('请确认下一步');
+    const closeButton = stack.querySelector<HTMLButtonElement>('button[data-action="close"]')!;
     closeButton.click();
-    expect(bubble.hidden).toBe(true);
+    expect(stack.hidden).toBe(true);
     expect(poses.mock.lastCall?.[0].bubbleInput).toBeUndefined();
   } finally {
     handle.stop();
@@ -346,14 +355,14 @@ it('宠物加载失败提示框也包含关闭按钮且可关闭', async () => {
   const renderer = { setState: vi.fn(), setFps: vi.fn(), mount: vi.fn() };
   const mountDefault = vi.fn().mockResolvedValue(undefined);
   const handle = bindReminder(canvas, { renderer, mountDefault } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
-  const bubble = document.querySelector('aside')!;
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
   try {
     handle.pose({ width: 240, height: 320, runs: [] }, { x: 0, y: 0, width: 240, height: 320 });
-    await vi.waitFor(() => expect(bubble.hidden).toBe(false));
-    expect(bubble.textContent).toContain('无法加载所选桌宠');
+    await vi.waitFor(() => expect(stack.hidden).toBe(false));
+    expect(stack.textContent).toContain('无法加载所选桌宠');
     expect(poses.mock.lastCall?.[0].bubbleInput?.buttons.map(b => b.action)).toEqual(['close']);
     deliverBubbleAction(poses.mock.lastCall![0].bubbleInput!.stamp, 'close');
-    expect(bubble.hidden).toBe(true);
+    expect(stack.hidden).toBe(true);
     expect(poses.mock.lastCall?.[0].bubbleInput).toBeUndefined();
   } finally {
     handle.stop();
@@ -491,19 +500,25 @@ it('任务完成动作播完后自动切回待机或运行中，无关刷新不�
   }
 });
 
-it('支持点击桌宠触发部位互动、双击快捷面板按钮及真实任务提醒优先抢占', async () => {
+it('支持点击桌宠触发部位互动、双击快捷面板按钮及真实任务提醒与互动气泡共存叠加', async () => {
   const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
   vi.stubGlobal('document', document);
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
   vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    if (this.localName === 'canvas') return rect(0, 0, 240, 320);
-    if (this.localName === 'aside') return rect(4, 54, 232, 80);
-    if (this.dataset.action === 'close') return rect(212, 60, 18, 18);
-    if (this.dataset.action === 'pet_feed') return rect(12, 102, 52, 20);
-    if (this.dataset.action === 'pet_play') return rect(68, 102, 52, 20);
-    if (this.dataset.action === 'pet_notifications') return rect(124, 102, 52, 20);
-    return rect(12, 102, 60, 20);
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    if (this.localName === 'aside') {
+      const idx = Number(this.dataset.bubbleIndex ?? 0);
+      return rect(4, 174 - idx * 86, 232, 80);
+    }
+    const parent = this.closest('aside') as HTMLElement | null;
+    const idx = Number(parent?.dataset.bubbleIndex ?? 0);
+    const top = 174 - idx * 86;
+    if (this.dataset.action === 'close') return rect(212, top + 6, 18, 18);
+    if (this.dataset.action === 'pet_feed') return rect(12, top + 48, 52, 20);
+    if (this.dataset.action === 'pet_play') return rect(68, top + 48, 52, 20);
+    if (this.dataset.action === 'pet_notifications') return rect(124, top + 48, 52, 20);
+    return rect(12, top + 48, 60, 20);
   });
   let update!: (value: PetSnapshot) => void;
   const idleSnapshot: PetSnapshot = { revision: 1, sessions: [], notifications: [] };
@@ -518,34 +533,34 @@ it('支持点击桌宠触发部位互动、双击快捷面板按钮及真实任�
   const openNotifications = vi.spyOn(api, 'openNotifications').mockResolvedValue(undefined);
   const canvas = document.querySelector('canvas')!;
   canvas.width = 240;
-  canvas.height = 320;
+  canvas.height = 440;
   const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
   const renderer = { setState: vi.fn(), setFps: vi.fn(), triggerInteractionEffect: vi.fn() };
   const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
-  const bubble = document.querySelector('aside')!;
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
   const deliverEvent = (name: string, payload: unknown) => {
     const call = [...vi.mocked(listen).mock.calls].reverse().find(([eventName]) => eventName === name);
     if (!call) throw new Error(`缺少 ${name} 事件监听`);
     call[1]({ event: name, id: 1, payload });
   };
   try {
-    handle.pose({ width: 240, height: 320, runs: [[200, 80, 160]] }, { x: 0, y: 0, width: 240, height: 320 });
+    handle.pose({ width: 240, height: 440, runs: [[300, 80, 160]] }, { x: 0, y: 0, width: 240, height: 440 });
     await vi.waitFor(() => expect(renderer.setState).toHaveBeenCalledWith('idle', expect.any(Number)));
 
     // 1. 通过原生 pet:click 摸头：触发招手、爱心特效与回应气泡，播完恢复 idle
-    deliverEvent('pet:click', { x: 0.5, y: 0.5, clickCount: 1 });
+    deliverEvent('pet:click', { x: 0.5, y: 0.68, clickCount: 1 });
     expect(renderer.setState).toHaveBeenLastCalledWith('waving', expect.any(Number), true);
     expect(renderer.triggerInteractionEffect).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'heart' }),
       expect.any(Number),
     );
-    expect(bubble.hidden).toBe(false);
-    expect(bubble.textContent).toContain('摸摸头');
+    expect(stack.hidden).toBe(false);
+    expect(stack.textContent).toContain('摸摸头');
     handle.animationEnded('waving', 800);
     expect(renderer.setState).toHaveBeenLastCalledWith('idle', expect.any(Number));
 
     // 2. 双击打开快捷互动面板，包含投喂/玩耍/通知按钮并同步原生命中区域
-    handle.click({ x: 0.5, y: 0.72, clickCount: 2 });
+    handle.click({ x: 0.5, y: 0.8, clickCount: 2 });
     expect(renderer.setState).toHaveBeenLastCalledWith('jumping', expect.any(Number), true);
     expect(poses.mock.lastCall?.[0].bubbleInput?.buttons.map((b) => b.action)).toEqual([
       'close',
@@ -556,27 +571,28 @@ it('支持点击桌宠触发部位互动、双击快捷面板按钮及真实任�
 
     // 3. 通过原生气泡点击触发“玩耍”连招与“通知”打开
     const panelStamp = poses.mock.lastCall![0].bubbleInput!.stamp;
-    deliverBubbleAction(panelStamp, 'pet_play');
+    deliverBubbleAction(panelStamp, 'pet_play', 0);
     expect(renderer.setState).toHaveBeenLastCalledWith('running-right', expect.any(Number), true);
     const updatedStamp = poses.mock.lastCall![0].bubbleInput!.stamp;
-    deliverBubbleAction(updatedStamp, 'pet_notifications');
+    deliverBubbleAction(updatedStamp, 'pet_notifications', 0);
     expect(openNotifications).toHaveBeenCalledTimes(1);
-    expect(bubble.hidden).toBe(true);
+    expect(stack.hidden).toBe(true);
 
-    // 4. 真实任务提醒到达时立刻抢占互动气泡，且提醒存在时点击桌宠不覆盖真实提醒
-    handle.click({ x: 0.5, y: 0.5, clickCount: 1 });
-    expect(bubble.hidden).toBe(false);
-    const urgent = structuredClone(fixture.expected) as PetSnapshot;
+    // 4. 真实任务提醒到达时与互动气泡向上叠加共存，点击桌宠也不覆盖已有提醒
+    handle.click({ x: 0.5, y: 0.68, clickCount: 1 });
+    expect(stack.hidden).toBe(false);
+    const urgent = singleAttentionSnapshot();
     urgent.revision = 10;
     update(urgent);
     expect(renderer.setState).toHaveBeenLastCalledWith('review', expect.any(Number));
-    expect(bubble.textContent).toContain('待审批');
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(2);
+    expect(stack.textContent).toContain('待审批');
 
     renderer.triggerInteractionEffect.mockClear();
-    handle.click({ x: 0.5, y: 0.72, clickCount: 2 });
+    handle.click({ x: 0.5, y: 0.8, clickCount: 2 });
     expect(renderer.triggerInteractionEffect).toHaveBeenCalledTimes(1);
-    expect(bubble.textContent).toContain('待审批');
-    expect(bubble.textContent).not.toContain('投喂');
+    expect(stack.textContent).toContain('待审批');
+    expect(stack.textContent).toContain('投喂');
   } finally {
     handle.stop();
     vi.restoreAllMocks();
@@ -584,15 +600,15 @@ it('支持点击桌宠触发部位互动、双击快捷面板按钮及真实任�
   }
 });
 
-it('响应 DeepSeek 自主活动事件，用户点击可打断，真实任务提醒优先抢占', async () => {
+it('响应 DeepSeek 自主活动事件，用户点击可打断，紧急待审批抢占自主活动', async () => {
   const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
   vi.stubGlobal('document', document);
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
   vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    if (this.localName === 'canvas') return rect(0, 0, 240, 320);
-    if (this.localName === 'aside') return rect(4, 54, 232, 72);
-    return rect(212, 60, 18, 18);
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    if (this.localName === 'aside') return rect(4, 174, 232, 72);
+    return rect(212, 180, 18, 18);
   });
   let update!: (value: PetSnapshot) => void;
   const idleSnapshot: PetSnapshot = { revision: 1, sessions: [], notifications: [] };
@@ -618,10 +634,10 @@ it('响应 DeepSeek 自主活动事件，用户点击可打断，真实任务提
   const interrupt = vi.spyOn(api, 'interruptPetActivity').mockResolvedValue(undefined);
   const canvas = document.querySelector('canvas')!;
   canvas.width = 240;
-  canvas.height = 320;
+  canvas.height = 440;
   const renderer = { setState: vi.fn(), setFps: vi.fn(), triggerInteractionEffect: vi.fn() };
   const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, vi.fn(), vi.fn());
-  const bubble = document.querySelector('aside')!;
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
   const deliverEvent = (name: string, payload: unknown) => {
     const call = [...vi.mocked(listen).mock.calls].reverse().find(([eventName]) => eventName === name);
     if (!call) throw new Error(`缺少 ${name} 事件监听`);
@@ -635,7 +651,7 @@ it('响应 DeepSeek 自主活动事件，用户点击可打断，真实任务提
       id: 'deepseek-activity:1',
       phase: 'start',
       state: 'running-right',
-      effect: { x: 0.5, y: 0.62, kind: 'sparkle', bounce: 0.85, count: 5 },
+      effect: { x: 0.5, y: 0.8, kind: 'sparkle', bounce: 0.85, count: 5 },
       thought: '去桌面右边散散步~',
       thoughtDurationMs: 3600,
     });
@@ -644,8 +660,8 @@ it('响应 DeepSeek 自主活动事件，用户点击可打断，真实任务提
       expect.objectContaining({ kind: 'sparkle' }),
       expect.any(Number),
     );
-    expect(bubble.hidden).toBe(false);
-    expect(bubble.textContent).toContain('去桌面右边散散步~');
+    expect(stack.hidden).toBe(false);
+    expect(stack.textContent).toContain('去桌面右边散散步~');
 
     // 2. 活动结束后恢复 idle
     deliverEvent('pet:activity', { id: 'deepseek-activity:1', phase: 'end' });
@@ -653,10 +669,10 @@ it('响应 DeepSeek 自主活动事件，用户点击可打断，真实任务提
 
     // 3. 自主活动进行中被用户点击，应立即通知后端打断自主移动
     deliverEvent('pet:activity', { id: 'deepseek-activity:2', phase: 'start', state: 'running-left' });
-    handle.click({ x: 0.5, y: 0.5, clickCount: 1 });
+    handle.click({ x: 0.5, y: 0.68, clickCount: 1 });
     expect(interrupt).toHaveBeenCalledTimes(1);
 
-    // 4. 真实待审批提醒到达时抢占自主活动，且提醒存在时忽略新的自主活动气泡
+    // 4. 真实待审批提醒到达时抢占自主活动，待审批期间忽略新的自主活动
     const urgent = structuredClone(fixture.expected) as PetSnapshot;
     urgent.revision = 10;
     update(urgent);
@@ -667,8 +683,271 @@ it('响应 DeepSeek 自主活动事件，用户点击可打断，真实任务提
       state: 'jumping',
       thought: '不应覆盖审批提醒',
     });
-    expect(bubble.textContent).toContain('待审批');
-    expect(bubble.textContent).not.toContain('不应覆盖审批提醒');
+    expect(stack.textContent).toContain('待审批');
+    expect(stack.textContent).not.toContain('不应覆盖审批提醒');
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('气泡按是否包含操作按钮切换 has-actions 类，并在多行发言增高时同步最新背景与热区', async () => {
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  let bubbleTop = 140;
+  let bubbleHeight = 64;
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    if (this.localName === 'aside') {
+      const idx = Number(this.dataset.bubbleIndex ?? 0);
+      return rect(6, bubbleTop - idx * (bubbleHeight + 6), 228, bubbleHeight);
+    }
+    const parent = this.closest('aside') as HTMLElement | null;
+    const idx = Number(parent?.dataset.bubbleIndex ?? 0);
+    const top = bubbleTop - idx * (bubbleHeight + 6);
+    if (this.dataset.action === 'close') return rect(210, top + 6, 18, 18);
+    return rect(16, top + bubbleHeight - 26, 52, 20);
+  });
+  let update!: (value: PetSnapshot) => void;
+  const idleSnapshot: PetSnapshot = { revision: 1, sessions: [], notifications: [] };
+  const prefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    mutedSources: [],
+    petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshots').mockImplementation(async (receive) => {
+    update = receive;
+    return () => {};
+  });
+  vi.spyOn(api, 'snapshot').mockResolvedValue(idleSnapshot);
+  vi.spyOn(api, 'interruptPetActivity').mockResolvedValue(undefined);
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 240;
+  canvas.height = 440;
+  const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
+  const renderer = { setState: vi.fn(), setFps: vi.fn(), triggerInteractionEffect: vi.fn() };
+  const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+  const deliverEvent = (name: string, payload: unknown) => {
+    const call = [...vi.mocked(listen).mock.calls].reverse().find(([eventName]) => eventName === name);
+    if (!call) throw new Error(`缺少 ${name} 事件监听`);
+    call[1]({ event: name, id: 1, payload });
+  };
+  try {
+    handle.pose({ width: 240, height: 440, runs: [[300, 80, 160]] }, { x: 0, y: 0, width: 240, height: 440 });
+    await vi.waitFor(() => expect(renderer.setState).toHaveBeenCalledWith('idle', expect.any(Number)));
+
+    // 1. 纯发言气泡（DeepSeek 较长多行想法）不带 has-actions，并按真实增高后的高度同步 backdrops
+    bubbleTop = 124;
+    bubbleHeight = 110;
+    const longThought = '今天桌面好安静呀，我去右边巡逻一圈顺便伸个大大的懒腰，有事随时叫我哦~';
+    deliverEvent('pet:activity', {
+      id: 'deepseek-activity:long',
+      phase: 'start',
+      state: 'waving',
+      thought: longThought,
+      thoughtDurationMs: 5200,
+    });
+    const thoughtBubble = stack.querySelector<HTMLElement>('aside.bubble')!;
+    expect(stack.hidden).toBe(false);
+    expect(thoughtBubble.classList.contains('has-actions')).toBe(false);
+    expect(thoughtBubble.querySelector('.bubble-detail')?.textContent).toBe(longThought);
+    expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toEqual([
+      {
+        x: 6,
+        y: 124,
+        width: 228,
+        height: 110,
+        radius: 14,
+      },
+    ]);
+
+    // 2. 双击互动面板与通知提醒均带有操作按钮，应启用 has-actions；逐个关闭后隐藏堆栈
+    bubbleTop = 160;
+    bubbleHeight = 94;
+    handle.click({ x: 0.5, y: 0.8, clickCount: 2 });
+    const panelBubble = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble')).find((el) =>
+      el.textContent?.includes('投喂'),
+    )!;
+    expect(panelBubble.classList.contains('has-actions')).toBe(true);
+
+    const urgent = structuredClone(fixture.expected) as PetSnapshot;
+    urgent.revision = 2;
+    update(urgent);
+    const reminderBubble = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble')).find((el) =>
+      el.textContent?.includes('待审批'),
+    )!;
+    expect(reminderBubble.classList.contains('has-actions')).toBe(true);
+
+    for (const closeBtn of Array.from(stack.querySelectorAll<HTMLButtonElement>('button[data-action="close"]'))) {
+      closeBtn.click();
+    }
+    expect(stack.hidden).toBe(true);
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(0);
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('任务完成后支持多气泡向上逐层叠加，新的任务提醒、自主发言与点击互动均可显示并独立操作', async () => {
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    if (this.localName === 'aside') {
+      const idx = Number(this.dataset.bubbleIndex ?? 0);
+      // 模拟 column-reverse：index 越大越靠上（y 越小）
+      return rect(6, 186 - idx * 66, 228, 60);
+    }
+    const parent = this.closest('aside') as HTMLElement | null;
+    const idx = Number(parent?.dataset.bubbleIndex ?? 0);
+    const top = 186 - idx * 66;
+    if (this.dataset.action === 'close') return rect(210, top + 6, 18, 18);
+    if (this.dataset.action === 'session') return rect(14, top + 34, 60, 20);
+    return rect(78, top + 34, 56, 20);
+  });
+
+  const keyA = { source: 'codex' as const, installationId: 'i1', sessionId: 'task-a' };
+  const keyB = { source: 'deepseek' as const, installationId: 'i2', sessionId: 'task-b' };
+  let update!: (value: PetSnapshot) => void;
+  const endedA: PetSnapshot = {
+    revision: 1,
+    sessions: [
+      { key: keyA, turnId: 't1', status: 'ended', pending: [], unread: true, lastEventAtMs: 100 },
+    ],
+    notifications: [
+      {
+        id: 'end-a',
+        key: keyA,
+        turnId: 't1',
+        kind: { type: 'turn_ended', outcome: 'completed' },
+        summary: '任务 A 已完成',
+        occurredAtMs: 100,
+        read: false,
+      },
+    ],
+  };
+  const prefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    mutedSources: [],
+    petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshots').mockImplementation(async (receive) => {
+    update = receive;
+    return () => {};
+  });
+  vi.spyOn(api, 'snapshot').mockResolvedValue(endedA);
+  const openSession = vi.spyOn(api, 'openSession').mockResolvedValue({ status: 'requested' });
+  vi.spyOn(api, 'interruptPetActivity').mockResolvedValue(undefined);
+
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 240;
+  canvas.height = 440;
+  const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
+  const renderer = { setState: vi.fn(), setFps: vi.fn(), triggerInteractionEffect: vi.fn() };
+  const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+  const deliverEvent = (name: string, payload: unknown) => {
+    const call = [...vi.mocked(listen).mock.calls].reverse().find(([eventName]) => eventName === name);
+    if (!call) throw new Error(`缺少 ${name} 事件监听`);
+    call[1]({ event: name, id: 1, payload });
+  };
+  try {
+    handle.pose({ width: 240, height: 440, runs: [[300, 80, 160]] }, { x: 0, y: 0, width: 240, height: 440 });
+    await vi.waitFor(() => expect(stack.querySelectorAll('aside.bubble')).toHaveLength(1));
+    expect(stack.classList.contains('is-stacked')).toBe(false);
+    expect(stack.querySelectorAll('aside.bubble')[0].textContent).toContain('任务 A 已完成');
+
+    // 任务 A 招手动画播完回到 idle，但任务 A 气泡仍未关闭
+    handle.animationEnded('waving', 700);
+    expect(renderer.setState).toHaveBeenLastCalledWith('idle', 700);
+
+    // 1. 第二个任务完成：向上叠加第 2 层气泡，两层同时可见
+    update({
+      revision: 2,
+      sessions: [
+        endedA.sessions[0],
+        { key: keyB, turnId: 't2', status: 'ended', pending: [], unread: true, lastEventAtMs: 200 },
+      ],
+      notifications: [
+        endedA.notifications[0],
+        {
+          id: 'end-b',
+          key: keyB,
+          turnId: 't2',
+          kind: { type: 'turn_ended', outcome: 'completed' },
+          summary: '任务 B 已完成',
+          occurredAtMs: 200,
+          read: false,
+        },
+      ],
+    });
+    handle.animationEnded('waving', 1400);
+
+    let bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles).toHaveLength(2);
+    expect(stack.classList.contains('is-stacked')).toBe(true);
+    expect(bubbles[0].textContent).toContain('任务 A 已完成');
+    expect(bubbles[1].textContent).toContain('任务 B 已完成');
+    expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toEqual([
+      { x: 6, y: 186, width: 228, height: 60, radius: 14 },
+      { x: 6, y: 120, width: 228, height: 60, radius: 14 },
+    ]);
+
+    // 2. 任务完成后收到 DeepSeek 新对话：不再被拦截，向上叠加第 3 层气泡
+    deliverEvent('pet:activity', {
+      id: 'deepseek-activity:after-task',
+      phase: 'start',
+      state: 'running-right',
+      thought: '任务做完啦，我去逛一圈~',
+      thoughtDurationMs: 4000,
+    });
+    bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles).toHaveLength(3);
+    expect(bubbles[2].textContent).toContain('任务做完啦，我去逛一圈~');
+
+    // 3. 点击桌宠产生新的互动对话：向上叠加第 4 层气泡
+    handle.click({ x: 0.5, y: 0.68, clickCount: 1 });
+    bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles).toHaveLength(4);
+    expect(bubbles[3].textContent).toContain('摸摸头');
+    expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toHaveLength(4);
+
+    // 4. 通过原生点击指定第 2 层（bubble=1）的打开会话按钮，精确命中任务 B
+    const stampForOpen = poses.mock.lastCall![0].bubbleInput!.stamp;
+    deliverBubbleAction(stampForOpen, 'session', 1);
+    expect(openSession).toHaveBeenCalledWith(keyB, 'session');
+
+    // 5. 关闭第 1 层（bubble=0，任务 A）后，其余 3 个气泡保持可见且自动下移索引
+    const stampForClose = poses.mock.lastCall![0].bubbleInput!.stamp;
+    deliverBubbleAction(stampForClose, 'close', 0);
+    bubbles = Array.from(stack.querySelectorAll<HTMLElement>('aside.bubble'));
+    expect(bubbles).toHaveLength(3);
+    expect(bubbles[0].textContent).toContain('任务 B 已完成');
+    expect(bubbles[0].dataset.bubbleIndex).toBe('0');
+    expect(bubbles[1].textContent).toContain('任务做完啦，我去逛一圈~');
+    expect(bubbles[1].dataset.bubbleIndex).toBe('1');
+    expect(bubbles[2].textContent).toContain('摸摸头');
+    expect(bubbles[2].dataset.bubbleIndex).toBe('2');
   } finally {
     handle.stop();
     vi.restoreAllMocks();

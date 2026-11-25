@@ -7,12 +7,12 @@ import {
 import type { PetSnapshot } from '../types';
 
 it('按桌宠底部舞台坐标准确区分摸头、左右侧、身体中部与脚底区域', () => {
-  // 窗口 240x320，桌宠舞台 x: [40/240, 200/240], y: [140/320, 320/320]
-  expect(classifyHitZone(0.5, 0.5)).toBe('head');
-  expect(classifyHitZone(0.25, 0.72)).toBe('body-left');
-  expect(classifyHitZone(0.5, 0.72)).toBe('body-center');
-  expect(classifyHitZone(0.75, 0.72)).toBe('body-right');
-  expect(classifyHitZone(0.5, 0.92)).toBe('feet');
+  // 窗口 240x440，桌宠舞台 x: [40/240, 200/240], y: [260/440, 440/440]
+  expect(classifyHitZone(0.5, 0.68)).toBe('head');
+  expect(classifyHitZone(0.25, 0.8)).toBe('body-left');
+  expect(classifyHitZone(0.5, 0.8)).toBe('body-center');
+  expect(classifyHitZone(0.75, 0.8)).toBe('body-right');
+  expect(classifyHitZone(0.5, 0.94)).toBe('feet');
 });
 
 it('亲密度等级随互动稳步进阶', () => {
@@ -26,24 +26,24 @@ it('单击不同部位触发对应的动作、粒子特效与回应文本', () =
   const controller = new PetInteractionController({ affinity: 0, interactions: 0, feeds: 0 });
   const ctx = { petName: '月影' };
 
-  const head = controller.handleClick({ x: 0.5, y: 0.5 }, 1000, ctx);
+  const head = controller.handleClick({ x: 0.5, y: 0.68 }, 1000, ctx);
   expect(head.steps).toEqual([{ state: 'waving' }]);
   expect(head.effect?.kind).toBe('heart');
   expect(head.bubble?.title).toContain('摸摸头');
   expect(head.bubble?.actions).toEqual([]);
 
-  const left = controller.handleClick({ x: 0.25, y: 0.72 }, 2000, ctx);
+  const left = controller.handleClick({ x: 0.25, y: 0.8 }, 2000, ctx);
   expect(left.steps).toEqual([{ state: 'running-right', durationMs: 950 }]);
   expect(left.effect?.kind).toBe('note');
 
-  const right = controller.handleClick({ x: 0.75, y: 0.72 }, 3000, ctx);
+  const right = controller.handleClick({ x: 0.75, y: 0.8 }, 3000, ctx);
   expect(right.steps).toEqual([{ state: 'running-left', durationMs: 950 }]);
 
-  const feet = controller.handleClick({ x: 0.5, y: 0.92 }, 4000, ctx);
+  const feet = controller.handleClick({ x: 0.5, y: 0.94 }, 4000, ctx);
   expect(feet.steps).toEqual([{ state: 'jumping' }]);
   expect(feet.effect?.kind).toBe('star');
 
-  const center = controller.handleClick({ x: 0.5, y: 0.72 }, 5000, ctx);
+  const center = controller.handleClick({ x: 0.5, y: 0.8 }, 5000, ctx);
   expect(center.steps).toEqual([{ state: 'waving' }]);
   expect(center.effect?.kind).toBe('sparkle');
   expect(controller.getStats().interactions).toBe(5);

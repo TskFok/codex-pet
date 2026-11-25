@@ -49,7 +49,7 @@ export class PetVisibility {
 }
 
 export const PET_WINDOW_WIDTH = 240;
-export const PET_WINDOW_HEIGHT = 320;
+export const PET_WINDOW_HEIGHT = 440;
 export const PET_STAGE_WIDTH = 160;
 export const PET_STAGE_HEIGHT = 180;
 

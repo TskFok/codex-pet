@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import fixture from '../../../../tests/fixtures/events/child-folding.json';
-import { presentation, withBubble } from './reminder';
+import { presentation, withBubble, withBubbles } from './reminder';
 import type { PetSnapshot } from '../types';
 it('活动请求即使已读也保留，准确解除后不再显示旧请求，静音只影响该来源', () => {
   const snap = structuredClone(fixture.expected) as PetSnapshot;
@@ -159,4 +159,67 @@ it('任务结束与失败给出稳定动作键与回退循环状态，失败标�
   };
   expect(presentation(failedUnread, []).state).toBe('failed');
   expect(presentation(failedUnread, []).animationKey).toBe(presentation(failedRead, []).animationKey);
+});
+
+it('多个会话同时存在未读提醒时全部返回，并按优先级与时间排序；多气泡掩码保留间隙穿透', () => {
+  const keyA = { source: 'codex' as const, installationId: 'i1', sessionId: 's-ended' };
+  const keyB = { source: 'deepseek' as const, installationId: 'i2', sessionId: 's-attention' };
+  const keyC = { source: 'antigravity' as const, installationId: 'i3', sessionId: 's-ended-2' };
+  const snap: PetSnapshot = {
+    revision: 5,
+    sessions: [
+      { key: keyA, turnId: 't1', status: 'ended', pending: [], unread: true, lastEventAtMs: 100 },
+      {
+        key: keyB,
+        turnId: 't2',
+        status: 'needs_attention',
+        pending: [{ id: 'p1', reason: 'approval', summary: '需要确认命令' }],
+        unread: true,
+        lastEventAtMs: 150,
+      },
+      { key: keyC, turnId: 't3', status: 'ended', pending: [], unread: true, lastEventAtMs: 200 },
+    ],
+    notifications: [
+      {
+        id: 'n1',
+        key: keyA,
+        turnId: 't1',
+        kind: { type: 'turn_ended', outcome: 'completed' },
+        occurredAtMs: 100,
+        read: false,
+      },
+      {
+        id: 'n3',
+        key: keyC,
+        turnId: 't3',
+        kind: { type: 'turn_ended', outcome: 'completed' },
+        occurredAtMs: 200,
+        read: false,
+      },
+    ],
+  };
+
+  const result = presentation(snap, []);
+  expect(result.reminders).toHaveLength(3);
+  expect(result.reminders.map((r) => r.key.sessionId)).toEqual(['s-attention', 's-ended-2', 's-ended']);
+  expect(result.title).toBe(result.reminders[0].title);
+
+  // 静音其中一个来源只过滤该来源，其余会话提醒仍保留
+  const mutedResult = presentation(snap, ['deepseek']);
+  expect(mutedResult.reminders.map((r) => r.key.sessionId)).toEqual(['s-ended-2', 's-ended']);
+
+  // 多气泡合并只覆盖各气泡矩形，不填充气泡之间的透明间隙
+  expect(
+    withBubbles(
+      { width: 8, height: 5, runs: [[4, 2, 6]] },
+      [
+        { x: 1, y: 0, width: 6, height: 1 },
+        { x: 1, y: 2, width: 6, height: 1 },
+      ],
+    ).runs,
+  ).toEqual([
+    [0, 1, 7],
+    [2, 1, 7],
+    [4, 2, 6],
+  ]);
 });

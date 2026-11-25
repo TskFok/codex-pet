@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs::OpenOptions, io::Read};
 
 pub const WIDTH: f64 = 240.;
-pub const HEIGHT: f64 = 320.;
+pub const HEIGHT: f64 = 440.;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

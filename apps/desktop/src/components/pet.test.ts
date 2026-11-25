@@ -31,13 +31,13 @@ it('拒绝晚到的旧可见状态，跨过休眠恢复事件也会重开动作�
 it('桌宠视口始终位于窗口底部居中，上方为提示框预留无遮挡空间', () => {
   expect(petViewport(PET_WINDOW_WIDTH, PET_WINDOW_HEIGHT)).toEqual({
     x: 40,
-    y: 140,
+    y: PET_WINDOW_HEIGHT - PET_STAGE_HEIGHT,
     width: PET_STAGE_WIDTH,
     height: PET_STAGE_HEIGHT,
   });
-  expect(petViewport(360, 480)).toEqual({
+  expect(petViewport(360, 660)).toEqual({
     x: 60,
-    y: 210,
+    y: 390,
     width: 240,
     height: 270,
   });

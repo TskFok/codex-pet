@@ -149,9 +149,10 @@ window.addEventListener('pagehide', () => {
 const panelTitle = { '#notifications': '通知', '#settings': '设置' }[window.location.hash];
 if (panelTitle) {
   document.title = panelTitle;
-  document.body.className = 'panel';
+  const isNotifications = window.location.hash === '#notifications';
+  document.body.className = isNotifications ? 'panel panel-notifications' : 'panel panel-settings';
   const root = document.createElement('main'); canvas.replaceWith(root);
-  const mount = window.location.hash === '#notifications' ? mountNotifications : mountSettings;
+  const mount = isNotifications ? mountNotifications : mountSettings;
   void mount(root).then(stop => { if (stopped) stop(); else dispose = stop; }).catch(e => { root.textContent = String(e); });
 } else {
   void start().catch(console.error);

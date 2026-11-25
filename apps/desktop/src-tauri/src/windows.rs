@@ -87,6 +87,9 @@ mod tests {
     }
 }
 
+const MAX_BUBBLE_BUTTONS: usize = 32;
+const MAX_BUBBLE_BACKDROPS: usize = 8;
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum BubbleAction {
@@ -99,6 +102,14 @@ pub(crate) enum BubbleAction {
     PetNotifications,
 }
 
+#[cfg(any(test, target_os = "macos"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct BubbleHit {
+    pub(crate) stamp: u32,
+    pub(crate) bubble: u32,
+    pub(crate) action: BubbleAction,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BubbleInput {
@@ -107,6 +118,8 @@ pub(crate) struct BubbleInput {
     buttons: Vec<BubbleButton>,
     #[serde(default)]
     backdrop: Option<BubbleBackdrop>,
+    #[serde(default)]
+    backdrops: Vec<BubbleBackdrop>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
@@ -123,6 +136,9 @@ pub(crate) struct BubbleBackdrop {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BubbleButton {
+    #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+    #[serde(default)]
+    bubble: u32,
     #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
     action: BubbleAction,
     rect: ButtonRect,
@@ -151,33 +167,51 @@ impl BubbleInput {
                 && x + width <= f64::from(mask.width)
                 && y + height <= f64::from(mask.height)
         };
-        (1..=4).contains(&self.buttons.len())
+        let valid_backdrop = |b: &BubbleBackdrop| {
+            valid_rect(b.x, b.y, b.width, b.height) && b.radius.is_finite() && b.radius >= 0.0
+        };
+        (1..=MAX_BUBBLE_BUTTONS).contains(&self.buttons.len())
+            && self.backdrops.len() <= MAX_BUBBLE_BACKDROPS
             && self
                 .buttons
                 .iter()
                 .all(|button| valid_rect(button.rect.x, button.rect.y, button.rect.width, button.rect.height))
-            && self.backdrop.as_ref().is_none_or(|b| {
-                valid_rect(b.x, b.y, b.width, b.height) && b.radius.is_finite() && b.radius >= 0.0
-            })
+            && self.backdrop.as_ref().is_none_or(valid_backdrop)
+            && self.backdrops.iter().all(valid_backdrop)
     }
 
     #[cfg(any(test, target_os = "macos"))]
-    pub(crate) fn backdrop(&self) -> Option<BubbleBackdrop> {
-        self.backdrop
+    pub(crate) fn backdrops(&self) -> Vec<BubbleBackdrop> {
+        if !self.backdrops.is_empty() {
+            self.backdrops.clone()
+        } else if let Some(backdrop) = self.backdrop {
+            vec![backdrop]
+        } else {
+            Vec::new()
+        }
     }
 
     #[cfg(any(test, target_os = "macos"))]
     pub(crate) fn contains_backdrop(&self, x: f64, y: f64) -> bool {
-        self.backdrop
-            .is_some_and(|r| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
+        let contains = |r: &BubbleBackdrop| {
+            x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
+        };
+        if !self.backdrops.is_empty() {
+            self.backdrops.iter().any(contains)
+        } else {
+            self.backdrop.as_ref().is_some_and(contains)
+        }
     }
 
     #[cfg(any(test, target_os = "macos"))]
-    pub(crate) fn action_at(&self, x: f64, y: f64) -> Option<(u32, BubbleAction)> {
+    pub(crate) fn action_at(&self, x: f64, y: f64) -> Option<BubbleHit> {
         self.buttons.iter().find_map(|button| {
             let r = &button.rect;
-            (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
-                .then_some((self.stamp, button.action))
+            (x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height).then_some(BubbleHit {
+                stamp: self.stamp,
+                bubble: button.bubble,
+                action: button.action,
+            })
         })
     }
 }
@@ -199,7 +233,14 @@ mod bubble_tests {
             runs: vec![],
         };
         assert!(input.validate(&mask));
-        assert_eq!(input.action_at(11.0, 22.0), Some((7, BubbleAction::Copy)));
+        assert_eq!(
+            input.action_at(11.0, 22.0),
+            Some(BubbleHit {
+                stamp: 7,
+                bubble: 0,
+                action: BubbleAction::Copy,
+            })
+        );
         assert_eq!(input.action_at(58.5, 22.0), None);
         assert_eq!(input.action_at(11.0, 38.0), None);
         let outside = AlphaMask { width: 40, ..mask };
@@ -222,7 +263,11 @@ mod bubble_tests {
         }));
         assert_eq!(
             with_close.action_at(290.0, 12.0),
-            Some((8, BubbleAction::Close))
+            Some(BubbleHit {
+                stamp: 8,
+                bubble: 0,
+                action: BubbleAction::Close,
+            })
         );
     }
 
@@ -241,14 +286,14 @@ mod bubble_tests {
         .unwrap();
         assert!(valid.validate(&mask));
         assert_eq!(
-            valid.backdrop(),
-            Some(BubbleBackdrop {
+            valid.backdrops(),
+            vec![BubbleBackdrop {
                 x: 12.0,
                 y: 108.0,
                 width: 456.0,
                 height: 160.0,
                 radius: 28.0,
-            })
+            }]
         );
 
         let negative_radius: BubbleInput = serde_json::from_value(serde_json::json!({
@@ -287,15 +332,86 @@ mod bubble_tests {
         }))
         .unwrap();
         assert!(input.validate(&mask));
-        assert_eq!(input.action_at(40.0, 210.0), Some((12, BubbleAction::PetFeed)));
-        assert_eq!(input.action_at(130.0, 210.0), Some((12, BubbleAction::PetPlay)));
+        assert_eq!(
+            input.action_at(40.0, 210.0),
+            Some(BubbleHit {
+                stamp: 12,
+                bubble: 0,
+                action: BubbleAction::PetFeed,
+            })
+        );
+        assert_eq!(
+            input.action_at(130.0, 210.0),
+            Some(BubbleHit {
+                stamp: 12,
+                bubble: 0,
+                action: BubbleAction::PetPlay,
+            })
+        );
         assert_eq!(
             input.action_at(220.0, 210.0),
-            Some((12, BubbleAction::PetNotifications))
+            Some(BubbleHit {
+                stamp: 12,
+                bubble: 0,
+                action: BubbleAction::PetNotifications,
+            })
         );
         assert!(input.contains_backdrop(12.0, 108.0));
         assert!(input.contains_backdrop(400.0, 250.0));
         assert!(!input.contains_backdrop(468.0, 108.0));
         assert!(!input.contains_backdrop(240.0, 420.0));
+    }
+
+    #[test]
+    fn stacked_bubbles_route_actions_by_bubble_index_and_hit_test_each_backdrop() {
+        let mask = AlphaMask {
+            width: 480,
+            height: 960,
+            runs: vec![],
+        };
+        let input: BubbleInput = serde_json::from_value(serde_json::json!({
+            "stamp": 15,
+            "buttons": [
+                {"bubble":0,"action":"close","rect":{"x":424.0,"y":430.0,"width":36.0,"height":36.0}},
+                {"bubble":0,"action":"session","rect":{"x":24.0,"y":510.0,"width":100.0,"height":36.0}},
+                {"bubble":1,"action":"close","rect":{"x":424.0,"y":260.0,"width":36.0,"height":36.0}},
+                {"bubble":1,"action":"pet_feed","rect":{"x":24.0,"y":340.0,"width":80.0,"height":36.0}}
+            ],
+            "backdrops": [
+                {"x":12.0,"y":420.0,"width":456.0,"height":150.0,"radius":28.0},
+                {"x":12.0,"y":250.0,"width":456.0,"height":150.0,"radius":28.0}
+            ]
+        }))
+        .unwrap();
+        assert!(input.validate(&mask));
+        assert_eq!(input.backdrops().len(), 2);
+        assert_eq!(
+            input.action_at(430.0, 440.0),
+            Some(BubbleHit {
+                stamp: 15,
+                bubble: 0,
+                action: BubbleAction::Close,
+            })
+        );
+        assert_eq!(
+            input.action_at(430.0, 270.0),
+            Some(BubbleHit {
+                stamp: 15,
+                bubble: 1,
+                action: BubbleAction::Close,
+            })
+        );
+        assert_eq!(
+            input.action_at(40.0, 350.0),
+            Some(BubbleHit {
+                stamp: 15,
+                bubble: 1,
+                action: BubbleAction::PetFeed,
+            })
+        );
+        assert!(input.contains_backdrop(100.0, 460.0));
+        assert!(input.contains_backdrop(100.0, 300.0));
+        // Gap between the two stacked bubbles is outside both backdrops
+        assert!(!input.contains_backdrop(100.0, 410.0));
     }
 }

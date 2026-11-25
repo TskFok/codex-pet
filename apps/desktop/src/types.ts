@@ -95,6 +95,20 @@ export interface Placement {
   monitorId: string | null;
 }
 export type DeepSeekModel = 'deepseek-chat' | 'deepseek-reasoner';
+export type ActivityRangePreset =
+  | 'full'
+  | 'bottom'
+  | 'lower_half'
+  | 'left_edge'
+  | 'right_edge'
+  | 'custom';
+export interface ActivityRange {
+  preset: ActivityRangePreset;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
 export interface DeepSeekActivityStatus {
   configured: boolean;
   enabled: boolean;
@@ -136,6 +150,8 @@ export interface Settings {
   deepseekModel?: DeepSeekModel;
   deepseekApiKeyConfigured?: boolean;
   deepseekApiKeyHint?: string | null;
+  activityRange?: ActivityRange;
+  activitySpeed?: number;
   placement: Placement;
 }
 export type SettingsPatch = Partial<

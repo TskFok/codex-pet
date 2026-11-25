@@ -136,3 +136,73 @@ fn deepseek_activity_preferences_validate_persist_and_redact_api_key_over_ipc() 
     assert_eq!(cleared_wire["deepseekApiKeyConfigured"], false);
     assert!(cleared_wire["deepseekApiKeyHint"].is_null());
 }
+
+#[test]
+fn activity_range_and_speed_preferences_validate_normalize_and_persist() {
+    use pet_desktop::{
+        placement::WindowPlacement,
+        settings::{ActivityRange, ActivityRangePreset, DEFAULT_ACTIVITY_SPEED, Settings},
+    };
+
+    let temp = tempfile::tempdir().unwrap();
+    let paths = AppPaths::under(&temp.path().canonicalize().unwrap().join("app"));
+    paths.prepare_root().unwrap();
+
+    // 旧版 settings.json 无活动范围与跑动速率字段时，应平滑回退默认值
+    std::fs::write(
+        &paths.settings,
+        r#"{"revision":4,"fps":30,"sound":false,"autostart":false,"petId":"yueying-cape-dancer","mutedSources":[]}"#,
+    )
+    .unwrap();
+    let legacy = Preferences::load(&paths).unwrap();
+    assert_eq!(legacy.activity_range, ActivityRange::default());
+    assert!((legacy.activity_speed - DEFAULT_ACTIVITY_SPEED).abs() < 1e-9);
+
+    // 切换预设活动范围并设置跑动速率，预设自动规范化坐标
+    let patch: SettingsPatch = serde_json::from_str(
+        r#"{"activityRange":{"preset":"bottom"},"activitySpeed":1.6}"#,
+    )
+    .unwrap();
+    let updated = legacy.patched(&patch).unwrap();
+    assert_eq!(updated.activity_range.preset, ActivityRangePreset::Bottom);
+    assert!((updated.activity_range.min_x - 0.0).abs() < 1e-9);
+    assert!((updated.activity_range.max_x - 1.0).abs() < 1e-9);
+    assert!((updated.activity_range.min_y - 0.7).abs() < 1e-9);
+    assert!((updated.activity_range.max_y - 1.0).abs() < 1e-9);
+    assert!((updated.activity_speed - 1.6).abs() < 1e-9);
+    updated.save(&paths).unwrap();
+    assert_eq!(Preferences::load(&paths).unwrap(), updated);
+
+    // 自定义活动范围持久化与 IPC 序列化
+    let custom_patch: SettingsPatch = serde_json::from_str(
+        r#"{"activityRange":{"preset":"custom","minX":0.15,"maxX":0.85,"minY":0.25,"maxY":0.9},"activitySpeed":0.5}"#,
+    )
+    .unwrap();
+    let custom = updated.patched(&custom_patch).unwrap();
+    custom.save(&paths).unwrap();
+    assert_eq!(Preferences::load(&paths).unwrap(), custom);
+
+    let wire = serde_json::to_value(Settings {
+        preferences: custom.clone(),
+        placement: WindowPlacement::default(),
+    })
+    .unwrap();
+    assert_eq!(wire["activityRange"]["preset"], "custom");
+    assert_eq!(wire["activityRange"]["minX"], 0.15);
+    assert_eq!(wire["activityRange"]["maxX"], 0.85);
+    assert_eq!(wire["activityRange"]["minY"], 0.25);
+    assert_eq!(wire["activityRange"]["maxY"], 0.9);
+    assert_eq!(wire["activitySpeed"], 0.5);
+
+    // 拒绝非法范围与速率
+    for bad_json in [
+        r#"{"activityRange":{"preset":"custom","minX":0.5,"maxX":0.55,"minY":0.0,"maxY":1.0}}"#,
+        r#"{"activityRange":{"preset":"custom","minX":-0.1,"maxX":0.8,"minY":0.0,"maxY":1.0}}"#,
+        r#"{"activityRange":{"preset":"custom","minX":0.8,"maxX":0.2,"minY":0.0,"maxY":1.0}}"#,
+        r#"{"activitySpeed":0.4}"#,
+        r#"{"activitySpeed":2.5}"#,
+    ] {
+        let bad: SettingsPatch = serde_json::from_str(bad_json).unwrap();
+        assert!(custom.patched(&bad).is_err(), "预期拒绝配置：{bad_json}");
+    }
+}
