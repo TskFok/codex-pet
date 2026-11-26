@@ -103,7 +103,9 @@ it('按气泡真实按钮位置发布命中，并忽略上一会话晚到的原�
     if (this.localName === 'canvas') return rect(0, 0, 240, 320);
     if (this.localName === 'aside') return rect(4, 54, 232, 80);
     if (this.dataset.action === 'close') return rect(212, 60, 18, 18);
-    return this.dataset.action === 'session' ? rect(12, 102, 66, 20) : rect(82, 102, 56, 20);
+    if (this.dataset.action === 'session') return rect(12, 102, 60, 20);
+    if (this.dataset.action === 'application') return rect(76, 102, 60, 20);
+    return rect(140, 102, 56, 20);
   });
   let update!: (value: PetSnapshot) => void;
   const snapshot = singleAttentionSnapshot();
@@ -126,8 +128,9 @@ it('按气泡真实按钮位置发布命中，并忽略上一会话晚到的原�
     handle.pose({ width: 480, height: 640, runs: [] }, { x: 0, y: 0, width: 240, height: 320 });
     await vi.waitFor(() => expect(poses.mock.lastCall?.[0].bubbleInput?.buttons).toEqual([
       { bubble: 0, action: 'close', rect: { x: 424, y: 120, width: 36, height: 36 } },
-      { bubble: 0, action: 'session', rect: { x: 24, y: 204, width: 132, height: 40 } },
-      { bubble: 0, action: 'copy', rect: { x: 164, y: 204, width: 112, height: 40 } },
+      { bubble: 0, action: 'session', rect: { x: 24, y: 204, width: 120, height: 40 } },
+      { bubble: 0, action: 'application', rect: { x: 152, y: 204, width: 120, height: 40 } },
+      { bubble: 0, action: 'copy', rect: { x: 280, y: 204, width: 112, height: 40 } },
     ]));
     expect(poses.mock.lastCall?.[0].bubbleInput?.backdrops).toEqual([
       {
@@ -167,8 +170,10 @@ it('缩放或 DPI 变化及气泡按钮越界时按新掩码重测并裁剪，�
     if (this.localName === 'canvas') return rect(0, 0, cssWidth, cssHeight);
     if (this.localName === 'aside') return rect(4, 50, cssWidth - 8, 80);
     if (this.dataset.action === 'close') return rect(cssWidth - 26, 56, 18, 18);
+    if (this.dataset.action === 'session') return rect(12, 98, 60, 20);
+    if (this.dataset.action === 'application') return rect(76, 98, 60, 20);
     // 故意让 copy 按钮稍微越出右边界，模拟窄窗口溢出
-    return this.dataset.action === 'session' ? rect(12, 98, 60, 20) : rect(cssWidth - 30, 98, 40, 20);
+    return rect(cssWidth - 30, 98, 40, 20);
   });
   const snapshot = singleAttentionSnapshot();
   const prefs: Settings = {
@@ -187,9 +192,9 @@ it('缩放或 DPI 变化及气泡按钮越界时按新掩码重测并裁剪，�
   const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, poses, vi.fn());
   try {
     handle.pose({ width: 720, height: 960, runs: [] }, { x: 0, y: 0, width: 360, height: 480 });
-    await vi.waitFor(() => expect(poses.mock.lastCall?.[0].bubbleInput?.buttons.length).toBe(3));
+    await vi.waitFor(() => expect(poses.mock.lastCall?.[0].bubbleInput?.buttons.length).toBe(4));
     // 右边界越界按钮必须被裁剪在 mask.width 以内
-    const initialCopy = poses.mock.lastCall![0].bubbleInput!.buttons[2];
+    const initialCopy = poses.mock.lastCall![0].bubbleInput!.buttons[3];
     expect(initialCopy.rect.x + initialCopy.rect.width).toBeLessThanOrEqual(720);
 
     // 模拟从 150% (360x480 @2x = 720x960) 缩小为 100% (240x320 @1x = 240x320)，且 ResizeObserver 未在新 mask 后再次触发
@@ -201,6 +206,7 @@ it('缩放或 DPI 变化及气泡按钮越界时按新掩码重测并裁剪，�
     const shrunk = poses.mock.lastCall![0];
     expect(shrunk.mask.width).toBe(240);
     expect(shrunk.bubbleInput?.buttons[1]).toEqual({ bubble: 0, action: 'session', rect: { x: 12, y: 98, width: 60, height: 20 } });
+    expect(shrunk.bubbleInput?.buttons[2]).toEqual({ bubble: 0, action: 'application', rect: { x: 76, y: 98, width: 60, height: 20 } });
     for (const button of shrunk.bubbleInput!.buttons) {
       expect(button.rect.x).toBeGreaterThanOrEqual(0);
       expect(button.rect.y).toBeGreaterThanOrEqual(0);
@@ -214,7 +220,7 @@ it('缩放或 DPI 变化及气泡按钮越界时按新掩码重测并裁剪，�
   }
 });
 
-it('气泡外框尺寸不变时降级显示打开应用按钮，仍立即同步原生按钮区域与修订号', async () => {
+it('气泡初始即注册打开应用按钮热区，无需先点击打开会话即可直接唤起应用，且全局样式严格隐藏 [hidden] 元素', async () => {
   const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
   vi.stubGlobal('document', document);
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
@@ -237,8 +243,8 @@ it('气泡外框尺寸不变时降级显示打开应用按钮，仍立即同步�
   vi.spyOn(api, 'snapshots').mockResolvedValue(() => {});
   vi.spyOn(api, 'snapshot').mockResolvedValue(snapshot);
   const navigate = vi.spyOn(api, 'openSession')
-    .mockResolvedValueOnce({ status: 'application_only', opened: false })
-    .mockResolvedValueOnce({ status: 'application_only', opened: true });
+    .mockResolvedValueOnce({ status: 'application_only', opened: true })
+    .mockResolvedValueOnce({ status: 'application_only', opened: false });
   const canvas = document.querySelector('canvas')!;
   canvas.width = 480;
   canvas.height = 640;
@@ -248,17 +254,25 @@ it('气泡外框尺寸不变时降级显示打开应用按钮，仍立即同步�
   try {
     handle.pose({ width: 480, height: 640, runs: [] }, { x: 0, y: 0, width: 240, height: 320 });
     await vi.waitFor(() => expect(poses.mock.lastCall?.[0].bubbleInput?.buttons.map(b => b.action)).toEqual([
-      'close', 'session', 'copy',
-    ]));
-    const stampBefore = poses.mock.lastCall![0].bubbleInput!.stamp;
-    deliverBubbleAction(stampBefore, 'session');
-    await vi.waitFor(() => expect(poses.mock.lastCall?.[0].bubbleInput?.buttons.map(b => b.action)).toEqual([
       'close', 'session', 'application', 'copy',
     ]));
-    const stampAfter = poses.mock.lastCall![0].bubbleInput!.stamp;
-    expect(stampAfter).toBeGreaterThan(stampBefore);
-    deliverBubbleAction(stampAfter, 'application');
+    const initialStamp = poses.mock.lastCall![0].bubbleInput!.stamp;
+    // 直接点击「打开应用」无需先点「打开会话」即可一步唤起应用
+    deliverBubbleAction(initialStamp, 'application');
+    expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenLastCalledWith(snapshot.sessions[0].key, 'application');
+    await vi.waitFor(() => expect(document.querySelector('aside')?.textContent).toContain('已发送打开应用请求'));
+
+    // 点击「打开会话」在不支持深链时仍只提示而不隐式唤起应用
+    const currentStamp = poses.mock.lastCall![0].bubbleInput!.stamp;
+    deliverBubbleAction(currentStamp, 'session');
+    expect(navigate).toHaveBeenLastCalledWith(snapshot.sessions[0].key, 'session');
+    await vi.waitFor(() => expect(document.querySelector('aside')?.textContent).toContain('可以打开应用'));
+
+    const styles = await import('node:fs/promises').then((fs) =>
+      fs.readFile(new URL('../styles.css', import.meta.url), 'utf8'),
+    );
+    expect(styles).toMatch(/\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}/);
   } finally {
     handle.stop();
     vi.restoreAllMocks();

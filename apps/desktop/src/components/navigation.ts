@@ -25,7 +25,6 @@ export function createNavigation(
     status.textContent = '已复制会话 ID';
     onLayoutChange?.();
   });
-  app.hidden = true;
   row.append(open, app, copy);
   root.append(row, status);
 
@@ -51,7 +50,6 @@ export function createNavigation(
       if (result.status === 'requested') {
         status.textContent = '已发送打开请求';
       } else if (result.status === 'application_only') {
-        app.hidden = false;
         status.textContent = result.opened
           ? '已发送打开应用请求'
           : '当前入口可以打开应用，可复制会话 ID 后查找';

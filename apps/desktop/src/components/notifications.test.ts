@@ -29,13 +29,13 @@ it('由快照更新项目、摘要、未读和待处理，同时保留可查看�
   expect(document.body.textContent).toContain('未读');
 });
 
-it('从历史尝试导航，保留会话，并仅在明确点击时降级打开应用', async () => {
+it('从历史可直接点击打开应用，尝试打开会话不会隐式降级，并保留会话与复制操作', async () => {
   const { document } = parseHTML('<html><body></body></html>');
   const snap = structuredClone(fixture.expected) as PetSnapshot;
   const key = snap.sessions[0].key;
   const open = vi.fn()
-    .mockResolvedValueOnce({ status: 'application_only', opened: false })
     .mockResolvedValueOnce({ status: 'application_only', opened: true })
+    .mockResolvedValueOnce({ status: 'application_only', opened: false })
     .mockResolvedValueOnce({ status: 'requested' })
     .mockRejectedValueOnce(new Error('系统未接受打开请求'));
   const copy = vi.fn().mockResolvedValue(undefined);
@@ -46,13 +46,14 @@ it('从历史尝试导航，保留会话，并仅在明确点击时降级打开�
   const button = (label: string) => Array.from(entry.querySelectorAll('button')).find(
     item => item.closest('details') === entry && item.textContent === label,
   )!;
-  button('尝试打开会话').click();
-  await vi.waitFor(() => expect(entry.textContent).toContain('可以打开应用'));
-  expect(open).toHaveBeenCalledTimes(1);
-  expect(open).toHaveBeenLastCalledWith(key, 'session');
+  expect(button('打开应用').hidden).toBe(false);
   button('打开应用').click();
   await vi.waitFor(() => expect(entry.textContent).toContain('已发送打开应用请求'));
+  expect(open).toHaveBeenCalledTimes(1);
   expect(open).toHaveBeenLastCalledWith(key, 'application');
+  button('尝试打开会话').click();
+  await vi.waitFor(() => expect(entry.textContent).toContain('可以打开应用'));
+  expect(open).toHaveBeenLastCalledWith(key, 'session');
   button('尝试打开会话').click();
   await vi.waitFor(() => expect(entry.textContent).toContain('已发送打开请求'));
   button('尝试打开会话').click();
