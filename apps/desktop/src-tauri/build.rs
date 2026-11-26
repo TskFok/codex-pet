@@ -47,6 +47,7 @@ fn main() {
         "interrupt_pet_activity",
         "list_pets",
         "mark_read",
+        "mark_read_many",
         "open_notifications",
         "open_session",
         "pet_snapshot",

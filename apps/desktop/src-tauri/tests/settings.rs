@@ -116,8 +116,7 @@ fn deepseek_activity_preferences_validate_persist_and_redact_api_key_over_ipc() 
     assert_eq!(wire["deepseekEnabled"], true);
 
     // 拒绝不支持的模型和非法空白字符的 API Key
-    let bad_model: SettingsPatch =
-        serde_json::from_str(r#"{"deepseekModel":"gpt-4o"}"#).unwrap();
+    let bad_model: SettingsPatch = serde_json::from_str(r#"{"deepseekModel":"gpt-4o"}"#).unwrap();
     assert!(updated.patched(&bad_model).is_err());
 
     let bad_key: SettingsPatch =
@@ -159,10 +158,9 @@ fn activity_range_and_speed_preferences_validate_normalize_and_persist() {
     assert!((legacy.activity_speed - DEFAULT_ACTIVITY_SPEED).abs() < 1e-9);
 
     // 切换预设活动范围并设置跑动速率，预设自动规范化坐标
-    let patch: SettingsPatch = serde_json::from_str(
-        r#"{"activityRange":{"preset":"bottom"},"activitySpeed":1.6}"#,
-    )
-    .unwrap();
+    let patch: SettingsPatch =
+        serde_json::from_str(r#"{"activityRange":{"preset":"bottom"},"activitySpeed":1.6}"#)
+            .unwrap();
     let updated = legacy.patched(&patch).unwrap();
     assert_eq!(updated.activity_range.preset, ActivityRangePreset::Bottom);
     assert!((updated.activity_range.min_x - 0.0).abs() < 1e-9);

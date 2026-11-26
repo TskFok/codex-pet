@@ -284,10 +284,7 @@ pub fn trigger_pet_activity(
         ));
     }
     if !prefs.deepseek_enabled {
-        return Err(CommandError::new(
-            "deepseek",
-            "请先启用桌宠自由活动开关",
-        ));
+        return Err(CommandError::new("deepseek", "请先启用桌宠自由活动开关"));
     }
     runtime.request_manual_trigger();
     Ok(())

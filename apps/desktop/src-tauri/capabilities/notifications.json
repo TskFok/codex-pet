@@ -12,6 +12,7 @@
     "allow-open-session",
     "allow-copy-session-id",
     "allow-mark-read",
+    "allow-mark-read-many",
     "allow-clear-history"
   ]
 }

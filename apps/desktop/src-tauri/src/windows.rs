@@ -173,10 +173,14 @@ impl BubbleInput {
         };
         (1..=MAX_BUBBLE_BUTTONS).contains(&self.buttons.len())
             && self.backdrops.len() <= MAX_BUBBLE_BACKDROPS
-            && self
-                .buttons
-                .iter()
-                .all(|button| valid_rect(button.rect.x, button.rect.y, button.rect.width, button.rect.height))
+            && self.buttons.iter().all(|button| {
+                valid_rect(
+                    button.rect.x,
+                    button.rect.y,
+                    button.rect.width,
+                    button.rect.height,
+                )
+            })
             && self.backdrop.as_ref().is_none_or(valid_backdrop)
             && self.backdrops.iter().all(valid_backdrop)
     }
@@ -194,9 +198,8 @@ impl BubbleInput {
 
     #[cfg(any(test, target_os = "macos"))]
     pub(crate) fn contains_backdrop(&self, x: f64, y: f64) -> bool {
-        let contains = |r: &BubbleBackdrop| {
-            x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
-        };
+        let contains =
+            |r: &BubbleBackdrop| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
         if !self.backdrops.is_empty() {
             self.backdrops.iter().any(contains)
         } else {

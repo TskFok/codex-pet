@@ -304,7 +304,8 @@ impl DeepSeekClient {
             )
             .await?;
         let latency_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        let reply = sanitize_thought(&content).unwrap_or_else(|| "连接成功，随时可以自由活动！".into());
+        let reply =
+            sanitize_thought(&content).unwrap_or_else(|| "连接成功，随时可以自由活动！".into());
         Ok(DeepSeekTestResult {
             ok: true,
             model: trimmed_model.into(),
@@ -406,11 +407,10 @@ impl DeepSeekClient {
             });
         }
 
-        let payload: ChatCompletionResponse =
-            response.json().await.map_err(|_| DeepSeekError {
-                message: "DeepSeek API 响应格式无效".into(),
-                fatal_auth: false,
-            })?;
+        let payload: ChatCompletionResponse = response.json().await.map_err(|_| DeepSeekError {
+            message: "DeepSeek API 响应格式无效".into(),
+            fatal_auth: false,
+        })?;
         let text = payload
             .choices
             .into_iter()
@@ -530,7 +530,11 @@ fn sanitize_thought(raw: &str) -> Option<String> {
 }
 
 fn normalize_effect(raw: Option<String>) -> Option<String> {
-    match raw.as_deref().map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+    match raw
+        .as_deref()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .as_deref()
+    {
         Some("heart") => Some("heart".into()),
         Some("sparkle") => Some("sparkle".into()),
         Some("note") => Some("note".into()),
@@ -1074,9 +1078,11 @@ async fn execute_plan(
             let (anim_state, default_effect, wait_ms) = match plan.action {
                 ActivityAction::Wave => ("waving", Some("heart"), 1_000u64),
                 ActivityAction::Rest => ("waiting", None, plan.duration_ms.clamp(2_000, 5_000)),
-                ActivityAction::LookAround => {
-                    ("review", Some("sparkle"), plan.duration_ms.clamp(2_000, 4_500))
-                }
+                ActivityAction::LookAround => (
+                    "review",
+                    Some("sparkle"),
+                    plan.duration_ms.clamp(2_000, 4_500),
+                ),
                 _ => unreachable!(),
             };
             emit_activity(
@@ -1258,8 +1264,7 @@ async fn run_loop(app: tauri::AppHandle) {
                 backoff = INITIAL_RETRY_BACKOFF;
                 blocked_auth_key_model = None;
                 let (latest_prefs, _) = load_preferences_and_pet_name();
-                if !latest_prefs.deepseek_enabled
-                    || latest_prefs.deepseek_api_key.trim().is_empty()
+                if !latest_prefs.deepseek_enabled || latest_prefs.deepseek_api_key.trim().is_empty()
                 {
                     continue;
                 }
@@ -1561,7 +1566,8 @@ mod tests {
 
     #[test]
     fn thought_sanitization_keeps_longer_sentences_and_scales_reading_duration() {
-        let forty_five = "今天桌面好安静呀，我去右边巡逻一圈顺便伸个大大的懒腰，等你忙完随时可以叫我一起玩哦~";
+        let forty_five =
+            "今天桌面好安静呀，我去右边巡逻一圈顺便伸个大大的懒腰，等你忙完随时可以叫我一起玩哦~";
         assert!(forty_five.chars().count() > 36 && forty_five.chars().count() <= MAX_THOUGHT_CHARS);
         assert_eq!(sanitize_thought(forty_five).as_deref(), Some(forty_five));
 

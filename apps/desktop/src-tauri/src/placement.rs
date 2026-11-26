@@ -88,7 +88,10 @@ pub fn clamp_placement(mut value: WindowPlacement, monitors: &[WorkArea]) -> Win
     value
 }
 
-pub fn desktop_context_for(value: WindowPlacement, monitors: &[WorkArea]) -> Option<DesktopContext> {
+pub fn desktop_context_for(
+    value: WindowPlacement,
+    monitors: &[WorkArea],
+) -> Option<DesktopContext> {
     let fit = clamp_placement(value, monitors);
     let area = monitors
         .iter()

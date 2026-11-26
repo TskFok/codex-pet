@@ -339,7 +339,8 @@ pub(super) fn update_hit_region(
             pair.frame = Some(*frame);
             *pair.view.ivars().mask.borrow_mut() = mask;
             *pair.view.ivars().bubble.borrow_mut() = bubble_input;
-            if let (Some(mtm), Some(content)) = (MainThreadMarker::new(), pair.renderer.contentView())
+            if let (Some(mtm), Some(content)) =
+                (MainThreadMarker::new(), pair.renderer.contentView())
             {
                 while pair.blurs.len() < backdrops.len() {
                     pair.blurs.push(create_blur_view(mtm, &content));
@@ -468,8 +469,8 @@ pub(super) fn position(saved: Option<WindowPlacement>) -> tauri::Result<Option<W
 }
 
 pub(super) fn desktop_context() -> tauri::Result<Option<DesktopContext>> {
-    let mtm =
-        MainThreadMarker::new().ok_or_else(|| std::io::Error::other("查询桌面工作区必须在主线程"))?;
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| std::io::Error::other("查询桌面工作区必须在主线程"))?;
     let Some(proxy) = PROXY.with(|s| s.borrow().as_ref().map(|p| p.proxy.clone())) else {
         return Ok(None);
     };
