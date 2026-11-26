@@ -128,6 +128,35 @@ it('支持 Alt 快捷投喂、Shift 动作轮播、面板按钮动作及拖拽�
   // 拖拽落地反馈带冷却保护
   const drag1 = controller.handleDragEnd(4000, ctx);
   expect(drag1?.steps).toEqual([{ state: 'jumping' }]);
+  expect(drag1?.sound).toBe('drag_drop');
   expect(controller.handleDragEnd(6000, ctx)).toBeUndefined();
   expect(controller.handleDragEnd(12500, ctx)?.steps).toEqual([{ state: 'jumping' }]);
+});
+
+it('为全部桌面互动区域、连击、彩蛋与快捷动作分配专属音效标识', () => {
+  const controller = new PetInteractionController({ affinity: 0, interactions: 0, feeds: 0 });
+  const ctx = { petName: '夏乌拉' };
+
+  expect(controller.handleClick({ x: 0.5, y: 0.68 }, 1000, ctx).sound).toBe('pet_head');
+  expect(controller.handleClick({ x: 0.25, y: 0.8 }, 2000, ctx).sound).toBe('dodge');
+  expect(controller.handleClick({ x: 0.75, y: 0.8 }, 3000, ctx).sound).toBe('dodge');
+  expect(controller.handleClick({ x: 0.5, y: 0.94 }, 4000, ctx).sound).toBe('tickle_feet');
+  expect(controller.handleClick({ x: 0.5, y: 0.8 }, 5000, ctx).sound).toBe('poke_body');
+
+  expect(controller.handleClick({ x: 0.5, y: 0.8, clickCount: 2 }, 5200, ctx).sound).toBe('double_click');
+  expect(controller.handleClick({ x: 0.5, y: 0.8, clickCount: 3 }, 5400, ctx).sound).toBe('triple_combo');
+  expect(controller.handleClick({ x: 0.5, y: 0.6, altKey: true }, 6000, ctx).sound).toBe('feed');
+  expect(controller.handleClick({ x: 0.5, y: 0.6, shiftKey: true }, 6500, ctx).sound).toBe('showcase');
+  expect(controller.handleAction('pet_feed', 7000, ctx).sound).toBe('feed');
+  expect(controller.handleAction('pet_play', 7500, ctx).sound).toBe('play');
+  expect(controller.handleAction('pet_notifications', 8000, ctx).sound).toBeUndefined();
+
+  const pokeController = new PetInteractionController({ affinity: 0, interactions: 0, feeds: 0 });
+  for (let i = 0; i < 5; i++) {
+    pokeController.handleClick({ x: 0.5, y: 0.7 }, 1000 + i * 250, ctx);
+  }
+  const dizzy = pokeController.handleClick({ x: 0.5, y: 0.7 }, 2300, ctx);
+  expect(dizzy.sound).toBe('dizzy');
+  const recover = pokeController.handleClick({ x: 0.5, y: 0.7 }, 2800, ctx);
+  expect(recover.sound).toBe('dizzy_recover');
 });

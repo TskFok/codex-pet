@@ -334,6 +334,7 @@ fn source_snapshot_cannot_override_newer_other_session_without_watermark() {
     let stale = SessionProjection {
         key: key(),
         parent_session_id: None,
+        is_subagent: false,
         turn_id: Some("old".into()),
         status: SessionStatus::Ended,
         pending: vec![],
@@ -363,6 +364,7 @@ fn fresh_same_session_snapshot_corrects_cached_state_without_notifying() {
     let projection = SessionProjection {
         key: key(),
         parent_session_id: None,
+        is_subagent: false,
         turn_id: Some("t".into()),
         status: SessionStatus::Running,
         pending: vec![],
@@ -421,6 +423,7 @@ fn imported_unread_end_is_active_without_synthetic_notification() {
     let projection = SessionProjection {
         key: key(),
         parent_session_id: None,
+        is_subagent: false,
         turn_id: Some("t".into()),
         status: SessionStatus::Ended,
         pending: vec![],
@@ -521,6 +524,7 @@ fn snapshot_does_not_import_other_sessions_turn_identity() {
     let projection = SessionProjection {
         key: key(),
         parent_session_id: None,
+        is_subagent: false,
         turn_id: Some("old".into()),
         status: SessionStatus::Running,
         pending: vec![],
@@ -598,6 +602,7 @@ fn new_turn_snapshot_preserves_imported_unread_end_until_user_clears_it() {
         let mut projection = SessionProjection {
             key: key(),
             parent_session_id: None,
+            is_subagent: false,
             turn_id: Some("t1".into()),
             status: SessionStatus::Ended,
             pending: vec![],
@@ -917,4 +922,20 @@ fn replay_restores_noncurrent_terminal_facts_after_visible_history_expires() {
             .should_notify
     );
     assert_eq!(restored.snapshot(), before);
+}
+
+#[test]
+fn subagent_flag_persists_across_subsequent_session_events() {
+    let mut store = SessionStore::default();
+    let mut start = started("sub-start", Some("t1"), Some(1));
+    start.is_subagent = true;
+    store.apply(&start);
+    let end = ended("sub-end", Some("t1"), Some(2), "completed");
+    store.apply(&end);
+
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.sessions.len(), 1);
+    assert!(snapshot.sessions[0].is_subagent);
+    assert!(snapshot.sessions[0].is_subagent_session());
+    assert_eq!(snapshot.sessions[0].parent_session_id, None);
 }

@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod autonomy;
 pub mod broker;
 mod commands;
@@ -16,7 +17,10 @@ use serde::Serialize;
 use std::{
     fs,
     io::Write,
-    sync::{Mutex, OnceLock, RwLock},
+    sync::{
+        Mutex, OnceLock, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tauri::{Emitter, Manager};
@@ -28,11 +32,22 @@ const MAX_START_RETRY: Duration = Duration::from_secs(30);
 #[derive(Default)]
 struct DiagnosticState(Mutex<()>);
 
-#[derive(Default)]
 struct NotificationRuntime {
     connection: RwLock<NotificationConnection>,
     exit: watch::Sender<bool>,
     worker: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    notify_subagents: AtomicBool,
+}
+
+impl Default for NotificationRuntime {
+    fn default() -> Self {
+        Self {
+            connection: RwLock::default(),
+            exit: watch::Sender::default(),
+            worker: Mutex::default(),
+            notify_subagents: AtomicBool::new(true),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -52,13 +67,17 @@ enum NotificationService {
 }
 
 impl NotificationRuntime {
+    pub(crate) fn set_notify_subagents(&self, enabled: bool) {
+        self.notify_subagents.store(enabled, Ordering::Relaxed);
+    }
+
     pub(crate) fn has_urgent_attention(&self) -> bool {
+        let allow_subagents = self.notify_subagents.load(Ordering::Relaxed);
         match &*self.connection.read().unwrap() {
-            NotificationConnection::Ready(view) => view
-                .snapshot()
-                .sessions
-                .iter()
-                .any(|session| session.status == pet_core::SessionStatus::NeedsAttention),
+            NotificationConnection::Ready(view) => view.snapshot().sessions.iter().any(|session| {
+                session.status == pet_core::SessionStatus::NeedsAttention
+                    && (allow_subagents || !session.is_subagent_session())
+            }),
             _ => false,
         }
     }
@@ -375,6 +394,7 @@ pub fn run() {
         .manage(commands::SettingsLock::default())
         .manage(integrations::IntegrationLock::default())
         .manage(Playback::default())
+        .manage(audio::AudioRuntime::default())
         .manage(NotificationRuntime::default())
         .manage(autonomy::AutonomyRuntime::default())
         .invoke_handler(tauri::generate_handler![
@@ -403,6 +423,8 @@ pub fn run() {
             commands::get_pet_asset,
             commands::get_playback,
             commands::play_alert,
+            commands::play_pet_sound,
+            commands::preview_pet_sound,
             integrations::integration_status,
             integrations::apply_integration
         ])
@@ -415,6 +437,12 @@ pub fn run() {
                     eprintln!("桌宠使用默认位置：{e}");
                     placement::WindowPlacement::default()
                 });
+            let initial_notify_subagents = notification_paths()
+                .and_then(|p| settings::Preferences::load(&p))
+                .map(|prefs| prefs.notify_subagents)
+                .unwrap_or(true);
+            app.state::<NotificationRuntime>()
+                .set_notify_subagents(initial_notify_subagents);
             app.manage(placement::PlacementState::new(saved));
             platform::create_pet_window(app.handle())?;
             tray::install(app.handle())?;
@@ -432,6 +460,7 @@ pub fn run() {
             platform::flush_placement(app);
         }
         if matches!(event, tauri::RunEvent::Exit) {
+            audio::shutdown(app);
             autonomy::shutdown(app);
             let state = app.state::<NotificationRuntime>();
             state.exit.send_replace(true);

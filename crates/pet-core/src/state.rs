@@ -105,6 +105,7 @@ impl SessionEntry {
             projection: SessionProjection {
                 key: event.session_key(),
                 parent_session_id: event.parent_session_id.clone(),
+                is_subagent: event.is_subagent,
                 turn_id: event.turn_id.clone(),
                 status: SessionStatus::Unknown,
                 pending: vec![],
@@ -355,6 +356,10 @@ impl SessionStore {
             entry.audit_only = previous.audit_only;
             entry.external_unread = previous.external_unread;
             entry.external_unread_end = previous.external_unread_end;
+            entry.projection.is_subagent |= previous.projection.is_subagent;
+            if entry.projection.parent_session_id.is_none() {
+                entry.projection.parent_session_id = previous.projection.parent_session_id;
+            }
             entry.projection.pending = previous.projection.pending;
             entry.timed_births = previous.timed_births;
             entry.direct_questions = previous.direct_questions;
@@ -707,6 +712,15 @@ impl SessionStore {
                 *reason,
                 RequestLifetime::UntilResolved,
             );
+            if event.is_subagent {
+                entry.projection.is_subagent = true;
+            }
+            if event.parent_session_id.is_some() {
+                entry
+                    .projection
+                    .parent_session_id
+                    .clone_from(&event.parent_session_id);
+            }
             entry.projection.last_event_at_ms =
                 entry.projection.last_event_at_ms.max(event.occurred_at_ms);
             self.sessions.insert(key, entry);
@@ -867,6 +881,9 @@ impl SessionStore {
                 .projection
                 .parent_session_id
                 .clone_from(&event.parent_session_id);
+        }
+        if event.is_subagent {
+            entry.projection.is_subagent = true;
         }
         if event.summary.is_some() {
             entry.projection.summary.clone_from(&event.summary);
@@ -1063,6 +1080,7 @@ impl SessionStore {
                 entry.known_turns.extend(old.known_turns.iter().cloned());
                 entry.deferred_requests.clone_from(&old.deferred_requests);
                 entry.external_unread_end = old.external_unread_end;
+                entry.projection.is_subagent |= old.projection.is_subagent;
             }
             entry.external_unread = projection.unread;
             entry.external_unread_end |= projection.unread

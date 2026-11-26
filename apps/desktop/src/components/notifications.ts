@@ -57,6 +57,11 @@ export function renderNotifications(root: HTMLElement, snapshot: PetSnapshot, ac
       el('strong', s?.project?.name || newest?.project?.name || key.sessionId),
       el('span', sourceName[key.source]),
     );
+    if (s && (s.isSubagent || s.parentSessionId)) {
+      const subagentBadge = el('small', '子代理');
+      subagentBadge.className = 'subagent';
+      summary.append(subagentBadge);
+    }
     if (unread) {
       const badge = el('small', '未读');
       badge.className = 'unread';

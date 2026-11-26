@@ -177,6 +177,8 @@ impl SettingsHost for tauri::AppHandle {
         platform::apply_placement(self, value).map_err(|e| CommandError::new("placement", e))
     }
     fn publish(&self, settings: &Settings) {
+        self.state::<NotificationRuntime>()
+            .set_notify_subagents(settings.preferences.notify_subagents);
         let _ = self.emit("pet:settings", settings);
         autonomy::on_settings_updated(self);
     }
@@ -482,33 +484,95 @@ pub async fn get_pet_asset(id: String) -> Result<PetAsset> {
 }
 
 #[tauri::command]
-pub fn play_alert(source: pet_core::Source) -> Result<()> {
+pub fn play_alert(
+    app: tauri::AppHandle,
+    audio: State<'_, crate::audio::AudioRuntime>,
+    playback: State<'_, platform::Playback>,
+    source: pet_core::Source,
+    cue: Option<crate::audio::PetSoundCue>,
+) -> Result<()> {
+    if playback.snapshot().suspended {
+        return Ok(());
+    }
     let prefs = Preferences::load(&notification_paths()?)?;
     if !prefs.sound || prefs.muted_sources.contains(&source) {
         return Ok(());
     }
-    #[cfg(target_os = "macos")]
-    {
-        #[link(name = "AppKit", kind = "framework")]
-        unsafe extern "C" {
-            fn NSBeep();
-        }
-        // 系统提醒音不创建窗口，也无需 WebView 的媒体播放授权。
-        unsafe {
-            NSBeep();
-        }
+    let resolved_cue = cue
+        .filter(|c| c.category() == crate::audio::SoundCategory::Alert)
+        .unwrap_or(crate::audio::PetSoundCue::AlertApproval);
+    audio
+        .play(
+            &app,
+            resolved_cue,
+            prefs.sound_pack,
+            prefs.sound_volume,
+            &prefs.pet_id,
+        )
+        .map_err(|e| CommandError::new("sound", e))
+}
+
+#[tauri::command]
+pub fn play_pet_sound(
+    app: tauri::AppHandle,
+    audio: State<'_, crate::audio::AudioRuntime>,
+    playback: State<'_, platform::Playback>,
+    cue: crate::audio::PetSoundCue,
+) -> Result<()> {
+    let snap = playback.snapshot();
+    if !snap.visible || snap.suspended {
+        return Ok(());
     }
-    #[cfg(windows)]
-    {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn MessageBeep(kind: u32) -> i32;
-        }
-        if unsafe { MessageBeep(0x40) } == 0 {
-            return Err(CommandError::new("sound", std::io::Error::last_os_error()));
-        }
+    let prefs = Preferences::load(&notification_paths()?)?;
+    let enabled = match cue.category() {
+        crate::audio::SoundCategory::Interaction => prefs.interaction_sound,
+        crate::audio::SoundCategory::Ambient => prefs.ambient_sound,
+        crate::audio::SoundCategory::Alert => prefs.sound,
+    };
+    if !enabled {
+        return Ok(());
     }
-    Ok(())
+    audio
+        .play(
+            &app,
+            cue,
+            prefs.sound_pack,
+            prefs.sound_volume,
+            &prefs.pet_id,
+        )
+        .map_err(|e| CommandError::new("sound", e))
+}
+
+#[tauri::command]
+pub fn preview_pet_sound(
+    app: tauri::AppHandle,
+    audio: State<'_, crate::audio::AudioRuntime>,
+    playback: State<'_, platform::Playback>,
+    cue: crate::audio::PetSoundCue,
+    sound_pack: Option<crate::settings::SoundPack>,
+    sound_volume: Option<f64>,
+    pet_id: Option<String>,
+) -> Result<()> {
+    if playback.snapshot().suspended {
+        return Ok(());
+    }
+    let prefs = Preferences::load(&notification_paths()?)?;
+    let pack = sound_pack.unwrap_or(prefs.sound_pack);
+    let requested_volume = sound_volume
+        .filter(|v| v.is_finite())
+        .unwrap_or(prefs.sound_volume)
+        .clamp(0.0, 1.0);
+    let effective_volume = if requested_volume <= 0.005 {
+        0.30
+    } else {
+        requested_volume
+    };
+    let target_pet = pet_id
+        .filter(|id| pet_core::pet_package::valid_pet_id(id))
+        .unwrap_or(prefs.pet_id);
+    audio
+        .play_preview(&app, cue, pack, effective_volume, &target_pet)
+        .map_err(|e| CommandError::new("sound", e))
 }
 
 #[cfg(test)]

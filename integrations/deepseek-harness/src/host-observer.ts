@@ -19,7 +19,12 @@ export function observeHost(ctx: Context, sink: ObservationSink, readTurn?: (ses
     catch (_error) { ctx.logger.warn('桌宠转发失败，请检查bridge路径；宿主处理继续'); }
   };
   const fields = (session: Session, turn: number|undefined) => ({ sessionId: session.id, sessionCreatedAt: session.header.createdAt, observation: observationOf(session), ...(turn===undefined?{}:{turn}),
-    ...(session.header.origin === 'subagent' && session.header.parentSession !== undefined ? { parentSessionId: session.header.parentSession } : {}) });
+    ...(session.header.origin === 'subagent'
+      ? {
+          isSubagent: true,
+          ...(session.header.parentSession !== undefined ? { parentSessionId: session.header.parentSession } : {}),
+        }
+      : {}) });
   const turnOf = (session: Session): number|undefined => readTurn === undefined ? turns.get(session) : readTurn(session);
   ctx.on('session/event', (session, event) => {
     if (event.seq < session.inheritedEventCount) return;

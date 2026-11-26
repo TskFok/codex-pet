@@ -172,6 +172,19 @@ fn multi_turn_antigravity_stops_notify_once_per_execution_and_dedupe_retries() {
 }
 
 #[test]
+fn antigravity_subagent_markers_set_is_subagent_flag() {
+    let (event, mut input) = fixture("stop-completed");
+    assert!(!normalize_antigravity(event, &input, &identity(), 100).unwrap()[0].is_subagent);
+
+    input["isSubagent"] = json!(true);
+    assert!(normalize_antigravity(event, &input, &identity(), 101).unwrap()[0].is_subagent);
+
+    let (event2, mut input2) = fixture("stop-completed");
+    input2["parentConversationId"] = json!("parent-conversation-id");
+    assert!(normalize_antigravity(event2, &input2, &identity(), 102).unwrap()[0].is_subagent);
+}
+
+#[test]
 fn installer_merges_upgrades_preserves_foreign_hooks_and_blocks_modified_owned_entry() {
     let original = json!({
         "lint-checker": {

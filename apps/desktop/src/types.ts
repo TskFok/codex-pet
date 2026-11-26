@@ -55,6 +55,7 @@ export interface SessionProjection {
   key: SessionKey;
   status: 'running' | 'needs_attention' | 'ended' | 'interrupted' | 'failed' | 'unknown';
   parentSessionId?: string;
+  isSubagent?: boolean;
   turnId?: string;
   pending: PendingRequest[];
   project?: ProjectContext;
@@ -95,6 +96,28 @@ export interface Placement {
   monitorId: string | null;
 }
 export type DeepSeekModel = 'deepseek-chat' | 'deepseek-reasoner';
+export type SoundPack = 'healing' | 'retro' | 'minimal';
+export type PetSoundCue =
+  | 'pet_head'
+  | 'poke_body'
+  | 'dodge'
+  | 'tickle_feet'
+  | 'double_click'
+  | 'triple_combo'
+  | 'dizzy'
+  | 'dizzy_recover'
+  | 'feed'
+  | 'play'
+  | 'showcase'
+  | 'drag_drop'
+  | 'ambient_hop'
+  | 'ambient_wave'
+  | 'ambient_murmur'
+  | 'alert_approval'
+  | 'alert_answer'
+  | 'alert_complete'
+  | 'alert_failed'
+  | 'alert_interrupted';
 export type ActivityRangePreset =
   | 'full'
   | 'bottom'
@@ -143,9 +166,14 @@ export interface Settings {
   revision: number;
   fps: 30 | 60;
   sound: boolean;
+  interactionSound?: boolean;
+  ambientSound?: boolean;
+  soundPack?: SoundPack;
+  soundVolume?: number;
   autostart: boolean;
   petId: string;
   mutedSources: Source[];
+  notifySubagents?: boolean;
   deepseekEnabled?: boolean;
   deepseekModel?: DeepSeekModel;
   deepseekApiKeyConfigured?: boolean;

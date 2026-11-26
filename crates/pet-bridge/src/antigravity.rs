@@ -81,12 +81,19 @@ pub fn normalize_antigravity(
             (turn_id, EventKind::TurnEnded { outcome })
         }
     };
+    let is_subagent = input.get("isSubagent").and_then(Value::as_bool) == Some(true)
+        || input
+            .get("parentConversationId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .is_some_and(|parent| !parent.is_empty() && parent != session_id);
     let envelope = EventEnvelope {
         schema_version: SCHEMA_VERSION,
         event_id: uuid::Uuid::new_v4().to_string(),
         identity: identity.clone(),
         session_id: session_id.into(),
         parent_session_id: None,
+        is_subagent,
         turn_id,
         upstream_event_id: None,
         sequence: None,

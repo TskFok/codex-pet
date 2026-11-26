@@ -223,3 +223,74 @@ it('多个会话同时存在未读提醒时全部返回，并按优先级与时�
     [4, 2, 6],
   ]);
 });
+
+it('关闭 subagent 提醒时同时过滤 isSubagent 与 parentSessionId 子代理的动画与气泡，保留主会话', () => {
+  const mainKey = { source: 'codex' as const, installationId: 'i1', sessionId: 'root-session' };
+  const codexSubKey = { source: 'codex' as const, installationId: 'i1', sessionId: 'child-thread' };
+  const dshSubKey = { source: 'deepseek' as const, installationId: 'i2', sessionId: 'dsh-child' };
+  const snap: PetSnapshot = {
+    revision: 8,
+    sessions: [
+      {
+        key: mainKey,
+        turnId: 't-main',
+        status: 'running',
+        pending: [],
+        unread: false,
+        lastEventAtMs: 100,
+      },
+      {
+        key: codexSubKey,
+        isSubagent: true,
+        turnId: 't-sub-1',
+        status: 'unknown',
+        pending: [],
+        unread: true,
+        lastEventAtMs: 200,
+      },
+      {
+        key: dshSubKey,
+        parentSessionId: 'dsh-root',
+        turnId: 't-sub-2',
+        status: 'needs_attention',
+        pending: [{ id: 'p-sub', reason: 'approval', summary: '子代理审批' }],
+        unread: true,
+        lastEventAtMs: 300,
+      },
+    ],
+    notifications: [
+      {
+        id: 'n-sub-end',
+        key: codexSubKey,
+        turnId: 't-sub-1',
+        kind: { type: 'turn_ended', outcome: 'unknown' },
+        occurredAtMs: 200,
+        read: false,
+      },
+    ],
+  };
+
+  // 默认开启时同时展示两个子代理提醒，并触发审批动画
+  const shown = presentation(snap, [], true);
+  expect(shown.state).toBe('review');
+  expect(shown.reminders.map((r) => r.key.sessionId)).toEqual(['dsh-child', 'child-thread']);
+
+  // 关闭 subagent 提醒后，不再弹出气泡，动画回退到主会话的 running 状态
+  const hidden = presentation(snap, [], false);
+  expect(hidden.state).toBe('running');
+  expect(hidden.fallbackState).toBe('running');
+  expect(hidden.reminders).toHaveLength(0);
+  expect(hidden.title).toBeUndefined();
+  expect(hidden.detail).toBeUndefined();
+
+  // 若仅有 subagent 结束且主会话已空闲，关闭后保持 idle 且无提醒
+  const onlySubagent: PetSnapshot = {
+    revision: 9,
+    sessions: [snap.sessions[1]],
+    notifications: snap.notifications,
+  };
+  const idle = presentation(onlySubagent, [], false);
+  expect(idle.state).toBe('idle');
+  expect(idle.fallbackState).toBe('idle');
+  expect(idle.reminders).toHaveLength(0);
+});

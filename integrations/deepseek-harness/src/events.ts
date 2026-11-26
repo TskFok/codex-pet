@@ -23,6 +23,7 @@ export interface HarnessObservation {
   sessionId: string;
   sessionCreatedAt: number;
   parentSessionId?: string;
+  isSubagent?: boolean;
   turn?: number;
   seq?: number;
   observationId?: string;
@@ -43,6 +44,7 @@ export interface EventEnvelope {
   identity: SourceIdentity;
   sessionId: string;
   parentSessionId?: string;
+  isSubagent?: boolean;
   turnId?: string;
   upstreamEventId?: string;
   sequence?: number;
@@ -92,6 +94,7 @@ export function toPetEvents(observation: HarnessObservation, identity: SourceIde
     eventId,
     identity, sessionId: observation.sessionId,
     ...(observation.parentSessionId === undefined ? {} : { parentSessionId: observation.parentSessionId }),
+    ...(observation.isSubagent ? { isSubagent: true } : {}),
     ...(observation.turn === undefined ? {} : { turnId: String(observation.turn) }),
     ...(observation.seq === undefined ? {} : { upstreamEventId: `${observation.sessionId}:${observation.seq}`, sequence: observation.seq }),
     ...(observation.observation === undefined ? {} : { observation: observation.observation }),

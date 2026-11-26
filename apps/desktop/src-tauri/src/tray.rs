@@ -19,6 +19,10 @@ const MENU_HIDE_ID: &str = "pet-menu:hide";
 const MENU_QUIT_ID: &str = "pet-menu:quit";
 const MENU_SOUND_ON_ID: &str = "pet-menu:sound:on";
 const MENU_SOUND_OFF_ID: &str = "pet-menu:sound:off";
+const MENU_INTERACTION_SOUND_ON_ID: &str = "pet-menu:interaction-sound:on";
+const MENU_INTERACTION_SOUND_OFF_ID: &str = "pet-menu:interaction-sound:off";
+const MENU_NOTIFY_SUBAGENTS_ON_ID: &str = "pet-menu:notify-subagents:on";
+const MENU_NOTIFY_SUBAGENTS_OFF_ID: &str = "pet-menu:notify-subagents:off";
 const MENU_AUTONOMY_ON_ID: &str = "pet-menu:autonomy:on";
 const MENU_AUTONOMY_OFF_ID: &str = "pet-menu:autonomy:off";
 const MENU_SCALE_PREFIX: &str = "pet-menu:scale:";
@@ -31,6 +35,8 @@ enum MenuAction {
     OpenNotifications,
     OpenSettings,
     SetSound(bool),
+    SetInteractionSound(bool),
+    SetNotifySubagents(bool),
     SetAutonomy(bool),
     SetScale(f64),
     SelectPet(String),
@@ -47,6 +53,10 @@ impl MenuAction {
             "quit" | MENU_QUIT_ID => Some(Self::Quit),
             MENU_SOUND_ON_ID => Some(Self::SetSound(true)),
             MENU_SOUND_OFF_ID => Some(Self::SetSound(false)),
+            MENU_INTERACTION_SOUND_ON_ID => Some(Self::SetInteractionSound(true)),
+            MENU_INTERACTION_SOUND_OFF_ID => Some(Self::SetInteractionSound(false)),
+            MENU_NOTIFY_SUBAGENTS_ON_ID => Some(Self::SetNotifySubagents(true)),
+            MENU_NOTIFY_SUBAGENTS_OFF_ID => Some(Self::SetNotifySubagents(false)),
             MENU_AUTONOMY_ON_ID => Some(Self::SetAutonomy(true)),
             MENU_AUTONOMY_OFF_ID => Some(Self::SetAutonomy(false)),
             _ => {
@@ -75,6 +85,22 @@ fn sound_menu_id(currently_enabled: bool) -> &'static str {
         MENU_SOUND_OFF_ID
     } else {
         MENU_SOUND_ON_ID
+    }
+}
+
+fn interaction_sound_menu_id(currently_enabled: bool) -> &'static str {
+    if currently_enabled {
+        MENU_INTERACTION_SOUND_OFF_ID
+    } else {
+        MENU_INTERACTION_SOUND_ON_ID
+    }
+}
+
+fn notify_subagents_menu_id(currently_enabled: bool) -> &'static str {
+    if currently_enabled {
+        MENU_NOTIFY_SUBAGENTS_OFF_ID
+    } else {
+        MENU_NOTIFY_SUBAGENTS_ON_ID
     }
 }
 
@@ -220,12 +246,28 @@ fn build_pet_context_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::W
         .collect();
     let scale_submenu = Submenu::with_items(app, "显示大小", true, &scale_refs)?;
 
+    let interaction_sound = CheckMenuItem::with_id(
+        app,
+        interaction_sound_menu_id(prefs.interaction_sound),
+        "互动音效",
+        true,
+        prefs.interaction_sound,
+        None::<&str>,
+    )?;
     let sound = CheckMenuItem::with_id(
         app,
         sound_menu_id(prefs.sound),
         "提醒声音",
         true,
         prefs.sound,
+        None::<&str>,
+    )?;
+    let notify_subagents = CheckMenuItem::with_id(
+        app,
+        notify_subagents_menu_id(prefs.notify_subagents),
+        "提示 Subagent 信息",
+        true,
+        prefs.notify_subagents,
         None::<&str>,
     )?;
     let has_deepseek_key = !prefs.deepseek_api_key.trim().is_empty();
@@ -253,7 +295,9 @@ fn build_pet_context_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::W
             &separator_top,
             &pet_submenu,
             &scale_submenu,
+            &interaction_sound,
             &sound,
+            &notify_subagents,
             &autonomy,
             &separator_bottom,
             &hide,
@@ -306,6 +350,24 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
             app,
             SettingsPatch {
                 sound: Some(sound),
+                ..Default::default()
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| e.message),
+        MenuAction::SetInteractionSound(interaction_sound) => commands::apply_settings_patch(
+            app,
+            SettingsPatch {
+                interaction_sound: Some(interaction_sound),
+                ..Default::default()
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| e.message),
+        MenuAction::SetNotifySubagents(notify_subagents) => commands::apply_settings_patch(
+            app,
+            SettingsPatch {
+                notify_subagents: Some(notify_subagents),
                 ..Default::default()
             },
         )
@@ -411,6 +473,22 @@ mod tests {
         assert_eq!(
             MenuAction::parse(sound_menu_id(true)),
             Some(MenuAction::SetSound(false))
+        );
+        assert_eq!(
+            MenuAction::parse(interaction_sound_menu_id(false)),
+            Some(MenuAction::SetInteractionSound(true))
+        );
+        assert_eq!(
+            MenuAction::parse(interaction_sound_menu_id(true)),
+            Some(MenuAction::SetInteractionSound(false))
+        );
+        assert_eq!(
+            MenuAction::parse(notify_subagents_menu_id(false)),
+            Some(MenuAction::SetNotifySubagents(true))
+        );
+        assert_eq!(
+            MenuAction::parse(notify_subagents_menu_id(true)),
+            Some(MenuAction::SetNotifySubagents(false))
         );
         assert_eq!(
             MenuAction::parse(autonomy_menu_id(false)),

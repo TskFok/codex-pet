@@ -1649,3 +1649,278 @@ it('多气泡排队时仅对可见任务气泡计时，前批自动关闭后排�
     vi.unstubAllGlobals();
   }
 });
+
+it('按独立音效开关触发桌面互动、同一自由活动去重轻音效与分级任务提醒音', async () => {
+  const { document, window } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height } as DOMRect);
+  vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.localName === 'canvas') return rect(0, 0, 240, 440);
+    return rect(8, 120, 224, 68);
+  });
+
+  let receiveSettings!: (value: Settings) => void;
+  let receiveSnapshot!: (value: PetSnapshot) => void;
+  let currentPrefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: true,
+    interactionSound: true,
+    ambientSound: true,
+    soundPack: 'healing',
+    soundVolume: 0.7,
+    autostart: false,
+    mutedSources: ['antigravity'],
+    petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  const baseSnapshot: PetSnapshot = { revision: 1, sessions: [], notifications: [] };
+
+  vi.spyOn(api, 'settings').mockResolvedValue(currentPrefs);
+  vi.spyOn(api, 'settingsEvents').mockImplementation(async (cb) => {
+    receiveSettings = cb;
+    return () => {};
+  });
+  vi.spyOn(api, 'snapshot').mockResolvedValue(baseSnapshot);
+  vi.spyOn(api, 'snapshots').mockImplementation(async (cb) => {
+    receiveSnapshot = cb;
+    return () => {};
+  });
+  const playPetSound = vi.spyOn(api, 'playPetSound').mockResolvedValue(undefined);
+  const playAlert = vi.spyOn(api, 'playAlert').mockResolvedValue(undefined);
+
+  const canvas = document.querySelector('canvas')!;
+  canvas.width = 240;
+  canvas.height = 440;
+  const renderer = { setState: vi.fn(), setFps: vi.fn(), triggerInteractionEffect: vi.fn() };
+  const handle = bindReminder(canvas, { renderer } as unknown as ReturnType<typeof mountPet>, vi.fn(), vi.fn());
+  const deliverEvent = (name: string, payload: unknown) => {
+    const call = [...vi.mocked(listen).mock.calls].reverse().find(([eventName]) => eventName === name);
+    if (!call) throw new Error(`缺少 ${name} 事件监听`);
+    call[1]({ event: name, id: 1, payload });
+  };
+
+  try {
+    await vi.waitFor(() => expect(renderer.setState).toHaveBeenCalledWith('idle', expect.any(Number)));
+
+    // 1. 桌面互动音效：摸头与拖拽落地触发对应 cue，关闭 interactionSound 后静音
+    handle.click({ x: 0.5, y: 0.68, clickCount: 1 });
+    expect(playPetSound).toHaveBeenLastCalledWith('pet_head');
+    handle.animationEnded('waving', 600);
+
+    deliverEvent('pet:drag-end', {});
+    expect(playPetSound).toHaveBeenLastCalledWith('drag_drop');
+    handle.animationEnded('jumping', 1200);
+
+    playPetSound.mockClear();
+    currentPrefs = { ...currentPrefs, revision: 2, interactionSound: false };
+    receiveSettings(currentPrefs);
+    handle.click({ x: 0.5, y: 0.94, clickCount: 1 });
+    expect(playPetSound).not.toHaveBeenCalled();
+    handle.animationEnded('jumping', 1800);
+
+    // 2. 自由活动轻音效：同一活动 ID 的 start + update 仅发声一次，关闭 ambientSound 后静音
+    deliverEvent('pet:activity', {
+      id: 'act-1',
+      phase: 'start',
+      state: 'waving',
+      thought: '你好呀~',
+    });
+    expect(playPetSound).toHaveBeenCalledTimes(1);
+    expect(playPetSound).toHaveBeenLastCalledWith('ambient_wave');
+    deliverEvent('pet:activity', {
+      id: 'act-1',
+      phase: 'update',
+      state: 'waving',
+      thought: '继续招招手~',
+    });
+    expect(playPetSound).toHaveBeenCalledTimes(1);
+    deliverEvent('pet:activity', { id: 'act-1', phase: 'end' });
+
+    playPetSound.mockClear();
+    currentPrefs = { ...currentPrefs, revision: 3, ambientSound: false };
+    receiveSettings(currentPrefs);
+    deliverEvent('pet:activity', { id: 'act-2', phase: 'start', state: 'jumping' });
+    expect(playPetSound).not.toHaveBeenCalled();
+    deliverEvent('pet:activity', { id: 'act-2', phase: 'end' });
+
+    // 3. 分级任务提醒音：同一批次优先播报更高优先级的待回答/待审批，且跳过静音来源
+    const snap2: PetSnapshot = {
+      revision: 2,
+      sessions: [],
+      notifications: [
+        {
+          id: 'n-muted',
+          key: { source: 'antigravity', installationId: 'ag', sessionId: 's-ag' },
+          kind: { type: 'attention', requestId: 'r0', reason: 'approval', resolved: false },
+          occurredAtMs: 500,
+          read: false,
+        },
+        {
+          id: 'n-done',
+          key: { source: 'codex', installationId: 'cx', sessionId: 's-cx' },
+          kind: { type: 'turn_ended', outcome: 'completed' },
+          occurredAtMs: 400,
+          read: false,
+        },
+        {
+          id: 'n-answer',
+          key: { source: 'deepseek', installationId: 'ds', sessionId: 's-ds' },
+          kind: { type: 'attention', requestId: 'r1', reason: 'answer', resolved: false },
+          occurredAtMs: 300,
+          read: false,
+        },
+      ],
+    };
+    receiveSnapshot(snap2);
+    expect(playAlert).toHaveBeenCalledTimes(1);
+    expect(playAlert).toHaveBeenLastCalledWith('deepseek', 'alert_answer');
+
+    // 新增回合失败提醒 -> 触发 alert_failed
+    const snap3: PetSnapshot = {
+      ...snap2,
+      revision: 3,
+      notifications: [
+        ...snap2.notifications,
+        {
+          id: 'n-fail',
+          key: { source: 'codex', installationId: 'cx', sessionId: 's-cx-2' },
+          kind: { type: 'turn_ended', outcome: 'failed' },
+          occurredAtMs: 600,
+          read: false,
+        },
+      ],
+    };
+    receiveSnapshot(snap3);
+    expect(playAlert).toHaveBeenLastCalledWith('codex', 'alert_failed');
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('关闭提示 Subagent 信息开关后，子代理完成与待处理不弹气泡、不触发提醒动作也不播放提示音', async () => {
+  const { document } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  let receiveSettings!: (v: Settings) => void;
+  let receiveSnapshot!: (v: PetSnapshot) => void;
+  const prefs: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: true,
+    autostart: false,
+    mutedSources: [],
+    notifySubagents: false,
+    petId: 'yueying-cape-dancer',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  const subKey = { source: 'codex' as const, installationId: 'cx', sessionId: 'child-thread' };
+  const mainKey = { source: 'codex' as const, installationId: 'cx', sessionId: 'root-session' };
+  const initialSnap: PetSnapshot = {
+    revision: 1,
+    sessions: [
+      { key: mainKey, turnId: 't1', status: 'running', pending: [], unread: false, lastEventAtMs: 100 },
+    ],
+    notifications: [],
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockImplementation(async (cb) => {
+    receiveSettings = cb;
+    return () => {};
+  });
+  vi.spyOn(api, 'snapshot').mockResolvedValue(initialSnap);
+  vi.spyOn(api, 'snapshots').mockImplementation(async (cb) => {
+    receiveSnapshot = cb;
+    return () => {};
+  });
+  const playAlert = vi.spyOn(api, 'playAlert').mockResolvedValue(undefined);
+  const renderer = { setState: vi.fn(), setFps: vi.fn() };
+  const handle = bindReminder(
+    document.querySelector('canvas')!,
+    { renderer } as unknown as ReturnType<typeof mountPet>,
+    vi.fn(),
+    vi.fn(),
+  );
+  const stack = document.querySelector<HTMLElement>('.bubble-stack')!;
+  try {
+    await vi.waitFor(() => expect(renderer.setState).toHaveBeenCalledWith('running', expect.any(Number)));
+    expect(stack.hidden).toBe(true);
+
+    // 子代理完成任务：关闭开关时不弹气泡、不切 waving、不播放提醒音
+    const withSubagentDone: PetSnapshot = {
+      revision: 2,
+      sessions: [
+        ...initialSnap.sessions,
+        {
+          key: subKey,
+          isSubagent: true,
+          turnId: 'sub-t1',
+          status: 'unknown',
+          pending: [],
+          unread: true,
+          lastEventAtMs: 200,
+        },
+      ],
+      notifications: [
+        {
+          id: 'n-sub-done',
+          key: subKey,
+          turnId: 'sub-t1',
+          kind: { type: 'turn_ended', outcome: 'unknown' },
+          occurredAtMs: 200,
+          read: false,
+        },
+      ],
+    };
+    receiveSnapshot(withSubagentDone);
+    expect(stack.hidden).toBe(true);
+    expect(playAlert).not.toHaveBeenCalled();
+    expect(renderer.setState).toHaveBeenLastCalledWith('running', expect.any(Number));
+
+    // 主会话完成任务：不受 Subagent 开关影响，正常弹气泡、切 waving 并播放提醒音
+    const withMainDone: PetSnapshot = {
+      revision: 3,
+      sessions: [
+        { key: mainKey, turnId: 't1', status: 'ended', pending: [], unread: true, lastEventAtMs: 300 },
+        withSubagentDone.sessions[1],
+      ],
+      notifications: [
+        ...withSubagentDone.notifications,
+        {
+          id: 'n-main-done',
+          key: mainKey,
+          turnId: 't1',
+          kind: { type: 'turn_ended', outcome: 'completed' },
+          occurredAtMs: 300,
+          read: false,
+        },
+      ],
+    };
+    receiveSnapshot(withMainDone);
+    expect(stack.hidden).toBe(false);
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(1);
+    expect(stack.textContent).toContain('root-session');
+    expect(stack.textContent).not.toContain('child-thread');
+    expect(playAlert).toHaveBeenCalledTimes(1);
+    expect(playAlert).toHaveBeenLastCalledWith('codex', 'alert_complete');
+    expect(renderer.setState).toHaveBeenLastCalledWith('waving', expect.any(Number));
+
+    // 重新开启开关后，子代理提醒立即可见
+    receiveSettings({ ...prefs, revision: 2, notifySubagents: true });
+    expect(stack.querySelectorAll('aside.bubble')).toHaveLength(2);
+    expect(stack.textContent).toContain('child-thread');
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});

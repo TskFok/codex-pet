@@ -158,3 +158,22 @@ fn antigravity_source_round_trips_as_snake_case() {
     let value = serde_json::to_value(decoded).unwrap();
     assert_eq!(value["identity"]["source"], "antigravity");
 }
+
+#[test]
+fn is_subagent_flag_omitted_when_false_and_preserved_when_true() {
+    let mut base = event(
+        "sub-1",
+        Some("t1"),
+        None,
+        json!({"type":"turn_ended","outcome":"unknown"}),
+    );
+    let plain = serde_json::to_value(&base).unwrap();
+    assert!(plain.get("isSubagent").is_none());
+
+    base.is_subagent = true;
+    let bytes = serde_json::to_vec(&base).unwrap();
+    let decoded = decode_event(&bytes).unwrap();
+    assert!(decoded.is_subagent);
+    let value = serde_json::to_value(decoded).unwrap();
+    assert_eq!(value["isSubagent"], true);
+}

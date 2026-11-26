@@ -508,3 +508,173 @@ it('设置页支持配置任务气泡自动关闭时长与禁用自动关闭', a
     vi.restoreAllMocks();
   }
 });
+
+it('设置页支持独立开关宠物音效、切换音色主题、调节音量与一键试听', async () => {
+  const { document } = parseHTML('<html><body><main></main></body></html>');
+  const root = document.querySelector('main')!;
+  let state: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    interactionSound: true,
+    ambientSound: true,
+    soundPack: 'healing',
+    soundVolume: 0.7,
+    autostart: false,
+    petId: 'deepseek-big-fish',
+    mutedSources: [],
+    placement: { x: 100, y: 120, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(state);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'pets').mockResolvedValue([
+    { id: 'yueying-cape-dancer', name: '夏乌拉' },
+    { id: 'deepseek-big-fish', name: '大肥鱼' },
+  ]);
+  vi.spyOn(api, 'integrations').mockResolvedValue([]);
+  vi.spyOn(api, 'deepseekActivityStatus').mockResolvedValue({
+    configured: false,
+    enabled: true,
+    running: false,
+    model: 'deepseek-chat',
+  });
+  vi.spyOn(api, 'deepseekActivityStatusEvents').mockResolvedValue(() => {});
+  const update = vi.spyOn(api, 'update').mockImplementation(async (patch) => {
+    state = {
+      ...state,
+      revision: state.revision + 1,
+      sound: patch.sound ?? state.sound,
+      interactionSound: patch.interactionSound ?? state.interactionSound,
+      ambientSound: patch.ambientSound ?? state.ambientSound,
+      soundPack: patch.soundPack ?? state.soundPack,
+      soundVolume: patch.soundVolume ?? state.soundVolume,
+    };
+    return state;
+  });
+  const preview = vi.spyOn(api, 'previewPetSound').mockResolvedValue(undefined);
+
+  const stop = await mountSettings(root);
+  try {
+    const form = root.querySelector<HTMLFieldSetElement>('fieldset')!;
+    const interactionToggle = root.querySelector<HTMLInputElement>('input[name="interactionSound"]')!;
+    const ambientToggle = root.querySelector<HTMLInputElement>('input[name="ambientSound"]')!;
+    const alertToggle = root.querySelector<HTMLInputElement>('input[name="sound"]')!;
+    const packSelect = root.querySelector<HTMLSelectElement>('select[name="soundPack"]')!;
+    const volumeSlider = root.querySelector<HTMLInputElement>('input[name="soundVolume"]')!;
+    const volumeBadge = root.querySelector<HTMLElement>('[data-role="sound-volume-value"]')!;
+
+    expect(interactionToggle.checked).toBe(true);
+    expect(ambientToggle.checked).toBe(true);
+    expect(alertToggle.checked).toBe(false);
+    expect(packSelect.value).toBe('healing');
+    expect(volumeSlider.value).toBe('70');
+    expect(volumeBadge.textContent).toBe('70%');
+
+    // 1. 切换音色主题为「复古像素」
+    let retroOpt: HTMLOptionElement | undefined;
+    for (const opt of Array.from(packSelect.options)) {
+      if (opt.value === 'retro') retroOpt = opt;
+      else opt.selected = false;
+    }
+    if (retroOpt) retroOpt.selected = true;
+    packSelect.onchange?.(new Event('change'));
+    await vi.waitFor(() => expect(update).toHaveBeenCalledWith({ soundPack: 'retro' }));
+    await vi.waitFor(() => expect(form.disabled).toBe(false));
+
+    // 2. 切换自由活动轻音效开关
+    ambientToggle.checked = false;
+    ambientToggle.onchange?.(new Event('change'));
+    await vi.waitFor(() => expect(update).toHaveBeenCalledWith({ ambientSound: false }));
+    await vi.waitFor(() => expect(form.disabled).toBe(false));
+
+    // 3. 点击快捷音量档位与试听按钮
+    const softChip = root.querySelector<HTMLButtonElement>('button[data-volume="0.3"]')!;
+    softChip.click();
+    await vi.waitFor(() => expect(update).toHaveBeenCalledWith({ soundVolume: 0.3 }));
+    await vi.waitFor(() => expect(form.disabled).toBe(false));
+    expect(volumeBadge.textContent).toBe('30%');
+
+    const feedPreview = root.querySelector<HTMLButtonElement>('button[data-preview-cue="feed"]')!;
+    feedPreview.click();
+    await vi.waitFor(() =>
+      expect(preview).toHaveBeenCalledWith({
+        cue: 'feed',
+        soundPack: 'retro',
+        soundVolume: 0.3,
+        petId: 'deepseek-big-fish',
+      }),
+    );
+
+    // 4. 音量为 0% 时点击试听给出友好状态提示
+    volumeSlider.value = '0';
+    volumeSlider.oninput?.(new Event('input'));
+    expect(volumeBadge.textContent).toBe('0%');
+    const headPreview = root.querySelector<HTMLButtonElement>('button[data-preview-cue="pet_head"]')!;
+    headPreview.click();
+    await vi.waitFor(() => expect(root.querySelector('[role="status"]')?.textContent).toContain('30% 临时音量试听'));
+  } finally {
+    stop();
+    vi.restoreAllMocks();
+  }
+});
+
+it('设置页支持切换 Subagent 提示开关并提交更新', async () => {
+  const { document } = parseHTML('<html><body><main></main></body></html>');
+  const root = document.querySelector('main')!;
+  const initial: Settings = {
+    revision: 1,
+    fps: 30,
+    sound: false,
+    autostart: false,
+    petId: 'yueying-cape-dancer',
+    mutedSources: [],
+    notifySubagents: true,
+    placement: { x: 100, y: 120, scale: 1, monitorId: null },
+  };
+  vi.spyOn(api, 'settings').mockResolvedValue(initial);
+  vi.spyOn(api, 'settingsEvents').mockResolvedValue(() => {});
+  vi.spyOn(api, 'pets').mockResolvedValue([{ id: 'yueying-cape-dancer', name: '夏乌拉' }]);
+  vi.spyOn(api, 'integrations').mockResolvedValue([]);
+  vi.spyOn(api, 'deepseekActivityStatus').mockResolvedValue({
+    configured: false,
+    enabled: true,
+    running: false,
+    model: 'deepseek-chat',
+  });
+  vi.spyOn(api, 'deepseekActivityStatusEvents').mockResolvedValue(() => {});
+  let rev = 1;
+  let state: Settings = { ...initial };
+  const update = vi.spyOn(api, 'update').mockImplementation(async (patch) => {
+    rev += 1;
+    state = {
+      ...state,
+      revision: rev,
+      notifySubagents: patch.notifySubagents ?? state.notifySubagents,
+    };
+    return state;
+  });
+
+  const stop = await mountSettings(root);
+  try {
+    const form = root.querySelector<HTMLFieldSetElement>('fieldset')!;
+    const subagentToggle = root.querySelector<HTMLInputElement>('input[name="notifySubagents"]')!;
+    expect(subagentToggle).toBeTruthy();
+    expect(subagentToggle.checked).toBe(true);
+    expect(root.textContent).toContain('提示 Subagent 信息');
+
+    subagentToggle.checked = false;
+    subagentToggle.onchange?.(new Event('change'));
+    await vi.waitFor(() => expect(update).toHaveBeenCalledWith({ notifySubagents: false }));
+    await vi.waitFor(() => expect(form.disabled).toBe(false));
+    expect(subagentToggle.checked).toBe(false);
+
+    subagentToggle.checked = true;
+    subagentToggle.onchange?.(new Event('change'));
+    await vi.waitFor(() => expect(update).toHaveBeenCalledWith({ notifySubagents: true }));
+    await vi.waitFor(() => expect(form.disabled).toBe(false));
+    expect(subagentToggle.checked).toBe(true);
+  } finally {
+    stop();
+    vi.restoreAllMocks();
+  }
+});

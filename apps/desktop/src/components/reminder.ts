@@ -22,7 +22,17 @@ export interface Presentation {
   reminderId?: string;
   reminders: ReminderPresentation[];
 }
-export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Presentation {
+export function isSubagentSession(
+  session: Pick<SessionProjection, 'isSubagent' | 'parentSessionId'>,
+): boolean {
+  return Boolean(session.isSubagent || session.parentSessionId);
+}
+
+export function presentation(
+  snap: PetSnapshot,
+  muted: Source[] | undefined,
+  notifySubagents = true,
+): Presentation {
   const ends = new Map<string, NotificationRecord>();
   for (const n of snap.notifications) if (!n.read && n.kind.type === 'turn_ended') ends.set(keyId(n.key), n);
   const importedEnds = new Set(snap.importedUnreadEnds?.map(keyId));
@@ -42,6 +52,7 @@ export function presentation(snap: PetSnapshot, muted: Source[] | undefined): Pr
   let hasRunning = false;
   const reminders: ReminderPresentation[] = [];
   for (const s of snap.sessions) {
+    if (!notifySubagents && isSubagentSession(s)) continue;
     if (s.status === 'running') hasRunning = true;
     const value = priority(s);
     if (!value) continue;

@@ -267,3 +267,98 @@ fn bubble_auto_close_preference_defaults_validates_and_persists() {
     .unwrap();
     assert!(disabled.patched(&over_max_patch).is_err());
 }
+
+#[test]
+fn pet_sound_preferences_default_validate_and_persist_with_legacy_compatibility() {
+    use pet_desktop::{
+        placement::WindowPlacement,
+        settings::{DEFAULT_SOUND_VOLUME, Settings, SoundPack},
+    };
+
+    let temp = tempfile::tempdir().unwrap();
+    let paths = AppPaths::under(&temp.path().canonicalize().unwrap().join("app"));
+    paths.prepare_root().unwrap();
+
+    // 旧版 settings.json 无细分音效字段时：互动与自由活动轻音效默认开启，提醒声音保持原值，音色治愈、音量 70%
+    std::fs::write(
+        &paths.settings,
+        r#"{"revision":6,"fps":30,"sound":false,"autostart":false,"petId":"yueying-cape-dancer","mutedSources":[]}"#,
+    )
+    .unwrap();
+    let legacy = Preferences::load(&paths).unwrap();
+    assert!(!legacy.sound);
+    assert!(legacy.interaction_sound);
+    assert!(legacy.ambient_sound);
+    assert_eq!(legacy.sound_pack, SoundPack::Healing);
+    assert!((legacy.sound_volume - DEFAULT_SOUND_VOLUME).abs() < 1e-9);
+
+    // 修改音色主题、音量与开关并验证持久化及 IPC 序列化
+    let patch: SettingsPatch = serde_json::from_str(
+        r#"{"interactionSound":false,"ambientSound":false,"sound":true,"soundPack":"retro","soundVolume":0.45}"#,
+    )
+    .unwrap();
+    let updated = legacy.patched(&patch).unwrap();
+    assert!(!updated.interaction_sound);
+    assert!(!updated.ambient_sound);
+    assert!(updated.sound);
+    assert_eq!(updated.sound_pack, SoundPack::Retro);
+    assert!((updated.sound_volume - 0.45).abs() < 1e-9);
+    updated.save(&paths).unwrap();
+    assert_eq!(Preferences::load(&paths).unwrap(), updated);
+
+    let wire = serde_json::to_value(Settings {
+        preferences: updated.clone(),
+        placement: WindowPlacement::default(),
+    })
+    .unwrap();
+    assert_eq!(wire["interactionSound"], false);
+    assert_eq!(wire["ambientSound"], false);
+    assert_eq!(wire["sound"], true);
+    assert_eq!(wire["soundPack"], "retro");
+    assert_eq!(wire["soundVolume"], 0.45);
+
+    // 拒绝超出 [0, 1] 范围的音量或未知音色名
+    for bad_json in [r#"{"soundVolume":-0.05}"#, r#"{"soundVolume":1.2}"#] {
+        let bad: SettingsPatch = serde_json::from_str(bad_json).unwrap();
+        assert!(updated.patched(&bad).is_err(), "预期拒绝配置：{bad_json}");
+    }
+    assert!(serde_json::from_str::<SettingsPatch>(r#"{"soundPack":"heavy_metal"}"#).is_err());
+}
+
+#[test]
+fn notify_subagents_preference_defaults_true_and_persists_across_reloads() {
+    use pet_desktop::{placement::WindowPlacement, settings::Settings};
+
+    let temp = tempfile::tempdir().unwrap();
+    let paths = AppPaths::under(&temp.path().canonicalize().unwrap().join("app"));
+    paths.prepare_root().unwrap();
+
+    // 旧版 settings.json 无 notifySubagents 字段时默认开启
+    std::fs::write(
+        &paths.settings,
+        r#"{"revision":7,"fps":30,"sound":false,"autostart":false,"petId":"yueying-cape-dancer","mutedSources":[]}"#,
+    )
+    .unwrap();
+    let legacy = Preferences::load(&paths).unwrap();
+    assert!(legacy.notify_subagents);
+
+    let disable_patch: SettingsPatch =
+        serde_json::from_str(r#"{"notifySubagents":false}"#).unwrap();
+    let disabled = legacy.patched(&disable_patch).unwrap();
+    assert!(!disabled.notify_subagents);
+    assert_eq!(disabled.revision, 8);
+    disabled.save(&paths).unwrap();
+    assert_eq!(Preferences::load(&paths).unwrap(), disabled);
+
+    let wire = serde_json::to_value(Settings {
+        preferences: disabled.clone(),
+        placement: WindowPlacement::default(),
+    })
+    .unwrap();
+    assert_eq!(wire["notifySubagents"], false);
+
+    let enable_patch: SettingsPatch = serde_json::from_str(r#"{"notifySubagents":true}"#).unwrap();
+    let reenabled = disabled.patched(&enable_patch).unwrap();
+    assert!(reenabled.notify_subagents);
+    assert_eq!(reenabled.revision, 9);
+}

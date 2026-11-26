@@ -10,6 +10,7 @@
     "core:event:allow-unlisten",
     "allow-get-settings",
     "allow-update-settings",
+    "allow-preview-pet-sound",
     "allow-get-deepseek-activity-status",
     "allow-test-deepseek-connection",
     "allow-trigger-pet-activity",

@@ -63,3 +63,32 @@ it('从历史可直接点击打开应用，尝试打开会话不会隐式降级�
   expect(copy).toHaveBeenCalledWith(key);
   expect(entry.querySelector('.history')).toBeTruthy();
 });
+
+it('通知面板为带有 isSubagent 或 parentSessionId 的子代理展示子代理标记', () => {
+  const { document } = parseHTML('<html><body></body></html>');
+  const snap: PetSnapshot = {
+    revision: 1,
+    sessions: [
+      {
+        key: { source: 'codex', installationId: 'i1', sessionId: 'codex-sub' },
+        isSubagent: true,
+        status: 'ended',
+        pending: [],
+        unread: true,
+        lastEventAtMs: 200,
+      },
+      {
+        key: { source: 'codex', installationId: 'i1', sessionId: 'codex-root' },
+        status: 'ended',
+        pending: [],
+        unread: false,
+        lastEventAtMs: 100,
+      },
+    ],
+    notifications: [],
+  };
+  renderNotifications(document.body, snap, { markRead: vi.fn(), clear: vi.fn(), open: vi.fn(), copy: vi.fn() });
+  const cards = Array.from(document.body.querySelectorAll('details.session'));
+  expect(cards[0].querySelector('.subagent')?.textContent).toBe('子代理');
+  expect(cards[1].querySelector('.subagent')).toBeNull();
+});

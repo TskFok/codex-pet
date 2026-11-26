@@ -189,6 +189,10 @@ pub enum EventKind {
     },
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EventEnvelope {
@@ -198,6 +202,8 @@ pub struct EventEnvelope {
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_subagent: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -250,6 +256,8 @@ pub struct SessionProjection {
     pub key: SessionKey,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_subagent: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     pub status: SessionStatus,
@@ -260,6 +268,12 @@ pub struct SessionProjection {
     pub summary: Option<String>,
     pub unread: bool,
     pub last_event_at_ms: u64,
+}
+
+impl SessionProjection {
+    pub fn is_subagent_session(&self) -> bool {
+        self.is_subagent || self.parent_session_id.is_some()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

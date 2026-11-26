@@ -13,7 +13,19 @@ pub const MAX_ACTIVITY_SPEED: f64 = 2.0;
 pub const MIN_ACTIVITY_RANGE_SPAN: f64 = 0.1;
 pub const DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS: u32 = 15;
 pub const MAX_BUBBLE_AUTO_CLOSE_SECONDS: u32 = 600;
+pub const DEFAULT_SOUND_VOLUME: f64 = 0.7;
+pub const MIN_SOUND_VOLUME: f64 = 0.0;
+pub const MAX_SOUND_VOLUME: f64 = 1.0;
 const MAX_API_KEY_LEN: usize = 512;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SoundPack {
+    #[default]
+    Healing,
+    Retro,
+    Minimal,
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -148,9 +160,14 @@ pub struct Preferences {
     pub revision: u64,
     pub fps: u8,
     pub sound: bool,
+    pub interaction_sound: bool,
+    pub ambient_sound: bool,
+    pub sound_pack: SoundPack,
+    pub sound_volume: f64,
     pub autostart: bool,
     pub pet_id: String,
     pub muted_sources: Vec<Source>,
+    pub notify_subagents: bool,
     pub deepseek_enabled: bool,
     pub deepseek_api_key: String,
     pub deepseek_model: String,
@@ -164,9 +181,14 @@ impl fmt::Debug for Preferences {
             .field("revision", &self.revision)
             .field("fps", &self.fps)
             .field("sound", &self.sound)
+            .field("interaction_sound", &self.interaction_sound)
+            .field("ambient_sound", &self.ambient_sound)
+            .field("sound_pack", &self.sound_pack)
+            .field("sound_volume", &self.sound_volume)
             .field("autostart", &self.autostart)
             .field("pet_id", &self.pet_id)
             .field("muted_sources", &self.muted_sources)
+            .field("notify_subagents", &self.notify_subagents)
             .field("deepseek_enabled", &self.deepseek_enabled)
             .field(
                 "deepseek_api_key",
@@ -189,9 +211,14 @@ impl Default for Preferences {
             revision: 0,
             fps: 30,
             sound: false,
+            interaction_sound: true,
+            ambient_sound: true,
+            sound_pack: SoundPack::default(),
+            sound_volume: DEFAULT_SOUND_VOLUME,
             autostart: false,
             pet_id: DEFAULT_PET.into(),
             muted_sources: Vec::new(),
+            notify_subagents: true,
             deepseek_enabled: true,
             deepseek_api_key: String::new(),
             deepseek_model: DEEPSEEK_DEFAULT_MODEL.into(),
@@ -206,9 +233,14 @@ impl Default for Preferences {
 pub struct SettingsPatch {
     pub fps: Option<u8>,
     pub sound: Option<bool>,
+    pub interaction_sound: Option<bool>,
+    pub ambient_sound: Option<bool>,
+    pub sound_pack: Option<SoundPack>,
+    pub sound_volume: Option<f64>,
     pub autostart: Option<bool>,
     pub pet_id: Option<String>,
     pub muted_sources: Option<Vec<Source>>,
+    pub notify_subagents: Option<bool>,
     pub placement: Option<PlacementPatch>,
     pub deepseek_enabled: Option<bool>,
     pub deepseek_api_key: Option<String>,
@@ -222,9 +254,14 @@ impl fmt::Debug for SettingsPatch {
         f.debug_struct("SettingsPatch")
             .field("fps", &self.fps)
             .field("sound", &self.sound)
+            .field("interaction_sound", &self.interaction_sound)
+            .field("ambient_sound", &self.ambient_sound)
+            .field("sound_pack", &self.sound_pack)
+            .field("sound_volume", &self.sound_volume)
             .field("autostart", &self.autostart)
             .field("pet_id", &self.pet_id)
             .field("muted_sources", &self.muted_sources)
+            .field("notify_subagents", &self.notify_subagents)
             .field("placement", &self.placement)
             .field("deepseek_enabled", &self.deepseek_enabled)
             .field(
@@ -271,9 +308,14 @@ struct SettingsWire<'a> {
     revision: u64,
     fps: u8,
     sound: bool,
+    interaction_sound: bool,
+    ambient_sound: bool,
+    sound_pack: SoundPack,
+    sound_volume: f64,
     autostart: bool,
     pet_id: &'a str,
     muted_sources: &'a [Source],
+    notify_subagents: bool,
     deepseek_enabled: bool,
     deepseek_model: &'a str,
     deepseek_api_key_configured: bool,
@@ -292,9 +334,14 @@ impl Serialize for Settings {
             revision: prefs.revision,
             fps: prefs.fps,
             sound: prefs.sound,
+            interaction_sound: prefs.interaction_sound,
+            ambient_sound: prefs.ambient_sound,
+            sound_pack: prefs.sound_pack,
+            sound_volume: prefs.sound_volume,
             autostart: prefs.autostart,
             pet_id: &prefs.pet_id,
             muted_sources: &prefs.muted_sources,
+            notify_subagents: prefs.notify_subagents,
             deepseek_enabled: prefs.deepseek_enabled,
             deepseek_model: &prefs.deepseek_model,
             deepseek_api_key_configured: hint.is_some(),
@@ -353,6 +400,11 @@ impl Preferences {
                 "跑动速率必须在 0.5x 到 2.0x 之间",
             ));
         }
+        if !self.sound_volume.is_finite()
+            || !(MIN_SOUND_VOLUME..=MAX_SOUND_VOLUME).contains(&self.sound_volume)
+        {
+            return Err(StorageError::InvalidData("音效音量必须在 0% 到 100% 之间"));
+        }
         if self.bubble_auto_close_seconds > MAX_BUBBLE_AUTO_CLOSE_SECONDS {
             return Err(StorageError::InvalidData(
                 "任务气泡自动关闭时长必须在 0 到 600 秒之间",
@@ -368,6 +420,18 @@ impl Preferences {
         if let Some(sound) = patch.sound {
             next.sound = sound;
         }
+        if let Some(interaction_sound) = patch.interaction_sound {
+            next.interaction_sound = interaction_sound;
+        }
+        if let Some(ambient_sound) = patch.ambient_sound {
+            next.ambient_sound = ambient_sound;
+        }
+        if let Some(sound_pack) = patch.sound_pack {
+            next.sound_pack = sound_pack;
+        }
+        if let Some(sound_volume) = patch.sound_volume {
+            next.sound_volume = sound_volume;
+        }
         if let Some(autostart) = patch.autostart {
             next.autostart = autostart;
         }
@@ -378,6 +442,9 @@ impl Preferences {
             next.muted_sources = sources.clone();
             next.muted_sources.sort();
             next.muted_sources.dedup();
+        }
+        if let Some(notify_subagents) = patch.notify_subagents {
+            next.notify_subagents = notify_subagents;
         }
         if let Some(enabled) = patch.deepseek_enabled {
             next.deepseek_enabled = enabled;

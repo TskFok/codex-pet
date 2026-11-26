@@ -135,6 +135,7 @@ fn thread_spawn_lifecycle_uses_child_identity_and_own_turn_without_guessing_pare
     use pet_core::{AttentionReason, SessionStatus, SessionStore};
     let mut store = SessionStore::default();
     let root = normalize_codex(&json!({"hook_event_name":"UserPromptSubmit","session_id":"root-session","turn_id":"root-turn"}), &identity(), 1).unwrap().remove(0);
+    assert!(!root.is_subagent);
     store.apply(&root);
     let mut request = root.clone();
     request.event_id = "root-request".into();
@@ -152,6 +153,7 @@ fn thread_spawn_lifecycle_uses_child_identity_and_own_turn_without_guessing_pare
         assert_eq!(event.session_id, "child-thread");
         assert_eq!(event.turn_id.as_deref(), Some("child-turn"));
         assert_eq!(event.parent_session_id, None);
+        assert!(event.is_subagent);
         assert_eq!(event.identity, identity());
         assert_eq!(event.sequence, None);
         let is_end = name.contains("stop");
@@ -167,6 +169,14 @@ fn thread_spawn_lifecycle_uses_child_identity_and_own_turn_without_guessing_pare
         .iter()
         .find(|session| session.key.session_id == "root-session")
         .unwrap();
+    assert!(!root.is_subagent);
+    let child = snapshot
+        .sessions
+        .iter()
+        .find(|session| session.key.session_id == "child-thread")
+        .unwrap();
+    assert!(child.is_subagent);
+    assert!(child.is_subagent_session());
     assert_eq!(root.status, SessionStatus::NeedsAttention);
     assert_eq!(root.turn_id.as_deref(), Some("root-turn"));
     assert_eq!(root.pending[0].id, "root-approval");

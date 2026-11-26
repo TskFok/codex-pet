@@ -1,9 +1,16 @@
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { api, observeSnapshot } from '../api';
 import defaultManifest from '../assets/yueying.json';
 import type { AlphaMask } from '../animation/hit-mask';
-import type { FrameRect, PetActivityEvent, PetSnapshot, SessionKey, Settings } from '../types';
+import type {
+  FrameRect,
+  NotificationRecord,
+  PetActivityEvent,
+  PetSnapshot,
+  PetSoundCue,
+  SessionKey,
+  Settings,
+} from '../types';
 import type { mountPet } from './pet';
 import { createNavigation } from './navigation';
 import { keyId } from './notifications';
@@ -16,7 +23,7 @@ import {
   type InteractionStep,
   type PetClickEvent,
 } from './pet-interactions';
-import { presentation, withBubbles } from './reminder';
+import { isSubagentSession, presentation, withBubbles } from './reminder';
 import { DEFAULT_BUBBLE_AUTO_CLOSE_SECONDS } from './settings';
 
 type BubbleAction = 'session' | 'application' | 'copy' | 'close' | 'close_all' | InteractionBubbleAction;
@@ -72,6 +79,30 @@ const MAX_VISIBLE_BUBBLES = 4;
 const MAX_EPHEMERAL_BUBBLES = 3;
 const INTERACTION_REPLACE_WINDOW_MS = 450;
 const OVERFLOW_EPSILON_PX = 0.5;
+
+export function alertCueForNotification(record: NotificationRecord): PetSoundCue {
+  if (record.kind.type === 'attention') {
+    return record.kind.reason === 'approval' ? 'alert_approval' : 'alert_answer';
+  }
+  if (record.kind.outcome === 'failed') return 'alert_failed';
+  if (record.kind.outcome === 'interrupted') return 'alert_interrupted';
+  return 'alert_complete';
+}
+
+function notificationSoundPriority(record: NotificationRecord): number {
+  if (record.kind.type === 'attention') return 5;
+  if (record.kind.outcome === 'failed') return 4;
+  if (record.kind.outcome === 'interrupted') return 3;
+  return 2;
+}
+
+export function ambientCueForActivity(event: PetActivityEvent): PetSoundCue | undefined {
+  if (event.phase === 'end') return undefined;
+  if (event.state === 'jumping') return 'ambient_hop';
+  if (event.state === 'waving') return 'ambient_wave';
+  if (event.thought || event.effect) return 'ambient_murmur';
+  return undefined;
+}
 
 function loadDismissed(): Set<string> {
   try {
@@ -161,10 +192,12 @@ export function bindReminder(
   let interactionStep: { state: string; timed: boolean } | undefined;
   let interactionStepTimer: ReturnType<typeof setTimeout> | undefined;
   let autonomousActivity: { id: string; state?: string } | undefined;
+  let soundedActivityId: string | undefined;
   let lastTaskKey: string | undefined;
 
   function clearAutonomousActivity() {
     autonomousActivity = undefined;
+    soundedActivityId = undefined;
   }
 
   function clearEphemeralTimer(entry: EphemeralBubble) {
@@ -268,8 +301,18 @@ export function bindReminder(
     interactionStep = undefined;
   }
 
+  function notifySubagentsEnabled(): boolean {
+    return settings?.notifySubagents ?? true;
+  }
+
   function hasUrgentAttention(): boolean {
-    return Boolean(snapshot?.sessions.some((session) => session.status === 'needs_attention'));
+    const allowSubagents = notifySubagentsEnabled();
+    return Boolean(
+      snapshot?.sessions.some(
+        (session) =>
+          session.status === 'needs_attention' && (allowSubagents || !isSubagentSession(session)),
+      ),
+    );
   }
 
   function scheduleEphemeralExpiry(entry: EphemeralBubble, delayMs: number) {
@@ -425,6 +468,9 @@ export function bindReminder(
     options?: { fromAction?: boolean; fromClick?: boolean; sourceBubbleId?: string },
   ) {
     if (!outcome || stopped) return;
+    if (!validationState && outcome.sound && (settings?.interactionSound ?? true)) {
+      void Promise.resolve(api.playPetSound(outcome.sound)).catch(console.error);
+    }
     if (outcome.effect) {
       pet.renderer.triggerInteractionEffect?.(outcome.effect, nowMs);
     }
@@ -461,14 +507,29 @@ export function bindReminder(
       void api.interruptPetActivity().catch(() => {});
     }
     const now = performance.now();
-    applyInteraction(interactions.handleClick(event, now, { petName, snapshot }), now, { fromClick: true });
+    applyInteraction(
+      interactions.handleClick(event, now, {
+        petName,
+        snapshot,
+        notifySubagents: notifySubagentsEnabled(),
+      }),
+      now,
+      { fromClick: true },
+    );
   }
 
   function handleDragEnd() {
     clearAutonomousActivity();
     if (stopped || validationState || hasUrgentAttention()) return;
     const now = performance.now();
-    applyInteraction(interactions.handleDragEnd(now, { petName, snapshot }), now);
+    applyInteraction(
+      interactions.handleDragEnd(now, {
+        petName,
+        snapshot,
+        notifySubagents: notifySubagentsEnabled(),
+      }),
+      now,
+    );
   }
 
   function handleAutonomousActivity(event: PetActivityEvent) {
@@ -498,6 +559,11 @@ export function bindReminder(
     }
     if (event.thought) {
       pushActivityBubble(event, now);
+    }
+    const ambientCue = ambientCueForActivity(event);
+    if (ambientCue && soundedActivityId !== event.id && (settings?.ambientSound ?? true)) {
+      soundedActivityId = event.id;
+      void Promise.resolve(api.playPetSound(ambientCue)).catch(console.error);
     }
   }
 
@@ -542,7 +608,7 @@ export function bindReminder(
     const entries: RenderBubble[] = [];
     const activeReminderIds = new Set<string>();
     if (snapshot) {
-      const result = presentation(snapshot, settings?.mutedSources);
+      const result = presentation(snapshot, settings?.mutedSources, notifySubagentsEnabled());
       const undismissed = result.reminders.filter((item) => !dismissed.has(item.reminderId));
       const fresh = undismissed
         .filter((item) => !reminderOrder.has(item.reminderId))
@@ -697,7 +763,7 @@ export function bindReminder(
     const keysToMarkRead: SessionKey[] = [];
     const seenKeys = new Set<string>();
     if (snapshot) {
-      const result = presentation(snapshot, settings?.mutedSources);
+      const result = presentation(snapshot, settings?.mutedSources, notifySubagentsEnabled());
       for (const item of result.reminders) {
         if (!dismissed.has(item.reminderId)) {
           reminderIds.push(item.reminderId);
@@ -796,10 +862,18 @@ export function bindReminder(
             button.onclick = () => {
               if (stopped) return;
               const now = performance.now();
-              applyInteraction(interactions.handleAction(action, now, { petName, snapshot }), now, {
-                fromAction: true,
-                sourceBubbleId: entry.id,
-              });
+              applyInteraction(
+                interactions.handleAction(action, now, {
+                  petName,
+                  snapshot,
+                  notifySubagents: notifySubagentsEnabled(),
+                }),
+                now,
+                {
+                  fromAction: true,
+                  sourceBubbleId: entry.id,
+                },
+              );
             };
             bar.append(button);
           }
@@ -1041,7 +1115,7 @@ export function bindReminder(
 
   function sync() {
     if (!snapshot) return;
-    const result = presentation(snapshot, settings?.mutedSources);
+    const result = presentation(snapshot, settings?.mutedSources, notifySubagentsEnabled());
     const now = performance.now();
     const taskKey = JSON.stringify([result.state, result.animationKey ?? '', result.reminderId ?? '']);
     const taskChanged = taskKey !== lastTaskKey;
@@ -1134,14 +1208,29 @@ export function bindReminder(
     sync();
     if (!previous || !settings?.sound) return;
     const known = new Set(previous.notifications.map((n) => n.id));
-    const fresh = value.notifications.find(
+    const allowSubagents = notifySubagentsEnabled();
+    const subagentSessions = allowSubagents
+      ? undefined
+      : new Set(value.sessions.filter(isSubagentSession).map((s) => keyId(s.key)));
+    const freshList = value.notifications.filter(
       (n) =>
         !known.has(n.id) &&
         !n.read &&
         !settings!.mutedSources.includes(n.key.source) &&
+        (!subagentSessions || !subagentSessions.has(keyId(n.key))) &&
         (n.kind.type === 'turn_ended' || !n.kind.resolved),
     );
-    if (fresh) void invoke('play_alert', { source: fresh.key.source }).catch(console.error);
+    if (freshList.length > 0) {
+      freshList.sort(
+        (a, b) =>
+          notificationSoundPriority(b) - notificationSoundPriority(a) ||
+          b.occurredAtMs - a.occurredAtMs,
+      );
+      const chosen = freshList[0];
+      void Promise.resolve(
+        api.playAlert(chosen.key.source, alertCueForNotification(chosen)),
+      ).catch(console.error);
+    }
   }
 
   function subscribe(work: Promise<() => void>) {

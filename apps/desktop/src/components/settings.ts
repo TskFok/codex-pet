@@ -7,10 +7,45 @@ import type {
   DeepSeekActivityStatus,
   DeepSeekModel,
   IntegrationStatus,
+  PetSoundCue,
   Settings,
   SettingsPatch,
+  SoundPack,
   Source,
 } from '../types';
+
+export const DEFAULT_SOUND_VOLUME = 0.7;
+
+export const SOUND_PACK_CHOICES: ReadonlyArray<{ id: SoundPack; label: string }> = [
+  { id: 'healing', label: '治愈萌音（灵动泛音与滑音，默认）' },
+  { id: 'retro', label: '复古像素（8-bit 电子宠物）' },
+  { id: 'minimal', label: '极简自然（水滴木琴风铃）' },
+];
+
+export const SOUND_VOLUME_PRESETS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 0.3, label: '30% 轻柔' },
+  { value: 0.7, label: '70% 适中' },
+  { value: 1.0, label: '100% 饱满' },
+];
+
+export const SOUND_PREVIEW_ITEMS: ReadonlyArray<{ cue: PetSoundCue; label: string }> = [
+  { cue: 'pet_head', label: '♪ 摸摸头' },
+  { cue: 'feed', label: '♪ 投喂点心' },
+  { cue: 'play', label: '♪ 开心玩耍' },
+  { cue: 'dizzy', label: '♪ 转晕彩蛋' },
+  { cue: 'alert_approval', label: '♪ 待审批' },
+  { cue: 'alert_complete', label: '♪ 回合完成' },
+  { cue: 'alert_failed', label: '♪ 失败提醒' },
+];
+
+export function normalizeSoundVolume(volume?: number): number {
+  if (typeof volume !== 'number' || !Number.isFinite(volume)) return DEFAULT_SOUND_VOLUME;
+  return Math.min(1, Math.max(0, Math.round(volume * 100) / 100));
+}
+
+export function formatSoundVolume(volume: number): string {
+  return `${Math.round(normalizeSoundVolume(volume) * 100)}%`;
+}
 
 export const DEEPSEEK_MODEL_CHOICES: ReadonlyArray<{ id: DeepSeekModel; label: string }> = [
   { id: 'deepseek-chat', label: 'deepseek-chat（DeepSeek-V3，推荐）' },
@@ -366,15 +401,18 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
   const fps = el('select'),
     pet = el('select'),
     scale = el('select'),
+    soundPack = el('select'),
     bubbleAutoClose = el('select'),
     deepseekModel = el('select'),
     activityRangePreset = el('select');
+  soundPack.name = 'soundPack';
   bubbleAutoClose.name = 'bubbleAutoCloseSeconds';
   deepseekModel.name = 'deepseekModel';
   activityRangePreset.name = 'activityRangePreset';
 
   fps.append(option('30', '30 FPS'), option('60', '60 FPS'));
   for (const v of [0.75, 1, 1.25, 1.5, 2]) scale.append(option(String(v), Math.round(100 * v) + '%'));
+  for (const choice of SOUND_PACK_CHOICES) soundPack.append(option(choice.id, choice.label));
   for (const choice of BUBBLE_AUTO_CLOSE_OPTIONS)
     bubbleAutoClose.append(option(String(choice.value), choice.label));
   for (const choice of DEEPSEEK_MODEL_CHOICES) deepseekModel.append(option(choice.id, choice.label));
@@ -463,6 +501,9 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
   speedControl.append(speedSliderRow, speedPresetsBar);
 
   const sound = toggle(),
+    interactionSound = toggle(),
+    ambientSound = toggle(),
+    notifySubagents = toggle(),
     login = toggle(),
     deepseekEnabled = toggle(),
     muted: Record<Source, HTMLInputElement> = {
@@ -470,8 +511,73 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
       deepseek: toggle(),
       antigravity: toggle(),
     };
+  sound.name = 'sound';
+  interactionSound.name = 'interactionSound';
+  ambientSound.name = 'ambientSound';
+  notifySubagents.name = 'notifySubagents';
   deepseekEnabled.name = 'deepseekEnabled';
   for (const s of SOURCES) muted[s].name = `muted-${s}`;
+
+  // Sound volume slider & presets
+  const volumeControl = el('div', '', 'speed-control');
+  const volumeSliderRow = el('div', '', 'speed-slider-row');
+  const soundVolume = el('input', '', 'range-slider');
+  soundVolume.type = 'range';
+  soundVolume.name = 'soundVolume';
+  soundVolume.min = '0';
+  soundVolume.max = '100';
+  soundVolume.step = '1';
+  const volumeValueBadge = el('span', formatSoundVolume(DEFAULT_SOUND_VOLUME), 'speed-value');
+  volumeValueBadge.dataset.role = 'sound-volume-value';
+  volumeSliderRow.append(soundVolume, volumeValueBadge);
+
+  const volumePresetsBar = el('div', '', 'speed-presets');
+  const volumePresetButtons: Array<{ value: number; button: HTMLButtonElement }> = [];
+  for (const preset of SOUND_VOLUME_PRESETS) {
+    const chip = button(
+      preset.label,
+      () => {
+        renderSoundVolume(preset.value);
+        update({ soundVolume: preset.value });
+      },
+      'btn-chip',
+    );
+    chip.dataset.volume = String(preset.value);
+    volumePresetButtons.push({ value: preset.value, button: chip });
+    volumePresetsBar.append(chip);
+  }
+  volumeControl.append(volumeSliderRow, volumePresetsBar);
+
+  // Instant sound audition bar
+  const soundPreviewBar = el('div', '', 'sound-preview-bar');
+  const soundPreviewLabel = el('span', '试听当前宠物声线与主题音效', 'sound-preview-label');
+  const soundPreviewChips = el('div', '', 'sound-preview-chips');
+  for (const item of SOUND_PREVIEW_ITEMS) {
+    const chip = button(
+      item.label,
+      () => {
+        const rawVol = normalizeSoundVolume(Number(soundVolume.value) / 100);
+        void Promise.resolve(
+          api.previewPetSound({
+            cue: item.cue,
+            soundPack: ((soundPack.value as SoundPack) || current?.soundPack || 'healing'),
+            soundVolume: rawVol,
+            petId: pet.value || current?.petId,
+          }),
+        )
+          .then(() => {
+            if (rawVol <= 0.005) {
+              showReport('当前总音量为 0%，已按 30% 临时音量试听');
+            }
+          })
+          .catch(showError);
+      },
+      'btn-chip',
+    );
+    chip.dataset.previewCue = item.cue;
+    soundPreviewChips.append(chip);
+  }
+  soundPreviewBar.append(soundPreviewLabel, soundPreviewChips);
 
   const deepseekApiKey = el('input');
   deepseekApiKey.type = 'password';
@@ -601,6 +707,17 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
     }
   }
 
+  function renderSoundVolume(volume: number) {
+    const normalized = normalizeSoundVolume(volume);
+    soundVolume.value = String(Math.round(normalized * 100));
+    volumeValueBadge.textContent = formatSoundVolume(normalized);
+    for (const item of volumePresetButtons) {
+      const active = Math.abs(item.value - normalized) < 1e-6;
+      item.button.classList.toggle('is-active', active);
+      item.button.setAttribute('aria-pressed', String(active));
+    }
+  }
+
   function render(value: Settings) {
     if (stopped || (current && current.revision > value.revision)) return;
     current = value;
@@ -624,6 +741,12 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
       bubbleAutoClose.append(option(String(autoCloseSeconds), formatBubbleAutoCloseSeconds(autoCloseSeconds)));
     setSelectValue(bubbleAutoClose, String(autoCloseSeconds));
     sound.checked = value.sound;
+    interactionSound.checked = value.interactionSound ?? true;
+    ambientSound.checked = value.ambientSound ?? true;
+    notifySubagents.checked = value.notifySubagents ?? true;
+    const pack = value.soundPack ?? 'healing';
+    setSelectValue(soundPack, pack);
+    renderSoundVolume(value.soundVolume ?? DEFAULT_SOUND_VOLUME);
     login.checked = value.autostart;
     for (const s of SOURCES) muted[s].checked = value.mutedSources.includes(s);
     form.disabled = saving;
@@ -732,8 +855,18 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
   };
 
   sound.onchange = () => update({ sound: sound.checked });
+  interactionSound.onchange = () => update({ interactionSound: interactionSound.checked });
+  ambientSound.onchange = () => update({ ambientSound: ambientSound.checked });
+  soundPack.onchange = () => update({ soundPack: soundPack.value as SoundPack });
+  soundVolume.oninput = () => renderSoundVolume(Number(soundVolume.value) / 100);
+  soundVolume.onchange = () => {
+    const vol = normalizeSoundVolume(Number(soundVolume.value) / 100);
+    renderSoundVolume(vol);
+    update({ soundVolume: vol });
+  };
   bubbleAutoClose.onchange = () =>
     update({ bubbleAutoCloseSeconds: normalizeBubbleAutoCloseSeconds(Number(bubbleAutoClose.value)) });
+  notifySubagents.onchange = () => update({ notifySubagents: notifySubagents.checked });
   login.onchange = () => update({ autostart: login.checked });
   for (const s of SOURCES)
     muted[s].onchange = () =>
@@ -854,12 +987,25 @@ export async function mountSettings(root: HTMLElement): Promise<() => void> {
       settingRow('显示大小', scale, '调整桌宠在桌面上的缩放比例'),
     ),
     settingCard(
-      '提醒与系统',
-      settingRow('播放提醒声音', sound, '有待审批、待回答或回合结束时播放提示音'),
+      '桌宠音效',
+      settingRow('桌宠互动音效', interactionSound, '点击摸头、躲闪、投喂、玩耍与拖拽落地时播放宠物音效'),
+      settingRow('自由活动轻音效', ambientSound, '桌宠自主蹦跳、招手或冒出想法时附带轻柔微音效'),
+      settingRow('播放提醒声音', sound, '有待审批、待回答或回合结束时播放分级提示音'),
+      settingRow('音效主题', soundPack, '切换音色风格，并随当前宠物形象自动微调声线'),
+      settingRow('音效音量', volumeControl, '调节互动、自由活动与任务提醒的整体音量', true),
+      soundPreviewBar,
+    ),
+    settingCard(
+      '气泡与系统',
       settingRow(
         '任务气泡自动关闭',
         bubbleAutoClose,
         '任务提醒气泡在显示指定时长后自动收起（仍保留在通知面板中）',
+      ),
+      settingRow(
+        '提示 Subagent 信息',
+        notifySubagents,
+        '关闭后不再弹出子代理（Subagent）的桌面提醒气泡、动作与提示音（仍保留在通知面板中）',
       ),
       settingRow('登录时启动桌宠', login, '系统登录后自动启动桌宠'),
     ),

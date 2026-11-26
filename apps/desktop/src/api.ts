@@ -12,9 +12,11 @@ import type {
   PetChoice,
   PetManifest,
   PetSnapshot,
+  PetSoundCue,
   SessionKey,
   Settings,
   SettingsPatch,
+  SoundPack,
   Source,
 } from './types';
 
@@ -68,6 +70,15 @@ export const api = {
     invoke('test_deepseek_connection', { apiKey, model }),
   triggerPetActivity: (): Promise<void> => invoke('trigger_pet_activity'),
   interruptPetActivity: (): Promise<void> => invoke('interrupt_pet_activity'),
+  playAlert: (source: Source, cue?: PetSoundCue): Promise<void> =>
+    invoke('play_alert', { source, cue }),
+  playPetSound: (cue: PetSoundCue): Promise<void> => invoke('play_pet_sound', { cue }),
+  previewPetSound: (options: {
+    cue: PetSoundCue;
+    soundPack?: SoundPack;
+    soundVolume?: number;
+    petId?: string;
+  }): Promise<void> => invoke('preview_pet_sound', options),
   pets: (): Promise<PetChoice[]> => invoke('list_pets'),
   chooseDirectory: (): Promise<string | null> => invoke('choose_pet_directory'),
   importPet: (path: string): Promise<PetManifest> => invoke('import_pet_package', { path }),

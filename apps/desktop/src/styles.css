@@ -548,7 +548,8 @@ fieldset {
 .settings-card > .activity-status + .setting-row,
 .settings-card > .card-intro + .setting-row,
 .settings-card > .activity-range-block + .setting-row,
-.settings-card > .setting-row + .card-footer-actions {
+.settings-card > .setting-row + .card-footer-actions,
+.settings-card > .setting-row + .sound-preview-bar {
   border-top: 1px solid var(--ui-divider);
 }
 
@@ -650,6 +651,26 @@ fieldset {
   margin-top: 0;
   padding: 0.78rem 1rem;
   background: var(--ui-subtle-bg);
+}
+
+.sound-preview-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.72rem 1rem 0.85rem;
+  background: var(--ui-subtle-bg);
+}
+
+.sound-preview-label {
+  font-size: 0.76rem;
+  font-weight: 560;
+  color: var(--ui-fg-secondary);
+}
+
+.sound-preview-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.36rem;
 }
 
 /* Activity range preview & custom bounds */
@@ -1186,6 +1207,14 @@ code {
 .unread {
   font-weight: 650;
   color: var(--ui-accent);
+}
+
+.subagent {
+  padding: 0.08rem 0.42rem;
+  border-radius: 999px;
+  background: var(--ui-surface-muted, rgb(128 128 128 / 14%));
+  color: var(--ui-fg-muted);
+  font-weight: 500;
 }
 
 .session[open] > summary {

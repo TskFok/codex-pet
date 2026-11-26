@@ -15,7 +15,14 @@ describe('宿主事件归一化', () => {
     const event = toPetEvents({ ...base, type: 'turn/start' }, identity)[0];
     expect(event?.sessionId).toBe('child');
     expect(event?.parentSessionId).toBe('parent');
+    expect(event?.isSubagent).toBeUndefined();
     expect(event?.turnId).toBe('1');
+  });
+  it('subagent_flag_forwards_only_when_true', () => {
+    const sub = toPetEvents({ ...base, isSubagent: true, type: 'turn/end', outcome: 'completed' }, identity)[0];
+    expect(sub?.isSubagent).toBe(true);
+    const root = toPetEvents({ ...base, parentSessionId: undefined, type: 'turn/end', outcome: 'completed' }, identity)[0];
+    expect(root?.isSubagent).toBeUndefined();
   });
   it('取消提问只解除指定请求，使用实际源序号', () => {
     const observed: HarnessObservation = { ...base, type: 'question/resolved', requestId: 'question:q1' };

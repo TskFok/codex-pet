@@ -1,6 +1,7 @@
 import type { InteractionEffect } from '../animation/effects';
-import type { PetSnapshot } from '../types';
+import type { PetSnapshot, PetSoundCue } from '../types';
 import { PET_STAGE_HEIGHT, PET_STAGE_WIDTH, PET_WINDOW_HEIGHT, PET_WINDOW_WIDTH } from './pet';
+import { isSubagentSession } from './reminder';
 
 export interface PetClickEvent {
   x: number;
@@ -30,6 +31,7 @@ export interface InteractionBubble {
 export interface InteractionOutcome {
   steps?: InteractionStep[];
   effect?: InteractionEffect;
+  sound?: PetSoundCue;
   bubble?: InteractionBubble;
   openNotifications?: boolean;
   closeBubble?: boolean;
@@ -44,6 +46,7 @@ export interface PetInteractionStats {
 export interface InteractionContext {
   petName: string;
   snapshot?: PetSnapshot;
+  notifySubagents?: boolean;
 }
 
 export const INTERACTION_ACTION_LABELS: Record<InteractionBubbleAction, string> = {
@@ -151,11 +154,16 @@ export function affinityTier(affinity: number): string {
   return '初来乍到';
 }
 
-function summarizeStatus(snapshot: PetSnapshot | undefined, stats: PetInteractionStats): string {
+function summarizeStatus(
+  snapshot: PetSnapshot | undefined,
+  stats: PetInteractionStats,
+  notifySubagents = true,
+): string {
   if (snapshot) {
     let pendingCount = 0;
     let runningCount = 0;
     for (const session of snapshot.sessions) {
+      if (!notifySubagents && isSubagentSession(session)) continue;
       if (session.status === 'needs_attention') pendingCount += Math.max(1, session.pending.length);
       else if (session.status === 'running') runningCount += 1;
     }
@@ -219,6 +227,7 @@ export class PetInteractionController {
       return {
         steps: [{ state: 'jumping' }],
         effect: { x, y, kind: 'snack', bounce: 1.15 },
+        sound: 'feed',
         bubble: this.makeBubble(
           `${context.petName} · 收到投喂`,
           this.pickLine('feed', FEED_LINES),
@@ -236,6 +245,7 @@ export class PetInteractionController {
       return {
         steps: [{ state: item.state, durationMs: item.durationMs }],
         effect: { x, y, kind: 'star', bounce: 0.9 },
+        sound: 'showcase',
         bubble: this.makeBubble(
           `${context.petName} · 动作演示`,
           `正在表演：${item.label}`,
@@ -249,6 +259,7 @@ export class PetInteractionController {
     if (nowMs < this.dizzyUntilMs) {
       return {
         effect: { x, y, kind: 'dizzy', bounce: 0.5, count: 2 },
+        sound: 'dizzy_recover',
         bubble: this.makeBubble(
           `${context.petName} · 缓一缓`,
           '还在转圈圈呢，稍等我缓一下~',
@@ -269,6 +280,7 @@ export class PetInteractionController {
       return {
         steps: [{ state: 'failed' }],
         effect: { x, y, kind: 'dizzy', bounce: 1.3 },
+        sound: 'dizzy',
         bubble: this.makeBubble(
           `${context.petName} · 转晕啦`,
           this.pickLine('dizzy', DIZZY_LINES),
@@ -293,6 +305,7 @@ export class PetInteractionController {
       return {
         steps: [{ state: 'running-right', durationMs: 650 }, { state: 'jumping' }],
         effect: { x, y, kind: 'star', bounce: 1.2, count: 6 },
+        sound: 'triple_combo',
         bubble: this.makeBubble(
           `${context.petName} · 三连击！`,
           '收到超强应援！活力瞬间拉满 ✨',
@@ -308,7 +321,12 @@ export class PetInteractionController {
       return {
         steps: [{ state: 'jumping' }],
         effect: { x, y, kind: 'sparkle', bounce: 1.05, count: 6 },
-        bubble: this.makePanelBubble(context.petName, summarizeStatus(context.snapshot, this.stats), nowMs),
+        sound: 'double_click',
+        bubble: this.makePanelBubble(
+          context.petName,
+          summarizeStatus(context.snapshot, this.stats, context.notifySubagents ?? true),
+          nowMs,
+        ),
       };
     }
 
@@ -320,6 +338,7 @@ export class PetInteractionController {
       return {
         steps: [{ state }],
         effect: { x, y, kind: 'heart', bounce: 0.85 },
+        sound: 'pet_head',
         bubble: this.makeBubble(
           `${context.petName} · 摸摸头`,
           this.pickLine('head', HEAD_LINES),
@@ -333,6 +352,7 @@ export class PetInteractionController {
       return {
         steps: [{ state: 'running-right', durationMs: 950 }],
         effect: { x, y, kind: 'note', bounce: 0.95 },
+        sound: 'dodge',
         bubble: this.makeBubble(
           `${context.petName} · 躲闪`,
           this.pickLine('left', BODY_LEFT_LINES),
@@ -346,6 +366,7 @@ export class PetInteractionController {
       return {
         steps: [{ state: 'running-left', durationMs: 950 }],
         effect: { x, y, kind: 'note', bounce: 0.95 },
+        sound: 'dodge',
         bubble: this.makeBubble(
           `${context.petName} · 躲闪`,
           this.pickLine('right', BODY_RIGHT_LINES),
@@ -359,6 +380,7 @@ export class PetInteractionController {
       return {
         steps: [{ state: 'jumping' }],
         effect: { x, y, kind: 'star', bounce: 1.2 },
+        sound: 'tickle_feet',
         bubble: this.makeBubble(
           `${context.petName} · 好痒呀`,
           this.pickLine('feet', FEET_LINES),
@@ -372,6 +394,7 @@ export class PetInteractionController {
     return {
       steps: [{ state: 'waving' }],
       effect: { x, y, kind: 'sparkle', bounce: 1.0 },
+      sound: 'poke_body',
       bubble: this.makeBubble(
         `${context.petName} · 轻拍回应`,
         this.pickLine('center', BODY_CENTER_LINES),
@@ -390,6 +413,7 @@ export class PetInteractionController {
       return {
         steps: [{ state: 'jumping' }],
         effect: { x: 0.5, y: 0.68, kind: 'snack', bounce: 1.15, count: 6 },
+        sound: 'feed',
         bubble: this.makePanelBubble(context.petName, this.pickLine('feed', FEED_LINES), nowMs),
       };
     }
@@ -401,6 +425,7 @@ export class PetInteractionController {
         { state: 'jumping' },
       ],
       effect: { x: 0.5, y: 0.66, kind: 'note', bounce: 1.1, count: 6 },
+      sound: 'play',
       bubble: this.makePanelBubble(context.petName, this.pickLine('play', PLAY_LINES), nowMs),
     };
   }
@@ -411,6 +436,7 @@ export class PetInteractionController {
     return {
       steps: [{ state: 'jumping' }],
       effect: { x: 0.5, y: 0.72, kind: 'sparkle', bounce: 0.9, count: 4 },
+      sound: 'drag_drop',
       bubble: this.makeBubble(
         `${context.petName} · 安顿好啦`,
         this.pickLine('drag', DRAG_LINES),
