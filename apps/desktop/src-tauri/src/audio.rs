@@ -3,7 +3,7 @@
 //! 为桌面互动、自由活动微音效及分级任务提醒提供零外部音频资源依赖的实时 WAV 合成，
 //! 支持多种音色主题（治愈萌音、复古像素、极简自然）与按宠物身份自动微调的专属声线。
 
-use crate::settings::SoundPack;
+use crate::settings::{DEEPSEEK_WHALE_MAID, SoundPack};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
@@ -136,6 +136,11 @@ pub fn voice_profile_for_pet(pet_id: &str) -> VoiceProfile {
             pitch_mul: 0.89,
             tempo_mul: 1.06,
             brightness: 0.86,
+        },
+        DEEPSEEK_WHALE_MAID => VoiceProfile {
+            pitch_mul: 1.16,
+            tempo_mul: 1.14,
+            brightness: 1.18,
         },
         "zhizhi-branch-guardian" => VoiceProfile {
             pitch_mul: 1.12,
@@ -1064,12 +1069,33 @@ mod tests {
             0.8,
             "zhizhi-branch-guardian",
         );
+        let whale_maid_profile = voice_profile_for_pet("deepseek-whale-maid");
+        assert!(whale_maid_profile.pitch_mul > 1.1);
+        assert!(whale_maid_profile.tempo_mul > 1.08);
+        assert!(whale_maid_profile.brightness > 1.12);
+        let whale_maid = synthesize_wav(
+            PetSoundCue::Feed,
+            SoundPack::Healing,
+            0.8,
+            "deepseek-whale-maid",
+        );
+        let whale_maid_samples = decode_pcm_samples(&whale_maid);
+        assert_eq!(whale_maid_samples[0], 0);
+        assert_eq!(*whale_maid_samples.last().unwrap(), 0);
+        assert!(
+            whale_maid_samples
+                .iter()
+                .any(|sample| sample.unsigned_abs() > 900)
+        );
         let custom_a = synthesize_wav(PetSoundCue::Feed, SoundPack::Healing, 0.8, "custom-dragon");
         let custom_a_repeat =
             synthesize_wav(PetSoundCue::Feed, SoundPack::Healing, 0.8, "custom-dragon");
         assert_ne!(yueying, big_fish);
         assert_ne!(yueying, zhizhi);
         assert_ne!(big_fish, zhizhi);
+        assert_ne!(whale_maid, yueying);
+        assert_ne!(whale_maid, big_fish);
+        assert_ne!(whale_maid, zhizhi);
         assert_eq!(
             custom_a, custom_a_repeat,
             "同一导入宠物的声线应保持稳定确定性"

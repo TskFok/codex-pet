@@ -1,0 +1,123 @@
+{
+  "ok": true,
+  "pet_id": "deepseek-whale-maid",
+  "display_name": "DeepSeek娘",
+  "spriteVersionNumber": 2,
+  "run_dir": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run",
+  "atlas": {
+    "columns": 8,
+    "rows": 11,
+    "width": 1536,
+    "height": 2288,
+    "cell_width": 192,
+    "cell_height": 208,
+    "used_cells_including_neutral": 74
+  },
+  "spritesheet": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/final/spritesheet-extended.webp",
+  "spritesheet_sha256": "7436c517e845e97ec484820fc2a4b061abb22edf7f98df891f3c5bc017dc0ce8",
+  "package": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/package",
+  "installed_package": "/Users/ushopal/.codex/pets/deepseek-whale-maid",
+  "preview": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/preview.png",
+  "validation": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/final/validation-extended.json",
+  "chroma_despill": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/chroma-despill-extended.json",
+  "contact_sheet": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/contact-sheet-extended.png",
+  "direction_sheet": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/look-directions.png",
+  "direction_semantics": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/direction-semantics.json",
+  "blind_direction_validation": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/direction-blind-validation.json",
+  "blind_review_resolution": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/blind-review-resolution.json",
+  "continuity": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/look-continuity.json",
+  "review": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/review.json",
+  "standard_visual_review": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/standard-visual-review.json",
+  "look_mechanics": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/look-mechanics.md",
+  "cardinal_anchors": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/cardinal-anchors.json",
+  "cardinal_semantics": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/cardinal-semantics.json",
+  "approved_cardinals": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/look-anchors-approved.png",
+  "base_reference": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/base-reference.png",
+  "previews": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/previews",
+  "started_at": "2026-11-28T13:13:55.340000+00:00",
+  "completed_at": "2026-11-28T13:37:52.830253+00:00",
+  "elapsed_seconds": 1437.5,
+  "generation": {
+    "tool": "built-in ImageGen",
+    "chroma_key": "#00FF00",
+    "jobs": [
+      {
+        "id": "base",
+        "completed_at": "2026-11-28T13:15:49Z"
+      },
+      {
+        "id": "idle",
+        "completed_at": "2026-11-28T13:16:56Z"
+      },
+      {
+        "id": "running-right",
+        "completed_at": "2026-11-28T13:18:34Z"
+      },
+      {
+        "id": "running-left",
+        "completed_at": "2026-11-28T13:20:20Z"
+      },
+      {
+        "id": "waving",
+        "completed_at": "2026-11-28T13:18:03Z"
+      },
+      {
+        "id": "jumping",
+        "completed_at": "2026-11-28T13:25:32Z"
+      },
+      {
+        "id": "failed",
+        "completed_at": "2026-11-28T13:19:02Z"
+      },
+      {
+        "id": "waiting",
+        "completed_at": "2026-11-28T13:19:37Z"
+      },
+      {
+        "id": "running",
+        "completed_at": "2026-11-28T13:21:03Z"
+      },
+      {
+        "id": "review",
+        "completed_at": "2026-11-28T13:22:29Z"
+      },
+      {
+        "id": "look-cardinals",
+        "completed_at": "2026-11-28T13:27:33Z"
+      },
+      {
+        "id": "look-row-9",
+        "completed_at": "2026-11-28T13:29:41Z"
+      },
+      {
+        "id": "look-row-10",
+        "completed_at": "2026-11-28T13:33:01Z"
+      }
+    ],
+    "running_left": "generated separately because selected rightward foreground crosses fixed mirror slot boundaries",
+    "row_10_inputs": "reference artwork and canonical base were composed proportionally into one attachment to preserve all six inputs within a five-attachment limit"
+  },
+  "checks": {
+    "atlas_errors": 0,
+    "atlas_warnings": 0,
+    "despill_passes": 1,
+    "alpha_preserved": true,
+    "chroma_fringe_pixels": 0,
+    "opaque_near_key_pixels": 1,
+    "standard_rows": 9,
+    "jump_lift_px": 18,
+    "directions": 16,
+    "cardinal_hard_gates": 4,
+    "blind_reviewers": 3,
+    "blind_ab_pairs": 14,
+    "blind_warnings": 0,
+    "continuity_pairs": 16,
+    "visual_qa": "pass"
+  },
+  "accepted_minor_warnings": {
+    "direction": 4,
+    "continuity": 3,
+    "extraction": 2
+  },
+  "runtime_note": "会话未提供 load_workspace_dependencies 工具，直接使用已安装的 Codex 工作区运行时执行技能脚本。Pillow 13 对部分预检命令提示未来 API 弃用，所有命令正常完成。"
+}

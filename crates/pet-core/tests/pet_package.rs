@@ -1,6 +1,6 @@
 use pet_core::{
     AppPaths, EventEnvelope, JournalStore,
-    pet_package::{FrameRect, PetError, import_pet, load_pet},
+    pet_package::{FrameRect, PetError, import_pet, import_pet_to_library_with_reserved, load_pet},
 };
 use serde_json::{Value, json};
 use std::{
@@ -67,6 +67,28 @@ fn explicit_package(dir: &Path, manifest: &Value) {
     write_manifest(dir, manifest);
     fs::create_dir(dir.join("images")).unwrap();
     fs::write(dir.join("images/atlas.png"), SMALL_PNG).unwrap();
+}
+
+#[test]
+fn library_import_rejects_each_reserved_id_case_insensitively() {
+    let (_temp, root) = sandbox();
+    let source = root.join("source");
+    let library = root.join("pets");
+    legacy_png_package(&source, LEGACY_PNG);
+    let reserved = ["yueying-cape-dancer", "deepseek-whale-maid"];
+    for id in ["Yueying-cape-dancer", "DEEPSEEK-WHALE-MAID"] {
+        let mut manifest = legacy_manifest("source.PNG");
+        manifest["id"] = json!(id);
+        write_manifest(&source, &manifest);
+        assert!(matches!(
+            import_pet_to_library_with_reserved(&source, &library, &reserved),
+            Err(PetError::InvalidManifest("此标识已由内置桌宠使用"))
+        ));
+        assert!(!library.exists());
+    }
+    write_manifest(&source, &legacy_manifest("source.PNG"));
+    let imported = import_pet_to_library_with_reserved(&source, &library, &reserved).unwrap();
+    assert_eq!(load_pet(&library.join("test-pet")).unwrap(), imported);
 }
 
 #[test]

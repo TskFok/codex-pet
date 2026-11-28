@@ -8,11 +8,11 @@ use crate::{
     placement::{DesktopContext, WindowPlacement},
     platform,
     settings::{
-        ActivityRange, DEEPSEEK_DEFAULT_MODEL, DEFAULT_PET, DEFAULT_PET_NAME, MAX_ACTIVITY_SPEED,
-        MIN_ACTIVITY_SPEED, Preferences, valid_deepseek_model,
+        ActivityRange, DEEPSEEK_DEFAULT_MODEL, DEFAULT_PET_NAME, MAX_ACTIVITY_SPEED,
+        MIN_ACTIVITY_SPEED, Preferences, builtin_pet_name, valid_deepseek_model,
     },
 };
-use pet_core::paths::wall_clock_ms;
+use pet_core::{AppPaths, paths::wall_clock_ms};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
@@ -723,14 +723,18 @@ fn load_preferences_and_pet_name() -> (Preferences, String) {
         return (Preferences::default(), DEFAULT_PET_NAME.into());
     };
     let prefs = Preferences::load(&paths).unwrap_or_default();
-    let name = if prefs.pet_id == DEFAULT_PET {
-        DEFAULT_PET_NAME.into()
+    let name = pet_name(&paths, &prefs.pet_id);
+    (prefs, name)
+}
+
+fn pet_name(paths: &AppPaths, id: &str) -> String {
+    if let Some(name) = builtin_pet_name(id) {
+        name.into()
     } else {
-        pet_core::pet_package::describe_pet(&paths.pets.join(&prefs.pet_id))
+        pet_core::pet_package::describe_pet(&paths.pets.join(id))
             .map(|manifest| manifest.name)
             .unwrap_or_else(|_| "桌宠".into())
-    };
-    (prefs, name)
+    }
 }
 
 fn is_pet_ready_for_autonomy(app: &tauri::AppHandle) -> bool {
@@ -1395,6 +1399,23 @@ mod tests {
         assert!(prompt.contains("x=0.00..1.00, y=0.70..1.00"));
         assert!(prompt.contains("x=0.25, y=0.75"));
         assert!(prompt.contains("walk(0.25,0.75)"));
+    }
+
+    #[test]
+    fn activity_prompt_uses_builtin_whale_maid_name_without_an_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(dir.path());
+        let prompt = build_user_prompt(&ActivityPromptInput {
+            pet_name: pet_name(&paths, "deepseek-whale-maid"),
+            work_area_width: 1440,
+            work_area_height: 900,
+            current_norm_x: 0.5,
+            current_norm_y: 0.5,
+            activity_range: ActivityRange::default(),
+            active_minutes: 0,
+            recent_actions: Vec::new(),
+        });
+        assert!(prompt.contains("DeepSeek娘"));
     }
 
     #[test]

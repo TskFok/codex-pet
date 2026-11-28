@@ -1,0 +1,980 @@
+{
+  "ok": true,
+  "frames_root": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames",
+  "states": [
+    "idle",
+    "running-right",
+    "running-left",
+    "waving",
+    "jumping",
+    "failed",
+    "waiting",
+    "running",
+    "review"
+  ],
+  "errors": [],
+  "warnings": [
+    "jumping used extraction method stable-slots; confirm motion playback remains stable and unclipped",
+    "failed used extraction method stable-slots; confirm motion playback remains stable and unclipped"
+  ],
+  "rows": [
+    {
+      "state": "idle",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/idle/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 20191,
+          "bbox": [
+            19,
+            5,
+            173,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 181
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/idle/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19639,
+          "bbox": [
+            21,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 189
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/idle/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19813,
+          "bbox": [
+            20,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 183
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/idle/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19681,
+          "bbox": [
+            21,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 203
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/idle/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19818,
+          "bbox": [
+            20,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 191
+        },
+        {
+          "index": 5,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/idle/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19693,
+          "bbox": [
+            21,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 185
+        }
+      ]
+    },
+    {
+      "state": "running-right",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-right/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18381,
+          "bbox": [
+            19,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 359
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-right/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16844,
+          "bbox": [
+            22,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 308
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-right/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16929,
+          "bbox": [
+            22,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 306
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-right/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17731,
+          "bbox": [
+            20,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 289
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-right/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18206,
+          "bbox": [
+            20,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 340
+        },
+        {
+          "index": 5,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-right/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16667,
+          "bbox": [
+            23,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 335
+        },
+        {
+          "index": 6,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-right/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16885,
+          "bbox": [
+            22,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 299
+        },
+        {
+          "index": 7,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-right/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18004,
+          "bbox": [
+            20,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 332
+        }
+      ]
+    },
+    {
+      "state": "running-left",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-left/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18041,
+          "bbox": [
+            18,
+            5,
+            173,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 382
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-left/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16419,
+          "bbox": [
+            23,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 312
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-left/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16762,
+          "bbox": [
+            20,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 347
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-left/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17080,
+          "bbox": [
+            19,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 356
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-left/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19019,
+          "bbox": [
+            17,
+            5,
+            174,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 373
+        },
+        {
+          "index": 5,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-left/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16464,
+          "bbox": [
+            21,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 317
+        },
+        {
+          "index": 6,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-left/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16960,
+          "bbox": [
+            21,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 361
+        },
+        {
+          "index": 7,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running-left/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17574,
+          "bbox": [
+            19,
+            5,
+            172,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 350
+        }
+      ]
+    },
+    {
+      "state": "waving",
+      "expected_frames": 4,
+      "actual_frames": 4,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waving/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19072,
+          "bbox": [
+            21,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 98
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waving/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18964,
+          "bbox": [
+            22,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 93
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waving/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19089,
+          "bbox": [
+            21,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 87
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waving/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19080,
+          "bbox": [
+            21,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 98
+        }
+      ]
+    },
+    {
+      "state": "jumping",
+      "expected_frames": 5,
+      "actual_frames": 5,
+      "extraction_method": "stable-slots",
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        "jumping used extraction method stable-slots; confirm motion playback remains stable and unclipped"
+      ],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/jumping/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17268,
+          "bbox": [
+            21,
+            22,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 75
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/jumping/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16734,
+          "bbox": [
+            21,
+            13,
+            171,
+            198
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 91
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/jumping/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16247,
+          "bbox": [
+            22,
+            5,
+            170,
+            185
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 93
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/jumping/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16606,
+          "bbox": [
+            21,
+            11,
+            171,
+            195
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 90
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/jumping/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17353,
+          "bbox": [
+            21,
+            22,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 86
+        }
+      ]
+    },
+    {
+      "state": "failed",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "stable-slots",
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        "failed used extraction method stable-slots; confirm motion playback remains stable and unclipped"
+      ],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/failed/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18417,
+          "bbox": [
+            21,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 241
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/failed/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18233,
+          "bbox": [
+            21,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 262
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/failed/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18003,
+          "bbox": [
+            21,
+            10,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 230
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/failed/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17727,
+          "bbox": [
+            21,
+            14,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 217
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/failed/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17041,
+          "bbox": [
+            21,
+            22,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 207
+        },
+        {
+          "index": 5,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/failed/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17684,
+          "bbox": [
+            21,
+            14,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 220
+        },
+        {
+          "index": 6,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/failed/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18124,
+          "bbox": [
+            21,
+            8,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 237
+        },
+        {
+          "index": 7,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/failed/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18202,
+          "bbox": [
+            22,
+            5,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 266
+        }
+      ]
+    },
+    {
+      "state": "waiting",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waiting/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18997,
+          "bbox": [
+            25,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 135
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waiting/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18782,
+          "bbox": [
+            26,
+            5,
+            165,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 144
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waiting/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18758,
+          "bbox": [
+            26,
+            5,
+            165,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 155
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waiting/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18940,
+          "bbox": [
+            26,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 159
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waiting/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18871,
+          "bbox": [
+            26,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 156
+        },
+        {
+          "index": 5,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/waiting/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18827,
+          "bbox": [
+            26,
+            5,
+            166,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 158
+        }
+      ]
+    },
+    {
+      "state": "running",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18991,
+          "bbox": [
+            23,
+            5,
+            168,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 173
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19035,
+          "bbox": [
+            23,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 171
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19316,
+          "bbox": [
+            22,
+            5,
+            170,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 190
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18960,
+          "bbox": [
+            23,
+            5,
+            168,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 171
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19003,
+          "bbox": [
+            23,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 167
+        },
+        {
+          "index": 5,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/running/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 18982,
+          "bbox": [
+            23,
+            5,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 193
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/review/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19919,
+          "bbox": [
+            16,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 184
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/review/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19949,
+          "bbox": [
+            16,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 175
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/review/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19916,
+          "bbox": [
+            16,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 183
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/review/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19894,
+          "bbox": [
+            16,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 189
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/review/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19911,
+          "bbox": [
+            16,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 173
+        },
+        {
+          "index": 5,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/frames/review/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 19926,
+          "bbox": [
+            16,
+            5,
+            176,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 195
+        }
+      ]
+    }
+  ]
+}

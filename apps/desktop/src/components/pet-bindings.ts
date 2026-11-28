@@ -1,6 +1,6 @@
 import { listen } from '@tauri-apps/api/event';
 import { api, observeSnapshot } from '../api';
-import defaultManifest from '../assets/yueying.json';
+import { builtinPets, defaultPet } from '../assets/builtin-pets';
 import type { AlphaMask } from '../animation/hit-mask';
 import type {
   FrameRect,
@@ -182,8 +182,8 @@ export function bindReminder(
   let activeAnimation: { state: string; key: string; fallbackState: string } | undefined;
   let snapshot: PetSnapshot | undefined,
     settings: Settings | undefined,
-    selectedPet = defaultManifest.id,
-    petName = defaultManifest.name;
+    selectedPet = defaultPet.manifest.id,
+    petName = defaultPet.manifest.name;
   let change = 0,
     stopped = false;
   const stops: (() => void)[] = [];
@@ -1169,32 +1169,26 @@ export function bindReminder(
     setFps(fps);
     pet.renderer.setFps(fps);
     sync();
-    if (selectedPet === value.petId) return;
-    selectedPet = value.petId;
+    const petId = value.petId;
+    if (selectedPet === petId) return;
+    selectedPet = petId;
     const token = ++change;
     try {
-      if (selectedPet === defaultManifest.id) {
-        await pet.mountDefault();
-        petName = defaultManifest.name;
-        canvas.setAttribute('aria-label', defaultManifest.name);
-      } else {
-        const asset = await api.asset(selectedPet);
-        if (token !== change || stopped) return;
-        await pet.renderer.mount(canvas, asset.manifest, asset.atlasUrl);
-        if (token === change && !stopped) {
-          petName = asset.manifest.name;
-          canvas.setAttribute('aria-label', asset.manifest.name);
-        }
-      }
-      if (token === change && !stopped) {
-        if (petLoadErrorOrder !== undefined) petLoadErrorOrder = undefined;
-        sync();
-      }
+      const asset = builtinPets.get(petId) ?? await api.asset(petId);
+      if (token !== change || stopped) return;
+      await pet.renderer.mount(canvas, asset.manifest, asset.atlasUrl);
+      if (token !== change || stopped) return;
+      petName = asset.manifest.name;
+      canvas.setAttribute('aria-label', petName);
+      petLoadErrorOrder = undefined;
+      sync();
     } catch (e) {
       if (token !== change || stopped) return;
-      selectedPet = defaultManifest.id;
-      petName = defaultManifest.name;
       await pet.mountDefault();
+      if (token !== change || stopped) return;
+      selectedPet = defaultPet.manifest.id;
+      petName = defaultPet.manifest.name;
+      canvas.setAttribute('aria-label', petName);
       console.error(e);
       petLoadErrorOrder = ++bubbleOrder;
       renderStack(true);

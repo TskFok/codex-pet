@@ -3,7 +3,7 @@ use crate::{
     notification_paths,
     placement::PlacementState,
     platform,
-    settings::{DEFAULT_PET, DEFAULT_PET_NAME, PlacementPatch, Preferences, SettingsPatch},
+    settings::{PlacementPatch, Preferences, SettingsPatch},
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
@@ -181,18 +181,12 @@ pub(crate) fn open_notifications(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 fn load_context_menu_state(app: &tauri::AppHandle) -> (Preferences, Vec<PetChoice>, f64) {
-    let default_pets = || {
-        vec![PetChoice {
-            id: DEFAULT_PET.into(),
-            name: DEFAULT_PET_NAME.into(),
-        }]
-    };
     let (prefs, pets) = match notification_paths() {
         Ok(paths) => (
             Preferences::load(&paths).unwrap_or_default(),
-            commands::list_pet_choices(&paths).unwrap_or_else(|_| default_pets()),
+            commands::list_pet_choices(&paths).unwrap_or_else(|_| commands::builtin_pet_choices()),
         ),
-        Err(_) => (Preferences::default(), default_pets()),
+        Err(_) => (Preferences::default(), commands::builtin_pet_choices()),
     };
     let scale = app
         .try_state::<PlacementState>()
@@ -514,6 +508,10 @@ mod tests {
         assert_eq!(
             MenuAction::parse("pet-menu:pet:yueying-cape-dancer"),
             Some(MenuAction::SelectPet("yueying-cape-dancer".into()))
+        );
+        assert_eq!(
+            MenuAction::parse("pet-menu:pet:deepseek-whale-maid"),
+            Some(MenuAction::SelectPet("deepseek-whale-maid".into()))
         );
         assert_eq!(MenuAction::parse("pet-menu:pet:../escape"), None);
         assert_eq!(MenuAction::parse("pet-menu:pet:"), None);

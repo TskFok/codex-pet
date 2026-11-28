@@ -1,0 +1,101 @@
+{
+  "ok": true,
+  "frames_root": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/rows/jumping/frames",
+  "states": [
+    "jumping"
+  ],
+  "errors": [],
+  "warnings": [
+    "jumping used extraction method stable-slots; confirm motion playback remains stable and unclipped"
+  ],
+  "rows": [
+    {
+      "state": "jumping",
+      "expected_frames": 5,
+      "actual_frames": 5,
+      "extraction_method": "stable-slots",
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        "jumping used extraction method stable-slots; confirm motion playback remains stable and unclipped"
+      ],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/rows/jumping/frames/jumping/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17268,
+          "bbox": [
+            21,
+            22,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 75
+        },
+        {
+          "index": 1,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/rows/jumping/frames/jumping/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16734,
+          "bbox": [
+            21,
+            13,
+            171,
+            198
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 91
+        },
+        {
+          "index": 2,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/rows/jumping/frames/jumping/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16247,
+          "bbox": [
+            22,
+            5,
+            170,
+            185
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 93
+        },
+        {
+          "index": 3,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/rows/jumping/frames/jumping/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 16606,
+          "bbox": [
+            21,
+            11,
+            171,
+            195
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 90
+        },
+        {
+          "index": 4,
+          "file": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/qa/rows/jumping/frames/jumping/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 17353,
+          "bbox": [
+            21,
+            22,
+            171,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 86
+        }
+      ]
+    }
+  ]
+}

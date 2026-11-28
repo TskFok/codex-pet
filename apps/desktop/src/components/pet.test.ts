@@ -1,4 +1,6 @@
 import { expect, it, vi } from 'vitest';
+import whaleMaidManifest from '../assets/deepseek-whale-maid.json';
+import defaultManifest from '../assets/yueying.json';
 import {
   bindPetInput,
   PET_STAGE_HEIGHT,
@@ -9,6 +11,23 @@ import {
   petViewport,
   type PlaybackSignal,
 } from './pet';
+
+it('DeepSeek 娘清单保留九行动作与两行共十六个方向矩形', () => {
+  expect(whaleMaidManifest).toMatchObject({
+    version: 1,
+    id: 'deepseek-whale-maid',
+    name: 'DeepSeek娘',
+    atlas: { path: 'atlas.webp', width: 1536, height: 2288, cellWidth: 192, cellHeight: 208 },
+  });
+  expect(Object.keys(whaleMaidManifest.animations)).toHaveLength(9);
+  expect(whaleMaidManifest.animations).toEqual(defaultManifest.animations);
+  expect(whaleMaidManifest.lookDirections).toEqual(Array.from({ length: 16 }, (_, index) => ({
+    x: (index % 8) * 192,
+    y: 1872 + Math.floor(index / 8) * 208,
+    width: 192,
+    height: 208,
+  })));
+});
 
 it('拒绝晚到的旧可见状态，跨过休眠恢复事件也会重开动作并切断测量连续性', () => {
   const setVisible = vi.fn();

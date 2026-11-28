@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "reviewer": "independent standard_qa",
+  "passed_rows": 9,
+  "jump_peak_lift_px": 18,
+  "jump_feet_bottom_from_extraction": [
+    203,
+    198,
+    185,
+    195,
+    203
+  ],
+  "idle_and_landing_baseline": 203,
+  "warnings": [
+    {
+      "row": "jumping",
+      "reason": "stable-slots 保留独立复核通过的短跃，首尾有轻微预蹲。"
+    },
+    {
+      "row": "failed",
+      "reason": "stable-slots 保持鞋底稳定，以保留逐帧低头动作。"
+    }
+  ],
+  "rejected_jump": {
+    "peak_lift_px": 37,
+    "reason": "从待机进入时头与身体有明显同步缩小。"
+  }
+}

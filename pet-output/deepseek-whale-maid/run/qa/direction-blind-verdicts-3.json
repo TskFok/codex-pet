@@ -1,0 +1,18 @@
+{
+  "pairs": [
+    {"pair":"horizontal-1","A":"screen-left","B":"screen-right","reason":"A鼻尖偏画面左，左眼较窄。B鼻尖偏画面右，右眼较窄。"},
+    {"pair":"horizontal-2","A":"screen-right","B":"screen-left","reason":"两张图的鼻尖分别偏右、偏左，偏向一侧的眼睛更窄。"},
+    {"pair":"horizontal-3","A":"screen-right","B":"screen-left","reason":"A鼻尖靠近右脸缘，B鼻尖靠近左脸缘，远侧眼都明显缩窄。"},
+    {"pair":"horizontal-4","A":"screen-right","B":"screen-left","reason":"A鼻尖与下巴轮廓偏右，B偏左，远侧眼只露出一部分。"},
+    {"pair":"horizontal-5","A":"screen-left","B":"screen-right","reason":"A鼻尖在画面左侧，左眼较窄。B鼻尖在画面右侧，右眼较窄。"},
+    {"pair":"horizontal-6","A":"screen-left","B":"screen-right","reason":"低头时A鼻尖偏左且左眼较窄，B鼻尖偏右且右眼较窄。"},
+    {"pair":"horizontal-7","A":"screen-right","B":"screen-left","reason":"A鼻尖与下巴偏右，B偏左，眼睛的可见宽度也有对应变化。"},
+    {"pair":"vertical-1","A":"up","B":"down","reason":"A瞳孔靠上且下巴充分露出。B眉眼压低，脸缩向领口。"},
+    {"pair":"vertical-2","A":"down","B":"up","reason":"A眼睛在刘海下压得较低，下半脸缩短。B瞳孔靠上，下巴更外露。"},
+    {"pair":"vertical-3","A":"down","B":"up","reason":"A眼睛靠近下脸缘，下巴收起。B眼睛开度较大，眼睛到下巴的距离更长。"},
+    {"pair":"vertical-4","A":"down","B":"up","reason":"A刘海遮住更多上脸，眼位偏低。B眼位抬高，下巴略抬。"},
+    {"pair":"vertical-5","A":"down","B":"up","reason":"A眉眼压在刘海下，下巴收起。B瞳孔靠上，下巴与颈部更外露。"},
+    {"pair":"vertical-6","A":"down","B":"up","reason":"A眼睛靠下，下半脸缩短。B眼位抬高，鼻尖与下巴的轮廓更外露。"},
+    {"pair":"vertical-7","A":"up","B":"down","reason":"A瞳孔靠上，下巴与颈部可见。B眼位压低，刘海覆盖更多上脸，下巴收起。"}
+  ]
+}

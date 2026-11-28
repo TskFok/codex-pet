@@ -5,6 +5,12 @@ use std::{fmt, fs::OpenOptions, io::Read};
 
 pub const DEFAULT_PET: &str = "yueying-cape-dancer";
 pub const DEFAULT_PET_NAME: &str = "夏乌拉";
+pub(crate) const DEEPSEEK_WHALE_MAID: &str = "deepseek-whale-maid";
+pub const BUILTIN_PETS: &[(&str, &str)] = &[
+    (DEFAULT_PET, DEFAULT_PET_NAME),
+    (DEEPSEEK_WHALE_MAID, "DeepSeek娘"),
+];
+pub const BUILTIN_PET_IDS: &[&str] = &[DEFAULT_PET, DEEPSEEK_WHALE_MAID];
 pub const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-chat";
 pub const DEEPSEEK_MODELS: &[&str] = &["deepseek-chat", "deepseek-reasoner"];
 pub const DEFAULT_ACTIVITY_SPEED: f64 = 1.0;
@@ -17,6 +23,16 @@ pub const DEFAULT_SOUND_VOLUME: f64 = 0.7;
 pub const MIN_SOUND_VOLUME: f64 = 0.0;
 pub const MAX_SOUND_VOLUME: f64 = 1.0;
 const MAX_API_KEY_LEN: usize = 512;
+
+pub fn builtin_pet_name(id: &str) -> Option<&'static str> {
+    BUILTIN_PETS
+        .iter()
+        .find_map(|&(pet_id, name)| (pet_id == id).then_some(name))
+}
+
+pub fn is_builtin_pet(id: &str) -> bool {
+    BUILTIN_PET_IDS.contains(&id)
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]

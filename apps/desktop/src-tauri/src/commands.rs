@@ -6,7 +6,9 @@ use crate::{
     notification_paths,
     placement::{PlacementState, WindowPlacement},
     platform,
-    settings::{DEFAULT_PET, DEFAULT_PET_NAME, Preferences, Settings, SettingsPatch},
+    settings::{
+        BUILTIN_PET_IDS, BUILTIN_PETS, Preferences, Settings, SettingsPatch, is_builtin_pet,
+    },
 };
 use base64::Engine;
 use pet_core::{
@@ -313,7 +315,7 @@ fn commit_settings(
 ) -> Result<Settings> {
     let current = Preferences::load(paths)?;
     let next = current.patched(&patch)?;
-    if patch.pet_id.is_some() && next.pet_id != DEFAULT_PET {
+    if patch.pet_id.is_some() && !is_builtin_pet(&next.pet_id) {
         verified_pet(paths, &next.pet_id)?;
     }
     let previous_placement = host.placement();
@@ -395,10 +397,10 @@ pub async fn import_pet_package(path: PathBuf) -> Result<PetManifest> {
     tauri::async_runtime::spawn_blocking(move || {
         let paths = notification_paths()?;
         paths.prepare_root()?;
-        Ok(pet_package::import_pet_to_library(
+        Ok(pet_package::import_pet_to_library_with_reserved(
             &path,
             &paths.pets,
-            DEFAULT_PET,
+            BUILTIN_PET_IDS,
         )?)
     })
     .await
@@ -420,11 +422,18 @@ fn verified_pet(paths: &AppPaths, id: &str) -> Result<(PetManifest, Vec<u8>)> {
     }
     Ok((manifest, bytes))
 }
+pub(crate) fn builtin_pet_choices() -> Vec<PetChoice> {
+    BUILTIN_PETS
+        .iter()
+        .map(|&(id, name)| PetChoice {
+            id: id.into(),
+            name: name.into(),
+        })
+        .collect()
+}
+
 pub(crate) fn list_pet_choices(paths: &AppPaths) -> Result<Vec<PetChoice>> {
-    let mut choices = vec![PetChoice {
-        id: DEFAULT_PET.into(),
-        name: DEFAULT_PET_NAME.into(),
-    }];
+    let mut choices = builtin_pet_choices();
     paths.prepare_root()?;
     paths::prepare_directory(&paths.pets)?;
     for dir in std::fs::read_dir(&paths.pets).map_err(StorageError::from)? {
@@ -433,7 +442,7 @@ pub(crate) fn list_pet_choices(paths: &AppPaths) -> Result<Vec<PetChoice>> {
             continue;
         }
         if let Ok(manifest) = pet_package::describe_pet(&dir.path())
-            && manifest.id != DEFAULT_PET
+            && !is_builtin_pet(&manifest.id)
             && dir.file_name() == manifest.id.as_str()
         {
             choices.push(PetChoice {
@@ -442,7 +451,7 @@ pub(crate) fn list_pet_choices(paths: &AppPaths) -> Result<Vec<PetChoice>> {
             });
         }
     }
-    choices[1..].sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
+    choices[BUILTIN_PETS.len()..].sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
     Ok(choices)
 }
 
@@ -611,6 +620,56 @@ mod settings_commit_tests {
             self.events.borrow_mut().push(value.clone());
         }
     }
+    #[test]
+    fn empty_library_lists_both_builtin_pets_in_default_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&dir.path().canonicalize().unwrap().join("app"));
+        let choices = list_pet_choices(&paths).unwrap();
+        assert_eq!(
+            choices
+                .iter()
+                .map(|pet| (pet.id.as_str(), pet.name.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("yueying-cape-dancer", "夏乌拉"),
+                ("deepseek-whale-maid", "DeepSeek娘"),
+            ]
+        );
+    }
+
+    #[test]
+    fn commits_builtin_pet_without_a_library_and_rejects_unknown_pet() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = AppPaths::under(&dir.path().canonicalize().unwrap().join("app"));
+        let host = Host::default();
+        let select = |id: &str| {
+            commit_settings(
+                &host,
+                &paths,
+                SettingsPatch {
+                    pet_id: Some(id.into()),
+                    ..Default::default()
+                },
+            )
+        };
+        assert_eq!(
+            Preferences::load(&paths).unwrap().pet_id,
+            "yueying-cape-dancer"
+        );
+        let selected = select("deepseek-whale-maid").unwrap();
+        assert_eq!(selected.preferences.pet_id, "deepseek-whale-maid");
+        assert!(!paths.pets.exists());
+        assert!(matches!(
+            select("unknown-pet"),
+            Err(CommandError {
+                code: "pet_package",
+                ..
+            })
+        ));
+        assert_eq!(Preferences::load(&paths).unwrap(), selected.preferences);
+        assert_eq!(host.events.borrow().len(), 1);
+    }
+
     #[test]
     fn preference_read_failure_precedes_all_side_effects() {
         let dir = tempfile::tempdir().unwrap();

@@ -1,0 +1,18 @@
+{
+  "pairs": [
+    {"pair":"horizontal-1","A":"screen-left","B":"screen-right","reason":"A 鼻尖略偏画面左，B 鼻尖与下巴偏向画面右。"},
+    {"pair":"horizontal-2","A":"screen-right","B":"screen-left","reason":"A 鼻尖朝画面右，B 鼻尖朝画面左，远侧眼都略窄。"},
+    {"pair":"horizontal-3","A":"screen-right","B":"screen-left","reason":"A 鼻尖和面部轮廓伸向画面右，B 伸向画面左。"},
+    {"pair":"horizontal-4","A":"screen-right","B":"screen-left","reason":"A 鼻尖靠近画面右侧脸缘，B 靠近画面左侧脸缘。"},
+    {"pair":"horizontal-5","A":"screen-left","B":"screen-right","reason":"A 鼻尖和较窄的远侧眼在画面左，B 在画面右。"},
+    {"pair":"horizontal-6","A":"screen-left","B":"screen-right","reason":"A 露出的脸偏向画面左，B 鼻尖和脸颊偏向画面右。"},
+    {"pair":"horizontal-7","A":"screen-right","B":"screen-left","reason":"A 鼻尖偏画面右，B 鼻尖略偏画面左。"},
+    {"pair":"vertical-1","A":"up","B":"down","reason":"A 瞳孔抬高且下巴露出较多，B 刘海遮住更多上半脸且眼睛压低。"},
+    {"pair":"vertical-2","A":"down","B":"up","reason":"A 眼睛压在刘海下且下巴内收，B 瞳孔抬高且下巴上仰。"},
+    {"pair":"vertical-3","A":"down","B":"up","reason":"A 眼睛位置低且下巴内收，B 视线抬高且下半脸更开阔。"},
+    {"pair":"vertical-4","A":"down","B":"up","reason":"A 上睑更低且下巴略收，B 瞳孔较高且下半脸露出更多。"},
+    {"pair":"vertical-5","A":"down","B":"up","reason":"A 双眼压低且下巴内收，B 双眼上望且下巴明显抬起。"},
+    {"pair":"vertical-6","A":"down","B":"up","reason":"A 刘海下的眼睛压低，B 瞳孔抬高并露出更多下巴。"},
+    {"pair":"vertical-7","A":"up","B":"down","reason":"A 瞳孔较高且下巴较抬，B 眼睛压低且刘海遮住更多上半脸。"}
+  ]
+}

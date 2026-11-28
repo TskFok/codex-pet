@@ -185,21 +185,33 @@ pub fn import_pet_to_library(
     library: &Path,
     builtin_id: &str,
 ) -> Result<PetManifest, PetError> {
-    import_into(source, library, Some(builtin_id))
+    import_pet_to_library_with_reserved(source, library, &[builtin_id])
+}
+
+/// 使用经验证的清单 ID 作为图库目录名，并保留所有内置宠物的标识。
+pub fn import_pet_to_library_with_reserved(
+    source: &Path,
+    library: &Path,
+    builtin_ids: &[&str],
+) -> Result<PetManifest, PetError> {
+    import_into(source, library, Some(builtin_ids))
 }
 
 fn import_into(
     source: &Path,
     target: &Path,
-    builtin_id: Option<&str>,
+    builtin_ids: Option<&[&str]>,
 ) -> Result<PetManifest, PetError> {
     let source = PackageDirectory::open(source)?;
     let legacy: LegacyManifest = serde_json::from_slice(&source.read(MANIFEST_FILE)?)?;
     if !portable_component(&legacy.id) {
         return Err(PetError::InvalidManifest("宠物标识无效"));
     }
-    let target = if let Some(builtin_id) = builtin_id {
-        if legacy.id.eq_ignore_ascii_case(builtin_id) {
+    let target = if let Some(builtin_ids) = builtin_ids {
+        if builtin_ids
+            .iter()
+            .any(|id| legacy.id.eq_ignore_ascii_case(id))
+        {
             return Err(PetError::InvalidManifest("此标识已由内置桌宠使用"));
         }
         target.join(&legacy.id)

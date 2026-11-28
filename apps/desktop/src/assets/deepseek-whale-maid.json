@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "id": "deepseek-whale-maid",
+  "name": "DeepSeek娘",
+  "atlas": {
+    "path": "atlas.webp",
+    "width": 1536,
+    "height": 2288,
+    "cellWidth": 192,
+    "cellHeight": 208
+  },
+  "animations": {
+    "failed": {
+      "frames": [
+        {"rect": {"x": 0, "y": 1040, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 192, "y": 1040, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 384, "y": 1040, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 576, "y": 1040, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 768, "y": 1040, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 960, "y": 1040, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 1152, "y": 1040, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 1344, "y": 1040, "width": 192, "height": 208}, "durationMs": 240}
+      ]
+    },
+    "idle": {
+      "frames": [
+        {"rect": {"x": 0, "y": 0, "width": 192, "height": 208}, "durationMs": 280},
+        {"rect": {"x": 192, "y": 0, "width": 192, "height": 208}, "durationMs": 110},
+        {"rect": {"x": 384, "y": 0, "width": 192, "height": 208}, "durationMs": 110},
+        {"rect": {"x": 576, "y": 0, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 768, "y": 0, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 960, "y": 0, "width": 192, "height": 208}, "durationMs": 320}
+      ],
+      "loopStart": 0
+    },
+    "jumping": {
+      "frames": [
+        {"rect": {"x": 0, "y": 832, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 192, "y": 832, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 384, "y": 832, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 576, "y": 832, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 768, "y": 832, "width": 192, "height": 208}, "durationMs": 280}
+      ]
+    },
+    "review": {
+      "frames": [
+        {"rect": {"x": 0, "y": 1664, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 192, "y": 1664, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 384, "y": 1664, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 576, "y": 1664, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 768, "y": 1664, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 960, "y": 1664, "width": 192, "height": 208}, "durationMs": 280}
+      ],
+      "loopStart": 0
+    },
+    "running": {
+      "frames": [
+        {"rect": {"x": 0, "y": 1456, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 192, "y": 1456, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 384, "y": 1456, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 576, "y": 1456, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 768, "y": 1456, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 960, "y": 1456, "width": 192, "height": 208}, "durationMs": 220}
+      ],
+      "loopStart": 0
+    },
+    "running-left": {
+      "frames": [
+        {"rect": {"x": 0, "y": 416, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 192, "y": 416, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 384, "y": 416, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 576, "y": 416, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 768, "y": 416, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 960, "y": 416, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 1152, "y": 416, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 1344, "y": 416, "width": 192, "height": 208}, "durationMs": 220}
+      ],
+      "loopStart": 0
+    },
+    "running-right": {
+      "frames": [
+        {"rect": {"x": 0, "y": 208, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 192, "y": 208, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 384, "y": 208, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 576, "y": 208, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 768, "y": 208, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 960, "y": 208, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 1152, "y": 208, "width": 192, "height": 208}, "durationMs": 120},
+        {"rect": {"x": 1344, "y": 208, "width": 192, "height": 208}, "durationMs": 220}
+      ],
+      "loopStart": 0
+    },
+    "waiting": {
+      "frames": [
+        {"rect": {"x": 0, "y": 1248, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 192, "y": 1248, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 384, "y": 1248, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 576, "y": 1248, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 768, "y": 1248, "width": 192, "height": 208}, "durationMs": 150},
+        {"rect": {"x": 960, "y": 1248, "width": 192, "height": 208}, "durationMs": 260}
+      ],
+      "loopStart": 0
+    },
+    "waving": {
+      "frames": [
+        {"rect": {"x": 0, "y": 624, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 192, "y": 624, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 384, "y": 624, "width": 192, "height": 208}, "durationMs": 140},
+        {"rect": {"x": 576, "y": 624, "width": 192, "height": 208}, "durationMs": 280}
+      ]
+    }
+  },
+  "lookDirections": [
+    {"x": 0, "y": 1872, "width": 192, "height": 208},
+    {"x": 192, "y": 1872, "width": 192, "height": 208},
+    {"x": 384, "y": 1872, "width": 192, "height": 208},
+    {"x": 576, "y": 1872, "width": 192, "height": 208},
+    {"x": 768, "y": 1872, "width": 192, "height": 208},
+    {"x": 960, "y": 1872, "width": 192, "height": 208},
+    {"x": 1152, "y": 1872, "width": 192, "height": 208},
+    {"x": 1344, "y": 1872, "width": 192, "height": 208},
+    {"x": 0, "y": 2080, "width": 192, "height": 208},
+    {"x": 192, "y": 2080, "width": 192, "height": 208},
+    {"x": 384, "y": 2080, "width": 192, "height": 208},
+    {"x": 576, "y": 2080, "width": 192, "height": 208},
+    {"x": 768, "y": 2080, "width": 192, "height": 208},
+    {"x": 960, "y": 2080, "width": 192, "height": 208},
+    {"x": 1152, "y": 2080, "width": 192, "height": 208},
+    {"x": 1344, "y": 2080, "width": 192, "height": 208}
+  ]
+}

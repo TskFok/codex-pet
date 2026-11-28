@@ -1,0 +1,65 @@
+{
+  "decision": "accept",
+  "severity": "minor",
+  "reviewed_by": "parent",
+  "independent_visual_reviewer": "independent visual_final",
+  "failed_checks": [],
+  "blind_warning_count": 0,
+  "accepted_warnings": {
+    "direction": [
+      {
+        "direction": "067.5",
+        "reason": "原尺寸连续观察能辨出轻微上扬，单帧上下分量较浅。"
+      },
+      {
+        "direction": "112.5",
+        "reason": "连续观察可见从右向平视进入轻俯，单帧俯角较浅。"
+      },
+      {
+        "direction": "247.5",
+        "reason": "原尺寸顺序可见左下过渡到左，单帧俯角较浅。"
+      },
+      {
+        "direction": "292.5",
+        "reason": "连续观察可见左向平视后的上扬，单帧仰角较浅。"
+      }
+    ],
+    "continuity": [
+      {
+        "from": "157.5",
+        "to": "180",
+        "verdict": "warning",
+        "reason": "像素差主要来自下俯头部从右偏回到正中，正面发束随之重新显露。围裙、脚底、鲸尾根部和裙身宽度稳定，顺时针方向连续。"
+      },
+      {
+        "from": "247.5",
+        "to": "270",
+        "verdict": "warning",
+        "reason": "像素差主要来自下颌抬回平视及左侧脸部轮廓加深。尾根与身体维持连续，脚底和腰部定位稳定，过渡方向清楚。"
+      },
+      {
+        "from": "337.5",
+        "to": "000",
+        "verdict": "warning",
+        "reason": "此处的轮廓变化最明显，集中在抬头时发束由偏左回到正面及尾尖小幅摆动。两帧仰视方向连续，裙身、脚底和尾根保持定位，无显著跳切。"
+      }
+    ],
+    "extraction": [
+      {
+        "row": "jumping",
+        "reason": "stable-slots 保留独立复核通过的短跃，首尾有轻微预蹲。"
+      },
+      {
+        "row": "failed",
+        "reason": "stable-slots 保持鞋底稳定，以保留逐帧低头动作。"
+      }
+    ]
+  },
+  "evidence": [
+    "look-directions.png",
+    "previews/look-clockwise.gif",
+    "look-continuity.json",
+    "previews/idle-jump-idle.gif",
+    "contact-sheet-extended.png"
+  ]
+}

@@ -1,8 +1,7 @@
-import atlasUrl from '../../../../pet-output/yueying-cape-dancer/package/spritesheet.webp?url';
-import type { FrameRect, PetManifest } from '../types';
+import type { FrameRect } from '../types';
 import { PetRenderer } from '../animation/renderer';
 import type { AnimationSample } from '../animation/clock';
-import defaultManifest from '../assets/yueying.json';
+import { defaultPet } from '../assets/builtin-pets';
 
 import type { AlphaMask } from '../animation/hit-mask';
 import type { PetClickEvent } from './pet-interactions';
@@ -76,16 +75,18 @@ export function mountPet(
     onAnimationEnd?: (state: string, timestamp: number) => void;
   },
 ): { renderer: PetRenderer; ready: Promise<void>; mountDefault: () => Promise<void> } {
-  if (defaultManifest.version !== 1) throw new Error('不支持此默认桌宠清单版本');
-  const manifest: PetManifest = { ...defaultManifest, version: defaultManifest.version };
+  const manifest = defaultPet.manifest;
+  const atlasUrl = defaultPet.atlasUrl;
   canvas.width = Math.round(canvas.clientWidth * window.devicePixelRatio);
   canvas.height = Math.round(canvas.clientHeight * window.devicePixelRatio);
+  canvas.setAttribute('aria-label', manifest.name);
   // 图集 URL 在应用入口绑定，清单中的 atlas.path 仍是包内的相对路径。
   const renderer = new PetRenderer({ ...options, resolveAtlasUrl: () => atlasUrl, viewport: petViewport });
-  const ready = renderer.mount(canvas, manifest);
+  const mountDefault = () => renderer.mount(canvas, manifest, atlasUrl);
+  const ready = mountDefault();
   renderer.setFps(options.fps);
   if (options.state) renderer.setState(options.state, performance.now());
-  return { renderer, ready, mountDefault: () => renderer.mount(canvas, manifest) };
+  return { renderer, ready, mountDefault };
 }
 
 const WINDOWS_DRAG_THRESHOLD_PX = 4;

@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "reviewed_by": "independent visual_final",
+  "review_size": [192, 208],
+  "directions": [
+    {"direction":"000","expected":"up","observed":"up","verdict":"pass","horizontal_evidence":"鼻线居中，两颊和双眼呈对称正面。","vertical_evidence":"双瞳抬高，眼下露白，下颌明显仰起。","reason":"头部与眼神一致朝向屏幕顶边。"},
+    {"direction":"022.5","expected":"up-right","observed":"up-right","verdict":"pass","horizontal_evidence":"鼻尖和瞳孔略偏屏幕右，左侧近颊露出稍多。","vertical_evidence":"下颌仍明显仰起，视线接近眼裂上缘。","reason":"强仰视带有较小但可见的右向分量。"},
+    {"direction":"045","expected":"up-right","observed":"up-right","verdict":"pass","horizontal_evidence":"鼻眼进一步向右，右侧远眼较窄。","vertical_evidence":"瞳孔偏上，下颌高于正右姿势。","reason":"脸朝向及瞳孔位置共同表达右上视线。"},
+    {"direction":"067.5","expected":"up-right","observed":"up-right","verdict":"warning","horizontal_evidence":"右侧鼻尖突出，面部朝右的轮廓明确。","vertical_evidence":"仰角很浅，瞳孔和颏线仍比 090 略抬。","reason":"原尺寸连续观察能辨出轻微上扬，单帧上下分量较浅。"},
+    {"direction":"090","expected":"right","observed":"right","verdict":"pass","horizontal_evidence":"鼻尖和虹膜明确指向屏幕右边，左侧近颊明显。","vertical_evidence":"下颌与瞳孔位置接近平视。","reason":"清楚的屏幕右向正轴姿势。"},
+    {"direction":"112.5","expected":"down-right","observed":"down-right","verdict":"warning","horizontal_evidence":"鼻尖与双眼保持向右，远眼仍显收窄。","vertical_evidence":"下颌起始内收，眼神较前一格略低。","reason":"连续观察可见从右向平视进入轻俯，单帧俯角较浅。"},
+    {"direction":"135","expected":"down-right","observed":"down-right","verdict":"pass","horizontal_evidence":"鼻尖和嘴线留在屏幕右侧，左脸较宽。","vertical_evidence":"收颏明显，瞳孔落向眼裂下缘。","reason":"右向偏转和向下注视都清楚。"},
+    {"direction":"157.5","expected":"down-right","observed":"down-right","verdict":"pass","horizontal_evidence":"鼻眼仍略偏屏幕右，两颊逐渐回到接近对称。","vertical_evidence":"瞳孔压低，刘海与可见头顶比例增大。","reason":"强俯视保留右向分量，自然接向正下。"},
+    {"direction":"180","expected":"down","observed":"down","verdict":"pass","horizontal_evidence":"鼻嘴回到中轴，两颊与双眼接近对称。","vertical_evidence":"下巴收向领结，两眼瞳孔在眼裂低处，眼上缘露白。","reason":"画面中心的下俯与下视明确一致。"},
+    {"direction":"202.5","expected":"down-left","observed":"down-left","verdict":"pass","horizontal_evidence":"鼻尖和瞳孔开始偏屏幕左，右侧近颊略宽。","vertical_evidence":"头顶露出较多，收颏和低瞳仍明显。","reason":"角度主要向下，左向偏转已可辨认。"},
+    {"direction":"225","expected":"down-left","observed":"down-left","verdict":"pass","horizontal_evidence":"鼻尖和视线进一步移向左边，远眼缩窄。","vertical_evidence":"瞳孔偏低且颏线向衣领收拢。","reason":"脸和眼的两个轴都指向左下。"},
+    {"direction":"247.5","expected":"down-left","observed":"down-left","verdict":"warning","horizontal_evidence":"鼻尖、远眼与近颊轮廓明确朝左。","vertical_evidence":"眼神及颏线较 270 稍低，俯视幅度较小。","reason":"原尺寸顺序可见左下过渡到左，单帧俯角较浅。"},
+    {"direction":"270","expected":"left","observed":"left","verdict":"pass","horizontal_evidence":"鼻尖和瞳孔明确位于屏幕左侧，远眼明显收窄。","vertical_evidence":"颏线抬回平视，瞳孔高度居中。","reason":"清楚的屏幕左向正轴姿势。"},
+    {"direction":"292.5","expected":"up-left","observed":"up-left","verdict":"warning","horizontal_evidence":"鼻尖和近侧眼明确保持左向。","vertical_evidence":"颏线和瞳孔开始升高，升幅小于下一格。","reason":"连续观察可见左向平视后的上扬，单帧仰角较浅。"},
+    {"direction":"315","expected":"up-left","observed":"up-left","verdict":"pass","horizontal_evidence":"鼻嘴和虹膜位于头中心的屏幕左侧。","vertical_evidence":"下颌打开，瞳孔抬高，眼下露出浅色。","reason":"左向脸部轮廓与上扬眼神一致。"},
+    {"direction":"337.5","expected":"up-left","observed":"up-left","verdict":"pass","horizontal_evidence":"鼻尖和目光保留小幅左偏，两颊逐渐回正。","vertical_evidence":"抬颏明显，双瞳上移并有下眼白。","reason":"强仰视保留轻微左向分量，建立回到 000 的过渡。"}
+  ],
+  "continuity_review": [
+    {"from":"157.5","to":"180","verdict":"warning","reason":"像素差主要来自下俯头部从右偏回到正中，正面发束随之重新显露。围裙、脚底、鲸尾根部和裙身宽度稳定，顺时针方向连续。"},
+    {"from":"247.5","to":"270","verdict":"warning","reason":"像素差主要来自下颌抬回平视及左侧脸部轮廓加深。尾根与身体维持连续，脚底和腰部定位稳定，过渡方向清楚。"},
+    {"from":"337.5","to":"000","verdict":"warning","reason":"此处的轮廓变化最明显，集中在抬头时发束由偏左回到正面及尾尖小幅摆动。两帧仰视方向连续，裙身、脚底和尾根保持定位，无显著跳切。"}
+  ],
+  "standard_rows":"正式接触表和实际 GIF 的九行动作均通过。待机眨眼，左右跑朝向正确且交替跨步，挥手抬掌后回落，跳跃保留约 18 px 腾空并回到原基线，受挫低头后复位，等待合手微笑，工作闭目及手势循环，复核侧瞟后回正。角色、围裙鲸纹和尾根在各动作中可辨，未见裁切、重影或断尾。",
+  "summary":"四个正轴均清楚，16 个方向顺时针连续。接受四个靠近水平的斜向俯仰较浅，以及三处像素差离群提示。实际原尺寸邻帧未见位置突跳、方向反转或结构破损。跳跃和受挫的 stable-slots 提示经实际动作预览复核可接受。"
+}

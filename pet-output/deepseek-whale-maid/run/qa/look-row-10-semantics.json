@@ -1,0 +1,16 @@
+{
+ "ok":true,
+ "review_size":[192,208],
+ "continuous":true,
+ "directions":[
+   {"direction":"180","expected":"down","observed":"down","verdict":"pass","reason":"脸回正、两颊对称。收颏近领结，瞳孔下移且眼上缘露白。"},
+   {"direction":"202.5","expected":"down-left","observed":"down-left","verdict":"pass","reason":"鼻眼略偏屏幕左。头顶显露较多，下巴收住，瞳孔低。"},
+   {"direction":"225","expected":"down-left","observed":"down-left","verdict":"pass","reason":"右近颊更宽、鼻眼继续左移。收颏且蓝色虹膜向下。"},
+   {"direction":"247.5","expected":"down-left","observed":"down-left","verdict":"warning","reason":"鼻眼明显朝左。轻微收颏，瞳孔比下一格低，俯角较浅。"},
+   {"direction":"270","expected":"left","observed":"left","verdict":"pass","reason":"鼻眼在头中心左侧，远眼收窄，脸颊与视线近水平。"},
+   {"direction":"292.5","expected":"up-left","observed":"up-left","verdict":"warning","reason":"鼻眼明确偏屏幕左。颏刚开始抬起，瞳孔上方距离缩短。"},
+   {"direction":"315","expected":"up-left","observed":"up-left","verdict":"pass","reason":"鼻眼仍偏左，颏抬高且眼珠上偏。"},
+   {"direction":"337.5","expected":"up-left","observed":"up-left","verdict":"pass","reason":"鼻嘴与瞳孔略偏左，两颊趋于对称。仰颏与眼下露白明显。"}
+ ],
+ "continuity_note":"两处跨行由右下回正下、由左上回正上，脚底与裙身固定。与 000 相接时两侧发束展开，轮廓差较高，原尺寸仍是连贯的收回偏转。"
+}

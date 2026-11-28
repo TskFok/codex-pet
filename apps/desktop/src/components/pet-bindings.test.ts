@@ -3,10 +3,13 @@ import { expect, it, vi } from 'vitest';
 import { api } from '../api';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { PetRenderer } from '../animation/renderer';
 import { bindReminder } from './pet-bindings';
-import type { mountPet } from './pet';
+import { mountPet } from './pet';
 import type { PetSnapshot, Settings } from '../types';
 import fixture from '../../../../tests/fixtures/events/child-folding.json';
+import defaultAtlasUrl from '../../../../pet-output/yueying-cape-dancer/package/spritesheet.webp?url';
+import whaleMaidAtlasUrl from '../../../../pet-output/deepseek-whale-maid/package/spritesheet.webp?url';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
 
@@ -22,6 +25,40 @@ function singleAttentionSnapshot(): PetSnapshot {
   snap.notifications = snap.notifications.filter((n) => n.key.sessionId === snap.sessions[0].key.sessionId);
   return snap;
 }
+
+it('直接通过内置图集切换 DeepSeek 娘和夏乌拉，并更新桌宠名称', async () => {
+  const { document } = parseHTML('<html><body><canvas></canvas></body></html>');
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('window', { devicePixelRatio: 1 });
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  const prefs: Settings = {
+    revision: 1, fps: 30, sound: false, autostart: false, mutedSources: [], petId: 'deepseek-whale-maid',
+    placement: { x: 0, y: 0, scale: 1, monitorId: null },
+  };
+  let receive!: (value: Settings) => void;
+  vi.spyOn(api, 'settings').mockResolvedValue(prefs);
+  vi.spyOn(api, 'settingsEvents').mockImplementation(async (update) => { receive = update; return () => {}; });
+  vi.spyOn(api, 'snapshots').mockResolvedValue(() => {});
+  vi.spyOn(api, 'snapshot').mockResolvedValue({ revision: 1, sessions: [], notifications: [] });
+  const asset = vi.spyOn(api, 'asset').mockRejectedValue(new Error('没有导入宠物'));
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  const mount = vi.spyOn(PetRenderer.prototype, 'mount').mockResolvedValue(undefined);
+  const canvas = document.querySelector('canvas')!;
+  const pet = mountPet(canvas, { fps: 30, staticFrame: false, onPose: vi.fn(), onDraw: vi.fn() });
+  const handle = bindReminder(canvas, pet, vi.fn(), vi.fn());
+  try {
+    await vi.waitFor(() => expect(canvas.getAttribute('aria-label')).toBe('DeepSeek娘'));
+    expect(mount).toHaveBeenLastCalledWith(canvas, expect.objectContaining({ id: prefs.petId }), whaleMaidAtlasUrl);
+    receive({ ...prefs, revision: 2, petId: 'yueying-cape-dancer' });
+    await vi.waitFor(() => expect(canvas.getAttribute('aria-label')).toBe('夏乌拉'));
+    expect(mount).toHaveBeenLastCalledWith(canvas, expect.objectContaining({ id: 'yueying-cape-dancer' }), defaultAtlasUrl);
+    expect(asset).not.toHaveBeenCalled();
+  } finally {
+    handle.stop();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
+});
 
 it('设置读取失败或晚到时，连续快照也不泄露已静音的项目或摘要', async () => {
   const { document } = parseHTML('<html><body><canvas></canvas></body></html>');
@@ -363,6 +400,7 @@ it('宠物加载失败提示框也包含关闭按钮且可关闭', async () => {
   vi.spyOn(api, 'snapshot').mockResolvedValue({ revision: 1, sessions: [], notifications: [] });
   vi.spyOn(api, 'asset').mockRejectedValue(new Error('not found'));
   const canvas = document.querySelector('canvas')!;
+  canvas.setAttribute('aria-label', 'DeepSeek娘');
   canvas.width = 240;
   canvas.height = 320;
   const poses = vi.fn<(pose: import('./pet-bindings').InputPose) => void>();
@@ -374,6 +412,7 @@ it('宠物加载失败提示框也包含关闭按钮且可关闭', async () => {
     handle.pose({ width: 240, height: 320, runs: [] }, { x: 0, y: 0, width: 240, height: 320 });
     await vi.waitFor(() => expect(stack.hidden).toBe(false));
     expect(stack.textContent).toContain('无法加载所选桌宠');
+    expect(canvas.getAttribute('aria-label')).toBe('夏乌拉');
     expect(poses.mock.lastCall?.[0].bubbleInput?.buttons.map(b => b.action)).toEqual(['close']);
     deliverBubbleAction(poses.mock.lastCall![0].bubbleInput!.stamp, 'close');
     expect(stack.hidden).toBe(true);

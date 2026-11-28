@@ -1,0 +1,61 @@
+{
+  "ok": true,
+  "strip": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/decoded/look-cardinals.png",
+  "directions": [
+    "000",
+    "090",
+    "180",
+    "270"
+  ],
+  "errors": [],
+  "anchors": [
+    {
+      "direction": "000",
+      "source_box": [
+        0,
+        0,
+        524,
+        749
+      ],
+      "used_pixels": 163736,
+      "edge_pixels": 0,
+      "output": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/decoded/look-anchors/000.png"
+    },
+    {
+      "direction": "090",
+      "source_box": [
+        524,
+        0,
+        1049,
+        749
+      ],
+      "used_pixels": 155862,
+      "edge_pixels": 0,
+      "output": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/decoded/look-anchors/090.png"
+    },
+    {
+      "direction": "180",
+      "source_box": [
+        1049,
+        0,
+        1574,
+        749
+      ],
+      "used_pixels": 159430,
+      "edge_pixels": 0,
+      "output": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/decoded/look-anchors/180.png"
+    },
+    {
+      "direction": "270",
+      "source_box": [
+        1574,
+        0,
+        2098,
+        749
+      ],
+      "used_pixels": 153788,
+      "edge_pixels": 0,
+      "output": "/Volumes/CaseSensitive/workspace/myself/codex-pet/pet-output/deepseek-whale-maid/run/decoded/look-anchors/270.png"
+    }
+  ]
+}

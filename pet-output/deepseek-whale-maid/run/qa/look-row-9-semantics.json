@@ -1,0 +1,16 @@
+{
+ "ok":true,
+ "review_size":[192,208],
+ "continuous":true,
+ "directions":[
+   {"direction":"000","expected":"up","observed":"up","verdict":"pass","reason":"对称双颊与鼻线居中。抬颏，两眼瞳孔偏上且眼底露白。"},
+   {"direction":"022.5","expected":"up-right","observed":"up-right","verdict":"pass","reason":"鼻尖和两眼略偏屏幕右，近颊稍宽。抬颏幅度仍很明显，瞳孔在眼窝上部。"},
+   {"direction":"045","expected":"up-right","observed":"up-right","verdict":"pass","reason":"鼻嘴再偏右，远眼变窄。瞳孔仍略偏上，颏高于水平向右的姿势。"},
+   {"direction":"067.5","expected":"up-right","observed":"up-right","verdict":"warning","reason":"鼻嘴、远眼、近颊明确指向右边。仰角很浅，抬颏和眼位仍高于后一格。"},
+   {"direction":"090","expected":"right","observed":"right","verdict":"pass","reason":"鼻尖和瞳孔偏屏幕右，画面左近颊较宽。颏和虹膜基本处于水平朝向。"},
+   {"direction":"112.5","expected":"down-right","observed":"down-right","verdict":"warning","reason":"右向鼻尖与瞳孔清楚。下睑附近的瞳孔和轻微收颏刚开始显出俯向。"},
+   {"direction":"135","expected":"down-right","observed":"down-right","verdict":"pass","reason":"鼻眼仍留在屏幕右侧。下巴靠近领结，前额显露增多，瞳孔下移。"},
+   {"direction":"157.5","expected":"down-right","observed":"down-right","verdict":"pass","reason":"右向转头收回，鼻尖和瞳孔余下一点右偏。收颏与瞳孔向下明显。"}
+ ],
+ "continuity_note":"从仰视逐步过渡到右向平视与右下俯视，脚底、下裙和尾根稳定，无明显倒转。末帧供第 10 行左端继续收回右向偏转。"
+}

@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "review_size": [192, 208],
+  "directions": [
+    {"direction":"000","expected":"up","observed":"up","verdict":"pass","reason":"抬高鼻嘴与下颌，两眼蓝色瞳孔上移、下方露白，双侧耳鳍对称。"},
+    {"direction":"090","expected":"screen-right","observed":"screen-right","verdict":"pass","reason":"鼻尖和瞳孔在头部中心右侧，屏幕左近颊更宽，右远眼收窄。"},
+    {"direction":"180","expected":"down","observed":"down","verdict":"pass","reason":"收下巴并显露更多头顶，睁开的瞳孔落在眼裂下侧，眼上缘可见白色。"},
+    {"direction":"270","expected":"screen-left","observed":"screen-left","verdict":"pass","reason":"鼻尖和瞳孔均越过头部中心朝屏幕左，右近颊显露更多，左远眼收窄。"}
+  ],
+  "registration": "围裙、双脚和屏幕右后方的鲸尾根在四姿势中保持正面和相同基线。"
+}
